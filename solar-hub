@@ -1,0 +1,9 @@
+#!/bin/bash
+# Wrapper script for Solar Hub CLI
+# Makes it easy to run from anywhere: ./solar-hub <command>
+
+# Get the directory where this script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Run the Python CLI with all arguments passed through
+python "$SCRIPT_DIR/solar_hub_cli.py" "$@"

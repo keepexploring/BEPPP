@@ -1,0 +1,199 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider             = "prisma-client-py"
+  interface            = "asyncio"
+  recursive_type_depth = 5
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model SolarHub {
+  hub_id                 BigInt          @id
+  what_three_word_location String?       @db.Char(255)
+  solar_capacity_kw      BigInt?
+  country                String?         @db.Char(255)
+  latitude               Float?
+  longitude              Float?
+  
+  // Relations
+  users                  User[]
+  batteries              BEPPPBattery[]
+  pue_items              ProductiveUseEquipment[]
+}
+
+model User {
+  user_id                         BigInt      @id
+  Name                            String      @db.Char(255)
+  users_identification_document_number String?
+  mobile_number                   String?     @db.Char(255)
+  address                         String?
+  hub_id                          BigInt
+  user_access_level               String      @db.Char(255)
+  username                        String      @db.Char(255) @unique
+  password_hash                   String      @db.Char(255)
+  
+  // Relations
+  hub                             SolarHub    @relation(fields: [hub_id], references: [hub_id])
+  battery_rentals                 Rental[]
+  pue_rentals                     PUERental[]
+}
+
+model Note {
+  id          BigInt    @id
+  content     String
+  created_at  DateTime  @default(now())
+  
+  // Relations
+  batteries   BEPPPBattery_Notes[]
+  rentals     Rental_Notes[]
+  pue_items   PUE_Notes[]
+  pue_rentals PUERental_Notes[]
+}
+
+model BEPPPBattery_Notes {
+  battery_id  BigInt
+  note_id     BigInt
+  
+  // Relations
+  battery     BEPPPBattery @relation(fields: [battery_id], references: [battery_id])
+  note        Note         @relation(fields: [note_id], references: [id])
+  
+  @@id([battery_id, note_id])
+}
+
+model Rental_Notes {
+  rental_id   BigInt
+  note_id     BigInt
+  
+  // Relations
+  rental      Rental      @relation(fields: [rental_id], references: [rentral_id])
+  note        Note        @relation(fields: [note_id], references: [id])
+  
+  @@id([rental_id, note_id])
+}
+
+model PUE_Notes {
+  pue_id      BigInt
+  note_id     BigInt
+  
+  // Relations
+  pue         ProductiveUseEquipment @relation(fields: [pue_id], references: [pue_id])
+  note        Note                   @relation(fields: [note_id], references: [id])
+  
+  @@id([pue_id, note_id])
+}
+
+model PUERental_Notes {
+  pue_rental_id BigInt
+  note_id       BigInt
+  
+  // Relations
+  pue_rental    PUERental  @relation(fields: [pue_rental_id], references: [pue_rental_id])
+  note          Note       @relation(fields: [note_id], references: [id])
+  
+  @@id([pue_rental_id, note_id])
+}
+
+model BEPPPBattery {
+  battery_id           BigInt     @id
+  hub_id               BigInt
+  battery_capacity_wh  BigInt?
+  status               String?    @default("available")
+  
+  // Relations
+  hub                  SolarHub   @relation(fields: [hub_id], references: [hub_id])
+  live_data            LiveData[]
+  rentals              Rental[]
+  notes                BEPPPBattery_Notes[]
+}
+
+model LiveData {
+  id                       BigInt    @id
+  battery_id               BigInt
+  state_of_charge          BigInt?
+  voltage                  Float?
+  current_amps             Float?
+  power_watts              Float?
+  time_remaining           BigInt?
+  temp_battery             Float?
+  amp_hours_consumed       Float?
+  charging_current         Float?
+  timestamp                DateTime? @db.Timestamp(0)
+  usb_voltage              Float?
+  usb_power                Float?
+  usb_current              Float?
+  latitude                 Float?
+  longitude                Float?
+  altitude                 Float?
+  SD_card_storage_remaining Float?
+  battery_orientation      String?   @db.Char(255)
+  number_GPS_satellites_for_fix Int?
+  mobile_signal_strength   Int?
+  event_type               String?   @db.Char(255)
+  new_battery_cycle        Int?
+  
+  // Relations
+  battery                  BEPPPBattery @relation(fields: [battery_id], references: [battery_id])
+}
+
+model Rental {
+  rentral_id        BigInt    @id
+  battery_id        BigInt
+  user_id           BigInt
+  timestamp_taken   DateTime  @db.Timestamp(0)
+  due_back          DateTime? @db.Timestamp(0)
+  date_returned     DateTime? @db.Timestamp(0)
+  
+  // Relations
+  battery           BEPPPBattery @relation(fields: [battery_id], references: [battery_id])
+  user              User         @relation(fields: [user_id], references: [user_id])
+  notes             Rental_Notes[]
+  pue_rentals       BatteryPUERental[] // Link to PUE rentals that happened with this battery rental
+}
+
+model ProductiveUseEquipment {
+  pue_id          BigInt    @id
+  hub_id          BigInt
+  name            String    @db.Char(255)
+  description     String?
+  rental_cost     Float?
+  status          String?   @default("available")
+  rental_count    Int       @default(0)  // Track how many times it has been rented
+  
+  // Relations
+  hub             SolarHub  @relation(fields: [hub_id], references: [hub_id])
+  notes           PUE_Notes[]
+  pue_rentals     PUERental[]
+}
+
+model PUERental {
+  pue_rental_id    BigInt    @id
+  pue_id           BigInt
+  user_id          BigInt
+  timestamp_taken  DateTime  @db.Timestamp(0)
+  due_back         DateTime? @db.Timestamp(0)
+  date_returned    DateTime? @db.Timestamp(0)
+  
+  // Relations
+  pue              ProductiveUseEquipment @relation(fields: [pue_id], references: [pue_id])
+  user             User                   @relation(fields: [user_id], references: [user_id])
+  notes            PUERental_Notes[]
+  battery_rentals  BatteryPUERental[]    // Link to battery rentals that happened with this PUE rental
+}
+
+// Junction table to connect Battery Rentals and PUE Rentals
+model BatteryPUERental {
+  battery_rental_id BigInt
+  pue_rental_id     BigInt
+  
+  // Relations
+  battery_rental    Rental    @relation(fields: [battery_rental_id], references: [rentral_id])
+  pue_rental        PUERental @relation(fields: [pue_rental_id], references: [pue_rental_id])
+  
+  @@id([battery_rental_id, pue_rental_id])
+}
