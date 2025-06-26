@@ -36,6 +36,8 @@ python solar_hub_cli.py user create-admin --help
 # Create an admin user
 python solar_hub_cli.py user create-admin
 
+python solar_hub_cli.py user generate-access-token
+
 # List all users
 python solar_hub_cli.py user list
 s
@@ -56,3 +58,26 @@ sudo apt install postgresql-client
 (on mac
 brew install postgresql
 )
+
+# Tests
+
+Usage Examples
+
+First-time setup:
+python setup_tests.py
+
+Run all tests:
+python test_runner.py
+# or
+make test
+
+Run specific categories:
+bashpython test_runner.py auth      # Just auth tests
+python test_runner.py quick     # Quick smoke tests
+python test_runner.py coverage  # With coverage report
+
+Run with existing API:
+bashpython test_runner.py all --no-api
+
+Keep API running after tests:
+bashpython test_runner.py all --keep-api

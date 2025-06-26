@@ -14,9 +14,9 @@ datasource db {
 
 model SolarHub {
   hub_id                 BigInt          @id
-  what_three_word_location String?       @db.Char(255)
+  what_three_word_location String?       @db.VarChar(255)  // Changed from Char
   solar_capacity_kw      BigInt?
-  country                String?         @db.Char(255)
+  country                String?         @db.VarChar(255)  // Changed from Char
   latitude               Float?
   longitude              Float?
   
@@ -28,14 +28,14 @@ model SolarHub {
 
 model User {
   user_id                         BigInt      @id
-  Name                            String      @db.Char(255)
+  Name                            String      @db.VarChar(255)  // Changed from Char
   users_identification_document_number String?
-  mobile_number                   String?     @db.Char(255)
+  mobile_number                   String?     @db.VarChar(255)  // Changed from Char
   address                         String?
   hub_id                          BigInt
-  user_access_level               String      @db.Char(255)
-  username                        String      @db.Char(255) @unique
-  password_hash                   String      @db.Char(255)
+  user_access_level               String      @db.VarChar(255)  // Changed from Char
+  username                        String      @db.VarChar(255) @unique  // Changed from Char
+  password_hash                   String      @db.VarChar(255)  // Changed from Char - THIS IS THE KEY FIX
   
   // Relations
   hub                             SolarHub    @relation(fields: [hub_id], references: [hub_id])
@@ -131,10 +131,10 @@ model LiveData {
   longitude                Float?
   altitude                 Float?
   SD_card_storage_remaining Float?
-  battery_orientation      String?   @db.Char(255)
+  battery_orientation      String?   @db.VarChar(255)  // Changed from Char
   number_GPS_satellites_for_fix Int?
   mobile_signal_strength   Int?
-  event_type               String?   @db.Char(255)
+  event_type               String?   @db.VarChar(255)  // Changed from Char
   new_battery_cycle        Int?
   
   // Relations
@@ -159,7 +159,7 @@ model Rental {
 model ProductiveUseEquipment {
   pue_id          BigInt    @id
   hub_id          BigInt
-  name            String    @db.Char(255)
+  name            String    @db.VarChar(255)  // Changed from Char
   description     String?
   rental_cost     Float?
   status          String?   @default("available")

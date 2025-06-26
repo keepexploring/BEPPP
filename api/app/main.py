@@ -16,6 +16,8 @@ import jwt
 from jwt.exceptions import InvalidTokenError
 from enum import Enum
 
+import pdb
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Solar Hub Management API",

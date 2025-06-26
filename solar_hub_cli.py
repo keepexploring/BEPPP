@@ -1,3 +1,4 @@
+56
 #!/usr/bin/env python3
 """
 Solar Hub Management CLI
@@ -14,6 +15,9 @@ import subprocess
 import json
 from tabulate import tabulate
 from functools import wraps
+import jwt
+
+from prisma import Prisma
 
 # Add project root to path
 project_root = Path(__file__).parent
@@ -26,7 +30,11 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Password hashing
+# Configuration - Make sure these match your API settings
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
+ALGORITHM = "HS256"
+
+# Password hashing - Use same context as API
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Utility decorator for async commands
@@ -35,6 +43,16 @@ def async_cmd(f):
     def wrapper(*args, **kwargs):
         return asyncio.run(f(*args, **kwargs))
     return wrapper
+
+# Authentication functions (same as in API)
+def create_access_token(data: dict):
+    return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
 
 @click.group()
 @click.pass_context
@@ -94,7 +112,7 @@ async def create_admin(username, password, name, hub_id):
                 "hub_id": hub_id,
                 "user_access_level": "admin",
                 "username": username,
-                "password_hash": pwd_context.hash(password)
+                "password_hash": hash_password(password)
             }
         )
         
@@ -147,7 +165,7 @@ async def create(username, password, name, hub_id, access_level, mobile, address
                 "hub_id": hub_id,
                 "user_access_level": access_level,
                 "username": username,
-                "password_hash": pwd_context.hash(password),
+                "password_hash": hash_password(password),
                 "mobile_number": mobile,
                 "address": address
             }
@@ -239,6 +257,137 @@ async def delete(username):
         
     except Exception as e:
         click.echo(f"❌ Error: {e}")
+    finally:
+        await prisma.disconnect()
+
+@user.command()
+@click.option('--username', prompt=True, help='Username')
+@async_cmd
+async def inspect_hash(username):
+    """Inspect the password hash for a user (for debugging)"""
+    prisma = Prisma()
+    await prisma.connect()
+    
+    try:
+        user = await prisma.user.find_unique(where={"username": username})
+        if not user:
+            click.echo(f"❌ User '{username}' not found!")
+            return
+        
+        click.echo(f"User: {username}")
+        click.echo(f"Hash length: {len(user.password_hash) if user.password_hash else 0}")
+        click.echo(f"Hash starts with: {user.password_hash[:50] if user.password_hash else 'None'}...")
+        click.echo(f"Hash ends with: ...{user.password_hash[-20:] if user.password_hash else 'None'}")
+        
+        # Check if it looks like a bcrypt hash
+        if user.password_hash:
+            bcrypt_prefixes = ['$2b$', '$2a$', '$2x$', '$2y$']
+            is_bcrypt = any(user.password_hash.startswith(prefix) for prefix in bcrypt_prefixes)
+            if is_bcrypt:
+                click.echo("✅ Hash appears to be bcrypt format")
+            else:
+                click.echo("❌ Hash does NOT appear to be bcrypt format")
+                click.echo("This explains the error. The hash needs to be regenerated.")
+        
+    except Exception as e:
+        click.echo(f"❌ Error: {e}")
+    finally:
+        await prisma.disconnect()
+
+@user.command()
+@click.option('--username', prompt=True, help='Username')
+@click.option('--password', prompt=True, hide_input=True, confirmation_prompt=True, help='Password')
+@async_cmd
+async def force_reset_password(username, password):
+    """Force reset a user's password (clears any corruption)"""
+    prisma = Prisma()
+    await prisma.connect()
+    
+    try:
+        # Find user
+        user = await prisma.user.find_first(where={"username": username})
+        if not user:
+            click.echo(f"❌ User '{username}' not found!")
+            return
+        
+        # Generate a fresh hash
+        new_hash = hash_password(password)
+        click.echo(f"Debug: New hash length: {len(new_hash)}")
+        click.echo(f"Debug: New hash starts with: {new_hash[:20]}...")
+        
+        # Update password with explicit data
+        await prisma.user.update(
+            where={"user_id": user.user_id},
+            data={"password_hash": new_hash}
+        )
+        
+        click.echo(f"✅ Force reset password for user '{username}'")
+        click.echo("You can now try generating an access token.")
+        
+    except Exception as e:
+        click.echo(f"❌ Error: {e}")
+    finally:
+        await prisma.disconnect()
+
+@user.command()
+@click.option('--username', prompt=True, help='Username')
+@click.option('--password', prompt=True, hide_input=True, confirmation_prompt=True, help='Password')
+@async_cmd
+async def generate_access_token(username, password):
+    """Generate a JWT access token for a user"""
+    prisma = Prisma()
+    await prisma.connect()
+
+    try:
+        # Fetch user by username
+        user = await prisma.user.find_unique(where={"username": username})
+
+        if not user:
+            click.echo("❌ Invalid username or password.")
+            return
+
+        # Check if password hash exists and is valid
+        if not user.password_hash:
+            click.echo("❌ User has no password set. Please reset password first.")
+            return
+
+        # Debug info
+        click.echo(f"Debug: Hash length: {len(user.password_hash) if user.password_hash else 0}")
+        
+        # Check if hash looks like bcrypt
+        bcrypt_prefixes = ['$2b$', '$2a$', '$2x$', '$2y$']
+        is_bcrypt = any(user.password_hash.startswith(prefix) for prefix in bcrypt_prefixes)
+        
+        if not is_bcrypt:
+            click.echo("❌ Password hash is corrupted (not in bcrypt format)")
+            click.echo("Run: python solar_hub_cli.py user force-reset-password")
+            return
+        
+        # Check password
+        try:
+            if not verify_password(password, user.password_hash):
+                click.echo("❌ Invalid username or password.")
+                return
+        except Exception as e:
+            click.echo(f"❌ Password verification failed: {str(e)}")
+            click.echo("Run: python solar_hub_cli.py user force-reset-password")
+            return
+
+        # Generate token
+        token_data = {
+            "sub": user.username,
+            "user_id": user.user_id,
+            "role": user.user_access_level
+        }
+        token = create_access_token(token_data)
+
+        click.echo("✅ Access Token Generated:")
+        click.echo(f"Bearer {token}")
+        click.echo("\nYou can use this token in API requests like:")
+        click.echo(f"curl -H 'Authorization: Bearer {token}' http://localhost:8000/hubs/")
+
+    except Exception as e:
+        click.echo(f"❌ Error generating token: {str(e)}")
     finally:
         await prisma.disconnect()
 
@@ -512,6 +661,82 @@ async def stats():
             click.echo(f"{entity:<20} {count:>10}")
         click.echo("=" * 40)
         
+    except Exception as e:
+        click.echo(f"❌ Error: {e}")
+    finally:
+        await prisma.disconnect()
+
+
+@user.command()
+@click.option('--dry-run', is_flag=True, help='Show what would be fixed without making changes')
+@async_cmd
+async def fix_all_passwords(dry_run):
+    """Fix all users with corrupted password hashes (padded with spaces)"""
+    prisma = Prisma()
+    await prisma.connect()
+    
+    try:
+        # Find all users
+        users = await prisma.user.find_many()
+        
+        click.echo(f"🔍 Checking {len(users)} users for password issues...")
+        
+        fixed_count = 0
+        issues = []
+        
+        for user in users:
+            if user.password_hash:
+                # Check if hash is padded (has trailing spaces)
+                original_length = len(user.password_hash)
+                trimmed_hash = user.password_hash.strip()
+                trimmed_length = len(trimmed_hash)
+                
+                if original_length != trimmed_length:
+                    issues.append({
+                        'username': user.username,
+                        'user_id': user.user_id,
+                        'original_length': original_length,
+                        'trimmed_length': trimmed_length,
+                        'trimmed_hash': trimmed_hash
+                    })
+        
+        if not issues:
+            click.echo("✅ No password issues found!")
+            return
+        
+        click.echo(f"\n⚠️  Found {len(issues)} users with padded password hashes:")
+        
+        for issue in issues:
+            click.echo(f"\n👤 User: {issue['username']} (ID: {issue['user_id']})")
+            click.echo(f"   Original length: {issue['original_length']} chars")
+            click.echo(f"   Trimmed length: {issue['trimmed_length']} chars")
+            
+            if issue['trimmed_length'] == 60 and issue['trimmed_hash'].startswith('$2'):
+                click.echo(f"   ✅ Valid bcrypt hash detected after trimming")
+                
+                if not dry_run:
+                    # Fix the password hash
+                    try:
+                        await prisma.user.update(
+                            where={"user_id": issue['user_id']},
+                            data={"password_hash": issue['trimmed_hash']}
+                        )
+                        click.echo(f"   ✅ Fixed password hash")
+                        fixed_count += 1
+                    except Exception as e:
+                        click.echo(f"   ❌ Failed to fix: {e}")
+                else:
+                    click.echo(f"   🔧 Would fix this hash (dry run mode)")
+            else:
+                click.echo(f"   ❌ Not a valid bcrypt hash even after trimming")
+                click.echo(f"      User needs to reset password manually")
+        
+        if not dry_run:
+            click.echo(f"\n✅ Fixed {fixed_count} out of {len(issues)} password issues")
+        else:
+            click.echo(f"\n🔍 Dry run complete. Would fix {len([i for i in issues if i['trimmed_length'] == 60])} passwords")
+            click.echo("Run without --dry-run to apply fixes")
+            
     except Exception as e:
         click.echo(f"❌ Error: {e}")
     finally:
