@@ -81,3 +81,17 @@ bashpython test_runner.py all --no-api
 
 Keep API running after tests:
 bashpython test_runner.py all --keep-api
+
+# Deploying
+ Login to Heroku CLI
+heroku login
+
+# (Optional) Link your local git repo to your existing Heroku app by adding remote:
+heroku git:remote -a your-app-name
+
+# Commit any changes
+git add .
+git commit -m "Prepare for Heroku deploy"
+
+# Push to Heroku (master or main branch)
+git push heroku main  # or git push heroku master
