@@ -1,0 +1,11 @@
+{
+  "name": "beppp-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "prisma": "5.17.0"
+  },
+  "scripts": {
+    "migrate": "prisma migrate deploy",
+    "generate": "prisma generate"
+  }
+}
