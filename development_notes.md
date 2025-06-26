@@ -95,3 +95,17 @@ git commit -m "Prepare for Heroku deploy"
 
 # Push to Heroku (master or main branch)
 git push heroku main  # or git push heroku master
+
+
+# Set env variables
+you only need to run heroku config:set once per variable per app
+Once you set an environment variable with:
+
+heroku config:set SECRET_KEY=supersecretvalue -a your-app-name
+That value is stored permanently in your app’s Heroku environment until you:
+
+Change it with another heroku config:set
+Delete it with heroku config:unset SECRET_KEY -a my-fastapi-app
+
+heroku open -a your-app-name
+heroku logs --tail -a your-app-name

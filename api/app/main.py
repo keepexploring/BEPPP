@@ -16,7 +16,13 @@ import jwt
 from jwt.exceptions import InvalidTokenError
 from enum import Enum
 
+from config import SECRET_KEY, ALGORITHM, DEBUG, DATABASE_URL
+
+
+
 import pdb
+
+# Load .env if it exists (only runs locally; Heroku ignores .env files)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -38,10 +44,10 @@ app.add_middleware(
 security = HTTPBearer()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
-ALGORITHM = "HS256"
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "mySuperSecret123")
+# # Configuration
+# SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
+# ALGORITHM = "HS256"
+# WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "mySuperSecret123")
 
 # Database connection
 prisma = Prisma()
