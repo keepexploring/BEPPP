@@ -109,3 +109,9 @@ Delete it with heroku config:unset SECRET_KEY -a my-fastapi-app
 
 heroku open -a your-app-name
 heroku logs --tail -a your-app-name
+
+heroku run prisma generate -a your-app-name
+heroku run prisma migrate deploy -a your-app-name
+heroku run prisma db push -a your-app-name
+
+heroku buildpacks:add heroku/nodejs --app your-app-name

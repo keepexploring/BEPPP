@@ -1,0 +1,11 @@
+{
+  "name": "your-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "prisma": "^5.0.0"
+  },
+  "scripts": {
+    "migrate": "prisma migrate deploy",
+    "generate": "prisma generate"
+  }
+}
