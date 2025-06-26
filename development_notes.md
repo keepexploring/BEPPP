@@ -110,8 +110,35 @@ Delete it with heroku config:unset SECRET_KEY -a my-fastapi-app
 heroku open -a your-app-name
 heroku logs --tail -a your-app-name
 
-heroku run prisma generate -a your-app-name
-heroku run prisma migrate deploy -a your-app-name
-heroku run prisma db push -a your-app-name
 
-heroku buildpacks:add heroku/nodejs --app your-app-name
+# Clear all buildpacks
+heroku buildpacks:clear --app your-app-name
+
+# Add them in the correct order (Node.js FIRST)
+heroku buildpacks:add heroku/nodejs --app your-app-name  
+heroku buildpacks:add heroku/python --app your-app-name
+
+# Verify the correct order
+heroku buildpacks --app your-app-name
+
+git commit --allow-empty -m "Fix buildpack order"
+git push heroku main
+
+heroku run npx prisma migrate deploy --app your-app-name
+heroku run npm run migrate --app your-app-name
+
+# Generate migration and apply to local DB
+npx prisma migrate dev --name your_migration_name
+
+# Generate migration file without applying (draft)
+npx prisma migrate dev --create-only --name your_migration_name
+
+# Reset database and apply all migrations
+npx prisma migrate reset
+
+# Apply pending migrations (production command)
+npx prisma migrate deploy
+
+# Check migration status
+npx prisma migrate status
+
