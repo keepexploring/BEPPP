@@ -6,6 +6,7 @@
   },
   "scripts": {
     "migrate": "prisma migrate deploy",
-    "generate": "prisma generate"
+    "generate": "prisma generate",
+    "build": "prisma generate"
   }
 }
