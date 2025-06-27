@@ -29,9 +29,16 @@ if __name__ == "__main__":
     
     # Run uvicorn with the correct module path
     uvicorn.run(
-        "api.app.main:app",  # Use the full module path
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        reload_dirs=[str(project_root)]  # Watch the entire project for changes
-    )
+    "api.app.main:app",
+    host="0.0.0.0",
+    port=8000,
+    reload=True,
+    reload_dirs=[
+        str(project_root / "api"),
+        str(project_root / "app"),
+        str(project_root / "models"),  # add more if needed
+        str(project_root / "config"),
+        str(project_root / "database"),
+    ],
+    reload_excludes=[".venv"]
+)

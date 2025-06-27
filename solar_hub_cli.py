@@ -1,10 +1,8 @@
-56
 #!/usr/bin/env python3
 """
 Solar Hub Management CLI
 A command-line interface for managing the Solar Hub system
 """
-import asyncio
 import click
 import sys
 import os
@@ -16,14 +14,15 @@ import json
 from tabulate import tabulate
 from functools import wraps
 import jwt
-
-from prisma import Prisma
+from sqlalchemy import create_engine, func
+from sqlalchemy.orm import sessionmaker
 
 # Add project root to path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from prisma import Prisma
+from models import *
+from database import DATABASE_URL, engine, SessionLocal
 from passlib.context import CryptContext
 from dotenv import load_dotenv
 
@@ -36,13 +35,6 @@ ALGORITHM = "HS256"
 
 # Password hashing - Use same context as API
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# Utility decorator for async commands
-def async_cmd(f):
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        return asyncio.run(f(*args, **kwargs))
-    return wrapper
 
 # Authentication functions (same as in API)
 def create_access_token(data: dict):
@@ -71,50 +63,48 @@ def user():
 @click.option('--password', prompt=True, hide_input=True, confirmation_prompt=True, help='Password for the admin user')
 @click.option('--name', prompt=True, default='Admin User', help='Full name')
 @click.option('--hub-id', type=int, help='Hub ID (creates default hub if not specified)')
-@async_cmd
-async def create_admin(username, password, name, hub_id):
+def create_admin(username, password, name, hub_id):
     """Create an admin user"""
-    prisma = Prisma()
-    await prisma.connect()
+    db = SessionLocal()
     
     try:
         # Check if user already exists
-        existing_user = await prisma.user.find_first(where={"username": username})
+        existing_user = db.query(User).filter(User.username == username).first()
         if existing_user:
             click.echo(f"❌ User '{username}' already exists!")
             return
         
         # Handle hub
         if not hub_id:
-            hub = await prisma.solarhub.find_first()
+            hub = db.query(SolarHub).first()
             if not hub:
                 click.echo("📍 No hub found. Creating default hub...")
-                hub = await prisma.solarhub.create(
-                    data={
-                        "hub_id": 1,
-                        "what_three_word_location": "main.solar.hub",
-                        "solar_capacity_kw": 100,
-                        "country": "Kenya"
-                    }
+                hub = SolarHub(
+                    hub_id=1,
+                    what_three_word_location="main.solar.hub",
+                    solar_capacity_kw=100,
+                    country="Kenya"
                 )
+                db.add(hub)
+                db.commit()
                 click.echo(f"✅ Created hub with ID: {hub.hub_id}")
             hub_id = hub.hub_id
         
         # Get next user ID
-        last_user = await prisma.user.find_first(order={"user_id": "desc"})
-        next_user_id = (last_user.user_id + 1) if last_user else 1
+        max_user_id = db.query(func.max(User.user_id)).scalar()
+        next_user_id = (max_user_id + 1) if max_user_id else 1
         
         # Create admin user
-        admin_user = await prisma.user.create(
-            data={
-                "user_id": next_user_id,
-                "Name": name,
-                "hub_id": hub_id,
-                "user_access_level": "admin",
-                "username": username,
-                "password_hash": hash_password(password)
-            }
+        admin_user = User(
+            user_id=next_user_id,
+            Name=name,
+            hub_id=hub_id,
+            user_access_level="admin",
+            username=username,
+            password_hash=hash_password(password)
         )
+        db.add(admin_user)
+        db.commit()
         
         click.echo(f"✅ Created admin user:")
         click.echo(f"   Username: {admin_user.username}")
@@ -122,9 +112,10 @@ async def create_admin(username, password, name, hub_id):
         click.echo(f"   Hub ID: {admin_user.hub_id}")
         
     except Exception as e:
+        db.rollback()
         click.echo(f"❌ Error: {e}")
     finally:
-        await prisma.disconnect()
+        db.close()
 
 @user.command()
 @click.option('--username', prompt=True, help='Username')
@@ -134,42 +125,40 @@ async def create_admin(username, password, name, hub_id):
 @click.option('--access-level', type=click.Choice(['user', 'admin', 'technician']), default='user', help='Access level')
 @click.option('--mobile', help='Mobile number')
 @click.option('--address', help='Address')
-@async_cmd
-async def create(username, password, name, hub_id, access_level, mobile, address):
+def create(username, password, name, hub_id, access_level, mobile, address):
     """Create a new user"""
-    prisma = Prisma()
-    await prisma.connect()
+    db = SessionLocal()
     
     try:
         # Check if user already exists
-        existing_user = await prisma.user.find_first(where={"username": username})
+        existing_user = db.query(User).filter(User.username == username).first()
         if existing_user:
             click.echo(f"❌ User '{username}' already exists!")
             return
         
         # Check if hub exists
-        hub = await prisma.solarhub.find_unique(where={"hub_id": hub_id})
+        hub = db.query(SolarHub).filter(SolarHub.hub_id == hub_id).first()
         if not hub:
             click.echo(f"❌ Hub {hub_id} not found!")
             return
         
         # Get next user ID
-        last_user = await prisma.user.find_first(order={"user_id": "desc"})
-        next_user_id = (last_user.user_id + 1) if last_user else 1
+        max_user_id = db.query(func.max(User.user_id)).scalar()
+        next_user_id = (max_user_id + 1) if max_user_id else 1
         
         # Create user
-        user = await prisma.user.create(
-            data={
-                "user_id": next_user_id,
-                "Name": name,
-                "hub_id": hub_id,
-                "user_access_level": access_level,
-                "username": username,
-                "password_hash": hash_password(password),
-                "mobile_number": mobile,
-                "address": address
-            }
+        user = User(
+            user_id=next_user_id,
+            Name=name,
+            hub_id=hub_id,
+            user_access_level=access_level,
+            username=username,
+            password_hash=hash_password(password),
+            mobile_number=mobile,
+            address=address
         )
+        db.add(user)
+        db.commit()
         
         click.echo(f"✅ Created user:")
         click.echo(f"   Username: {user.username}")
@@ -177,32 +166,28 @@ async def create(username, password, name, hub_id, access_level, mobile, address
         click.echo(f"   Access Level: {user.user_access_level}")
         
     except Exception as e:
+        db.rollback()
         click.echo(f"❌ Error: {e}")
     finally:
-        await prisma.disconnect()
+        db.close()
 
 @user.command('list')
 @click.option('--hub-id', type=int, help='Filter by hub ID')
 @click.option('--access-level', type=click.Choice(['user', 'admin', 'technician']), help='Filter by access level')
-@async_cmd
-async def list_users(hub_id, access_level):
+def list_users(hub_id, access_level):
     """List all users"""
-    prisma = Prisma()
-    await prisma.connect()
+    db = SessionLocal()
     
     try:
-        # Build where clause
-        where = {}
+        # Build query
+        query = db.query(User)
         if hub_id:
-            where["hub_id"] = hub_id
+            query = query.filter(User.hub_id == hub_id)
         if access_level:
-            where["user_access_level"] = access_level
+            query = query.filter(User.user_access_level == access_level)
         
         # Get users
-        users = await prisma.user.find_many(
-            where=where,
-            include={"hub": True}
-        )
+        users = query.all()
         
         if not users:
             click.echo("No users found.")
@@ -229,19 +214,17 @@ async def list_users(hub_id, access_level):
     except Exception as e:
         click.echo(f"❌ Error: {e}")
     finally:
-        await prisma.disconnect()
+        db.close()
 
 @user.command()
 @click.argument('username')
-@async_cmd
-async def delete(username):
+def delete(username):
     """Delete a user"""
-    prisma = Prisma()
-    await prisma.connect()
+    db = SessionLocal()
     
     try:
         # Find user
-        user = await prisma.user.find_first(where={"username": username})
+        user = db.query(User).filter(User.username == username).first()
         if not user:
             click.echo(f"❌ User '{username}' not found!")
             return
@@ -252,127 +235,62 @@ async def delete(username):
             return
         
         # Delete user
-        await prisma.user.delete(where={"user_id": user.user_id})
+        db.delete(user)
+        db.commit()
         click.echo(f"✅ Deleted user '{username}'")
         
     except Exception as e:
+        db.rollback()
         click.echo(f"❌ Error: {e}")
     finally:
-        await prisma.disconnect()
-
-@user.command()
-@click.option('--username', prompt=True, help='Username')
-@async_cmd
-async def inspect_hash(username):
-    """Inspect the password hash for a user (for debugging)"""
-    prisma = Prisma()
-    await prisma.connect()
-    
-    try:
-        user = await prisma.user.find_unique(where={"username": username})
-        if not user:
-            click.echo(f"❌ User '{username}' not found!")
-            return
-        
-        click.echo(f"User: {username}")
-        click.echo(f"Hash length: {len(user.password_hash) if user.password_hash else 0}")
-        click.echo(f"Hash starts with: {user.password_hash[:50] if user.password_hash else 'None'}...")
-        click.echo(f"Hash ends with: ...{user.password_hash[-20:] if user.password_hash else 'None'}")
-        
-        # Check if it looks like a bcrypt hash
-        if user.password_hash:
-            bcrypt_prefixes = ['$2b$', '$2a$', '$2x$', '$2y$']
-            is_bcrypt = any(user.password_hash.startswith(prefix) for prefix in bcrypt_prefixes)
-            if is_bcrypt:
-                click.echo("✅ Hash appears to be bcrypt format")
-            else:
-                click.echo("❌ Hash does NOT appear to be bcrypt format")
-                click.echo("This explains the error. The hash needs to be regenerated.")
-        
-    except Exception as e:
-        click.echo(f"❌ Error: {e}")
-    finally:
-        await prisma.disconnect()
+        db.close()
 
 @user.command()
 @click.option('--username', prompt=True, help='Username')
 @click.option('--password', prompt=True, hide_input=True, confirmation_prompt=True, help='Password')
-@async_cmd
-async def force_reset_password(username, password):
-    """Force reset a user's password (clears any corruption)"""
-    prisma = Prisma()
-    await prisma.connect()
+def reset_password(username, password):
+    """Reset a user's password"""
+    db = SessionLocal()
     
     try:
         # Find user
-        user = await prisma.user.find_first(where={"username": username})
+        user = db.query(User).filter(User.username == username).first()
         if not user:
             click.echo(f"❌ User '{username}' not found!")
             return
         
-        # Generate a fresh hash
-        new_hash = hash_password(password)
-        click.echo(f"Debug: New hash length: {len(new_hash)}")
-        click.echo(f"Debug: New hash starts with: {new_hash[:20]}...")
+        # Update password
+        user.password_hash = hash_password(password)
+        db.commit()
         
-        # Update password with explicit data
-        await prisma.user.update(
-            where={"user_id": user.user_id},
-            data={"password_hash": new_hash}
-        )
-        
-        click.echo(f"✅ Force reset password for user '{username}'")
-        click.echo("You can now try generating an access token.")
+        click.echo(f"✅ Reset password for user '{username}'")
         
     except Exception as e:
+        db.rollback()
         click.echo(f"❌ Error: {e}")
     finally:
-        await prisma.disconnect()
+        db.close()
 
 @user.command()
 @click.option('--username', prompt=True, help='Username')
-@click.option('--password', prompt=True, hide_input=True, confirmation_prompt=True, help='Password')
-@async_cmd
-async def generate_access_token(username, password):
+@click.option('--password', prompt=True, hide_input=True, help='Password')
+def generate_token(username, password):
     """Generate a JWT access token for a user"""
-    prisma = Prisma()
-    await prisma.connect()
-
+    db = SessionLocal()
+    
     try:
         # Fetch user by username
-        user = await prisma.user.find_unique(where={"username": username})
-
+        user = db.query(User).filter(User.username == username).first()
+        
         if not user:
             click.echo("❌ Invalid username or password.")
             return
-
-        # Check if password hash exists and is valid
-        if not user.password_hash:
-            click.echo("❌ User has no password set. Please reset password first.")
-            return
-
-        # Debug info
-        click.echo(f"Debug: Hash length: {len(user.password_hash) if user.password_hash else 0}")
-        
-        # Check if hash looks like bcrypt
-        bcrypt_prefixes = ['$2b$', '$2a$', '$2x$', '$2y$']
-        is_bcrypt = any(user.password_hash.startswith(prefix) for prefix in bcrypt_prefixes)
-        
-        if not is_bcrypt:
-            click.echo("❌ Password hash is corrupted (not in bcrypt format)")
-            click.echo("Run: python solar_hub_cli.py user force-reset-password")
-            return
         
         # Check password
-        try:
-            if not verify_password(password, user.password_hash):
-                click.echo("❌ Invalid username or password.")
-                return
-        except Exception as e:
-            click.echo(f"❌ Password verification failed: {str(e)}")
-            click.echo("Run: python solar_hub_cli.py user force-reset-password")
+        if not verify_password(password, user.password_hash):
+            click.echo("❌ Invalid username or password.")
             return
-
+        
         # Generate token
         token_data = {
             "sub": user.username,
@@ -380,16 +298,16 @@ async def generate_access_token(username, password):
             "role": user.user_access_level
         }
         token = create_access_token(token_data)
-
+        
         click.echo("✅ Access Token Generated:")
         click.echo(f"Bearer {token}")
         click.echo("\nYou can use this token in API requests like:")
         click.echo(f"curl -H 'Authorization: Bearer {token}' http://localhost:8000/hubs/")
-
+        
     except Exception as e:
         click.echo(f"❌ Error generating token: {str(e)}")
     finally:
-        await prisma.disconnect()
+        db.close()
 
 # ============= Hub Management =============
 @cli.group()
@@ -404,30 +322,28 @@ def hub():
 @click.option('--country', prompt=True, help='Country')
 @click.option('--latitude', type=float, help='Latitude')
 @click.option('--longitude', type=float, help='Longitude')
-@async_cmd
-async def create(hub_id, location, capacity, country, latitude, longitude):
+def create(hub_id, location, capacity, country, latitude, longitude):
     """Create a new solar hub"""
-    prisma = Prisma()
-    await prisma.connect()
+    db = SessionLocal()
     
     try:
         # Check if hub already exists
-        existing_hub = await prisma.solarhub.find_unique(where={"hub_id": hub_id})
+        existing_hub = db.query(SolarHub).filter(SolarHub.hub_id == hub_id).first()
         if existing_hub:
             click.echo(f"❌ Hub {hub_id} already exists!")
             return
         
         # Create hub
-        hub = await prisma.solarhub.create(
-            data={
-                "hub_id": hub_id,
-                "what_three_word_location": location,
-                "solar_capacity_kw": capacity,
-                "country": country,
-                "latitude": latitude,
-                "longitude": longitude
-            }
+        hub = SolarHub(
+            hub_id=hub_id,
+            what_three_word_location=location,
+            solar_capacity_kw=capacity,
+            country=country,
+            latitude=latitude,
+            longitude=longitude
         )
+        db.add(hub)
+        db.commit()
         
         click.echo(f"✅ Created hub:")
         click.echo(f"   Hub ID: {hub.hub_id}")
@@ -436,30 +352,19 @@ async def create(hub_id, location, capacity, country, latitude, longitude):
         click.echo(f"   Country: {hub.country}")
         
     except Exception as e:
+        db.rollback()
         click.echo(f"❌ Error: {e}")
     finally:
-        await prisma.disconnect()
+        db.close()
 
 @hub.command('list')
-@async_cmd
-async def list_hubs():
+def list_hubs():
     """List all hubs"""
-    prisma = Prisma()
-    await prisma.connect()
+    db = SessionLocal()
     
     try:
-        # Get hubs with counts
-        hubs = await prisma.solarhub.find_many(
-            include={
-                "_count": {
-                    "select": {
-                        "users": True,
-                        "batteries": True,
-                        "pue_items": True
-                    }
-                }
-            }
-        )
+        # Get hubs
+        hubs = db.query(SolarHub).all()
         
         if not hubs:
             click.echo("No hubs found.")
@@ -468,14 +373,18 @@ async def list_hubs():
         # Prepare table data
         table_data = []
         for hub in hubs:
+            user_count = db.query(User).filter(User.hub_id == hub.hub_id).count()
+            battery_count = db.query(BEPPPBattery).filter(BEPPPBattery.hub_id == hub.hub_id).count()
+            pue_count = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.hub_id == hub.hub_id).count()
+            
             table_data.append([
                 hub.hub_id,
                 hub.what_three_word_location or "N/A",
                 f"{hub.solar_capacity_kw} kW" if hub.solar_capacity_kw else "N/A",
                 hub.country or "N/A",
-                hub._count.users,
-                hub._count.batteries,
-                hub._count.pue_items
+                user_count,
+                battery_count,
+                pue_count
             ])
         
         # Display table
@@ -486,7 +395,7 @@ async def list_hubs():
     except Exception as e:
         click.echo(f"❌ Error: {e}")
     finally:
-        await prisma.disconnect()
+        db.close()
 
 # ============= Battery Management =============
 @cli.group()
@@ -498,34 +407,32 @@ def battery():
 @click.option('--battery-id', type=int, prompt=True, help='Battery ID')
 @click.option('--hub-id', type=int, prompt=True, help='Hub ID')
 @click.option('--capacity', type=int, prompt=True, help='Battery capacity in Wh')
-@async_cmd
-async def create(battery_id, hub_id, capacity):
+def create(battery_id, hub_id, capacity):
     """Create a new battery"""
-    prisma = Prisma()
-    await prisma.connect()
+    db = SessionLocal()
     
     try:
         # Check if battery already exists
-        existing_battery = await prisma.bepppbattery.find_unique(where={"battery_id": battery_id})
+        existing_battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_id).first()
         if existing_battery:
             click.echo(f"❌ Battery {battery_id} already exists!")
             return
         
         # Check if hub exists
-        hub = await prisma.solarhub.find_unique(where={"hub_id": hub_id})
+        hub = db.query(SolarHub).filter(SolarHub.hub_id == hub_id).first()
         if not hub:
             click.echo(f"❌ Hub {hub_id} not found!")
             return
         
         # Create battery
-        battery = await prisma.bepppbattery.create(
-            data={
-                "battery_id": battery_id,
-                "hub_id": hub_id,
-                "battery_capacity_wh": capacity,
-                "status": "available"
-            }
+        battery = BEPPPBattery(
+            battery_id=battery_id,
+            hub_id=hub_id,
+            battery_capacity_wh=capacity,
+            status="available"
         )
+        db.add(battery)
+        db.commit()
         
         click.echo(f"✅ Created battery:")
         click.echo(f"   Battery ID: {battery.battery_id}")
@@ -534,40 +441,28 @@ async def create(battery_id, hub_id, capacity):
         click.echo(f"   Status: {battery.status}")
         
     except Exception as e:
+        db.rollback()
         click.echo(f"❌ Error: {e}")
     finally:
-        await prisma.disconnect()
+        db.close()
 
 @battery.command('list')
 @click.option('--hub-id', type=int, help='Filter by hub ID')
 @click.option('--status', type=click.Choice(['available', 'in_use', 'maintenance']), help='Filter by status')
-@async_cmd
-async def list_batteries(hub_id, status):
+def list_batteries(hub_id, status):
     """List all batteries"""
-    prisma = Prisma()
-    await prisma.connect()
+    db = SessionLocal()
     
     try:
-        # Build where clause
-        where = {}
+        # Build query
+        query = db.query(BEPPPBattery)
         if hub_id:
-            where["hub_id"] = hub_id
+            query = query.filter(BEPPPBattery.hub_id == hub_id)
         if status:
-            where["status"] = status
+            query = query.filter(BEPPPBattery.status == status)
         
         # Get batteries
-        batteries = await prisma.bepppbattery.find_many(
-            where=where,
-            include={
-                "hub": True,
-                "_count": {
-                    "select": {
-                        "rentals": True,
-                        "live_data": True
-                    }
-                }
-            }
-        )
+        batteries = query.all()
         
         if not batteries:
             click.echo("No batteries found.")
@@ -576,14 +471,17 @@ async def list_batteries(hub_id, status):
         # Prepare table data
         table_data = []
         for battery in batteries:
+            rental_count = db.query(Rental).filter(Rental.battery_id == battery.battery_id).count()
+            data_count = db.query(LiveData).filter(LiveData.battery_id == battery.battery_id).count()
+            
             table_data.append([
                 battery.battery_id,
                 battery.hub_id,
                 battery.hub.what_three_word_location if battery.hub else "N/A",
                 f"{battery.battery_capacity_wh} Wh" if battery.battery_capacity_wh else "N/A",
                 battery.status,
-                battery._count.rentals,
-                battery._count.live_data
+                rental_count,
+                data_count
             ])
         
         # Display table
@@ -594,7 +492,7 @@ async def list_batteries(hub_id, status):
     except Exception as e:
         click.echo(f"❌ Error: {e}")
     finally:
-        await prisma.disconnect()
+        db.close()
 
 # ============= Database Management =============
 @cli.group()
@@ -603,55 +501,32 @@ def db():
     pass
 
 @db.command()
-def push():
-    """Push schema changes to database"""
-    click.echo("📊 Pushing schema to database...")
+def init():
+    """Initialize database tables"""
+    click.echo("📊 Initializing database...")
     try:
-        result = subprocess.run([
-            sys.executable, "-m", "prisma", "db", "push",
-            "--schema", str(project_root / "prisma" / "schema.prisma")
-        ])
-        if result.returncode == 0:
-            click.echo("✅ Schema pushed successfully!")
-        else:
-            click.echo("❌ Failed to push schema")
+        from database import init_db
+        init_db()
+        click.echo("✅ Database initialized successfully!")
     except Exception as e:
         click.echo(f"❌ Error: {e}")
 
 @db.command()
-def generate():
-    """Generate Prisma client"""
-    click.echo("🔨 Generating Prisma client...")
-    try:
-        result = subprocess.run([
-            sys.executable, "-m", "prisma", "generate",
-            "--schema", str(project_root / "prisma" / "schema.prisma")
-        ])
-        if result.returncode == 0:
-            click.echo("✅ Prisma client generated successfully!")
-        else:
-            click.echo("❌ Failed to generate Prisma client")
-    except Exception as e:
-        click.echo(f"❌ Error: {e}")
-
-@db.command()
-@async_cmd
-async def stats():
+def stats():
     """Show database statistics"""
-    prisma = Prisma()
-    await prisma.connect()
+    db = SessionLocal()
     
     try:
         # Get counts
         stats = {
-            "Hubs": await prisma.solarhub.count(),
-            "Users": await prisma.user.count(),
-            "Batteries": await prisma.bepppbattery.count(),
-            "Rentals": await prisma.rental.count(),
-            "PUE Items": await prisma.productiveuseequipment.count(),
-            "PUE Rentals": await prisma.puerental.count(),
-            "Live Data Points": await prisma.livedata.count(),
-            "Notes": await prisma.note.count()
+            "Hubs": db.query(SolarHub).count(),
+            "Users": db.query(User).count(),
+            "Batteries": db.query(BEPPPBattery).count(),
+            "Rentals": db.query(Rental).count(),
+            "PUE Items": db.query(ProductiveUseEquipment).count(),
+            "PUE Rentals": db.query(PUERental).count(),
+            "Live Data Points": db.query(LiveData).count(),
+            "Notes": db.query(Note).count()
         }
         
         # Display stats
@@ -664,83 +539,25 @@ async def stats():
     except Exception as e:
         click.echo(f"❌ Error: {e}")
     finally:
-        await prisma.disconnect()
+        db.close()
 
-
-@user.command()
-@click.option('--dry-run', is_flag=True, help='Show what would be fixed without making changes')
-@async_cmd
-async def fix_all_passwords(dry_run):
-    """Fix all users with corrupted password hashes (padded with spaces)"""
-    prisma = Prisma()
-    await prisma.connect()
+@db.command()
+@click.option('--yes', is_flag=True, help='Skip confirmation')
+def reset(yes):
+    """Reset database (WARNING: Deletes all data!)"""
+    if not yes:
+        if not click.confirm("⚠️  This will DELETE ALL DATA. Are you sure?"):
+            click.echo("Cancelled.")
+            return
     
     try:
-        # Find all users
-        users = await prisma.user.find_many()
-        
-        click.echo(f"🔍 Checking {len(users)} users for password issues...")
-        
-        fixed_count = 0
-        issues = []
-        
-        for user in users:
-            if user.password_hash:
-                # Check if hash is padded (has trailing spaces)
-                original_length = len(user.password_hash)
-                trimmed_hash = user.password_hash.strip()
-                trimmed_length = len(trimmed_hash)
-                
-                if original_length != trimmed_length:
-                    issues.append({
-                        'username': user.username,
-                        'user_id': user.user_id,
-                        'original_length': original_length,
-                        'trimmed_length': trimmed_length,
-                        'trimmed_hash': trimmed_hash
-                    })
-        
-        if not issues:
-            click.echo("✅ No password issues found!")
-            return
-        
-        click.echo(f"\n⚠️  Found {len(issues)} users with padded password hashes:")
-        
-        for issue in issues:
-            click.echo(f"\n👤 User: {issue['username']} (ID: {issue['user_id']})")
-            click.echo(f"   Original length: {issue['original_length']} chars")
-            click.echo(f"   Trimmed length: {issue['trimmed_length']} chars")
-            
-            if issue['trimmed_length'] == 60 and issue['trimmed_hash'].startswith('$2'):
-                click.echo(f"   ✅ Valid bcrypt hash detected after trimming")
-                
-                if not dry_run:
-                    # Fix the password hash
-                    try:
-                        await prisma.user.update(
-                            where={"user_id": issue['user_id']},
-                            data={"password_hash": issue['trimmed_hash']}
-                        )
-                        click.echo(f"   ✅ Fixed password hash")
-                        fixed_count += 1
-                    except Exception as e:
-                        click.echo(f"   ❌ Failed to fix: {e}")
-                else:
-                    click.echo(f"   🔧 Would fix this hash (dry run mode)")
-            else:
-                click.echo(f"   ❌ Not a valid bcrypt hash even after trimming")
-                click.echo(f"      User needs to reset password manually")
-        
-        if not dry_run:
-            click.echo(f"\n✅ Fixed {fixed_count} out of {len(issues)} password issues")
-        else:
-            click.echo(f"\n🔍 Dry run complete. Would fix {len([i for i in issues if i['trimmed_length'] == 60])} passwords")
-            click.echo("Run without --dry-run to apply fixes")
-            
+        click.echo("🗑️  Dropping all tables...")
+        Base.metadata.drop_all(bind=engine)
+        click.echo("🔨 Creating new tables...")
+        Base.metadata.create_all(bind=engine)
+        click.echo("✅ Database reset successfully!")
     except Exception as e:
         click.echo(f"❌ Error: {e}")
-    finally:
-        await prisma.disconnect()
 
 # ============= API Management =============
 @cli.group()
@@ -752,11 +569,7 @@ def api():
 def start():
     """Start the API server"""
     click.echo("🚀 Starting Solar Hub API...")
-    run_api_path = project_root / "run_api.py"
-    if run_api_path.exists():
-        subprocess.run([sys.executable, str(run_api_path)])
-    else:
-        click.echo("❌ run_api.py not found!")
+    subprocess.run([sys.executable, "-m", "uvicorn", "api.app.main:app", "--reload", "--reload-exclude", ".venv/*", "--host", "0.0.0.0", "--port", "8000"])
 
 @api.command()
 def test():
