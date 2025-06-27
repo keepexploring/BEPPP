@@ -2,3 +2,4 @@
 .env
 .venv/
 .development_notes
+prisma-heroku/
