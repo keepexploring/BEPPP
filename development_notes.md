@@ -142,3 +142,7 @@ npx prisma migrate deploy
 # Check migration status
 npx prisma migrate status
 
+# creates migration files
+prisma migrate dev --name init
+
+heroku run prisma py fetch

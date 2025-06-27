@@ -1,8 +1,28 @@
 #!/usr/bin/env bash
 set -e
 
-echo "-----> Generating Prisma Client"
-cd "$BUILD_DIR"
-prisma generate
+echo "-----> POST-COMPILE STARTING"
+echo "-----> Current directory: $(pwd)"
+echo "-----> Python version: $(python --version)"
+echo "-----> Prisma version: $(prisma py version || echo 'Prisma not found')"
 
-echo "-----> Prisma Client generated successfully"
+# Generate Prisma Client
+echo "-----> Generating Prisma Client"
+prisma generate || echo "Failed to generate"
+
+# Fetch the query engine binary
+echo "-----> Fetching Prisma Query Engine"
+prisma py fetch || echo "Failed to fetch"
+
+# Check what was downloaded
+echo "-----> Checking for binaries:"
+find /app -name "*query-engine*" -type f 2>/dev/null || echo "No query engine files found"
+
+# Try to copy to app root
+echo "-----> Attempting to copy binaries"
+find /app/.cache -name "*query-engine*" -type f -exec cp {} /app/ \; 2>/dev/null || echo "No files to copy"
+
+echo "-----> Files in app root:"
+ls -la /app/*query* 2>/dev/null || echo "No query files in app root"
+
+echo "-----> POST-COMPILE COMPLETED"
