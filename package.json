@@ -9,5 +9,8 @@
     "migrate": "prisma migrate deploy",
     "generate": "prisma generate",
     "build": "prisma generate"
-  }
+  },
+  "engines": {
+  "node": "22.x"
+}
 }
