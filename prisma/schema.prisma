@@ -3,6 +3,7 @@
 
 generator client {
   provider             = "prisma-client-py"
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x"]
   interface            = "asyncio"
   recursive_type_depth = 5
 }
