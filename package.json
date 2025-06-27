@@ -8,7 +8,7 @@
   "scripts": {
     "migrate": "prisma migrate deploy",
     "generate": "prisma generate",
-    "build": "prisma generate"
+    "build": "python3 -m prisma generate"
   },
   "engines": {
   "node": "22.x"
