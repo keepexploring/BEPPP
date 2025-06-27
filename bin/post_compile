@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -e
+
+echo "-----> Generating Prisma Client"
+cd "$BUILD_DIR"
+prisma generate
+
+echo "-----> Prisma Client generated successfully"
