@@ -146,3 +146,21 @@ npx prisma migrate status
 prisma migrate dev --name init
 
 heroku run prisma py fetch
+
+# to run services on heroku server
+heroku run python solar_hub_cli.py user create-admin
+
+NO LONGER ARE WE USING PRISMA
+
+# migrations
+alembic init alembic
+
+# Check which migration the database is currently at
+alembic current
+
+# Check what migrations exist and which ones haven't been applied
+alembic history --verbose
+
+alembic revision --autogenerate -m "Fix schema and add LiveData fields"
+alembic revision -m "Add additional fields to LiveData table"
+alembic upgrade head

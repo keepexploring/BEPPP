@@ -40,5 +40,7 @@ if __name__ == "__main__":
         str(project_root / "config"),
         str(project_root / "database"),
     ],
-    reload_excludes=[".venv"]
+    reload_excludes=[
+        str(project_root / ".venv"),
+    ]
 )

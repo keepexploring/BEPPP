@@ -118,6 +118,16 @@ class LiveData(Base):
     event_type = Column(String(255))
     new_battery_cycle = Column(Integer)
     
+    charger_power = Column(Float, nullable=True)           # 'cp' - how much is going in
+    charger_voltage = Column(Float, nullable=True)         # 'cv'
+    gps_fix_quality = Column(Integer, nullable=True)       # 'gf'
+    charging_enabled = Column(Integer, nullable=True)      # 'ec' whether we can charge the battery or if it is disabled
+    fan_enabled = Column(Integer, nullable=True)           # 'ef'
+    inverter_enabled = Column(Integer, nullable=True)      # 'ei' whether the inverter is on or off
+    usb_enabled = Column(Integer, nullable=True)           # 'eu' whether the USB ports are enabled or not
+    stay_awake_state = Column(Integer, nullable=True)      # 'sa'
+    tilt_sensor_state = Column(Integer, nullable=True)     # 'ts'
+    total_charge_consumed = Column(Float, nullable=True)   # 'tcc'
     # Relations
     battery = relationship("BEPPPBattery", back_populates="live_data")
 
