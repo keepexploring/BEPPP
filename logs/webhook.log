@@ -1,0 +1,155 @@
+2025-06-30 13:24:25,892 - webhook - INFO - startup:455 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-06-30 13:24:25,892 - webhook - INFO - startup:455 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-06-30 13:24:26,121 - webhook - INFO - startup:464 - ✅ Database tables created/verified
+2025-06-30 13:24:26,121 - webhook - INFO - startup:464 - ✅ Database tables created/verified
+2025-06-30 13:24:35,804 - webhook - INFO - startup:455 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-06-30 13:24:35,804 - webhook - INFO - startup:455 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-06-30 13:24:35,866 - webhook - INFO - startup:464 - ✅ Database tables created/verified
+2025-06-30 13:24:35,866 - webhook - INFO - startup:464 - ✅ Database tables created/verified
+2025-06-30 13:24:49,347 - webhook - INFO - startup:455 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-06-30 13:24:49,347 - webhook - INFO - startup:455 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-06-30 13:24:49,424 - webhook - INFO - startup:464 - ✅ Database tables created/verified
+2025-06-30 13:24:49,424 - webhook - INFO - startup:464 - ✅ Database tables created/verified
+2025-06-30 17:31:57,952 - webhook - INFO - log_webhook_event:136 - [request_received] User: admin | Status: info
+2025-06-30 17:31:57,952 - webhook - INFO - log_webhook_event:130 - [authentication_success] User: admin | Battery: 1 | Status: success
+2025-06-30 17:31:57,953 - webhook - INFO - log_webhook_event:136 - [direct_format_detected] User: admin | Battery: 1 | Status: info
+2025-06-30 17:31:57,954 - webhook - INFO - log_webhook_event:130 - [battery_validated] User: admin | Battery: 1 | Status: success
+2025-06-30 17:31:57,955 - webhook - INFO - log_webhook_event:136 - [field_parsing_completed] User: admin | Battery: 1 | Status: info | Parsed: 26 fields
+2025-06-30 17:31:57,957 - webhook - WARNING - log_webhook_event:134 - [livedata_creation_fallback] User: admin | Battery: 1 | Status: warning | Error: Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData
+2025-06-30 17:31:57,958 - webhook - DEBUG - log_webhook_event:161 - Full event data: {
+  "timestamp": "2025-06-30T17:31:57.958034",
+  "event_type": "livedata_creation_fallback",
+  "status": "warning",
+  "user": {
+    "username": "admin",
+    "user_id": 1,
+    "role": "admin"
+  },
+  "battery_id": 1,
+  "data_id": null,
+  "summary": null,
+  "error": "Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData"
+}
+2025-06-30 17:31:57,971 - webhook - INFO - log_webhook_event:130 - [database_save_success] User: admin | Battery: 1 | Status: success
+2025-06-30 17:31:57,971 - webhook - INFO - log_webhook_event:130 - [data_processed_successfully] User: admin | Battery: 1 | Status: success | Parsed: 26 fields | Time: 0.019s
+2025-06-30 17:31:58,392 - webhook - INFO - log_webhook_event:136 - [request_received] User: admin | Status: info
+2025-06-30 17:31:58,393 - webhook - INFO - log_webhook_event:130 - [authentication_success] User: admin | Battery: 51 | Status: success
+2025-06-30 17:31:58,394 - webhook - INFO - log_webhook_event:136 - [direct_format_detected] User: admin | Battery: 51 | Status: info
+2025-06-30 17:31:58,396 - webhook - INFO - log_webhook_event:130 - [battery_validated] User: admin | Battery: 51 | Status: success
+2025-06-30 17:31:58,396 - webhook - INFO - log_webhook_event:136 - [field_parsing_completed] User: admin | Battery: 51 | Status: info | Parsed: 26 fields
+2025-06-30 17:31:58,397 - webhook - WARNING - log_webhook_event:134 - [livedata_creation_fallback] User: admin | Battery: 51 | Status: warning | Error: Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData
+2025-06-30 17:31:58,397 - webhook - DEBUG - log_webhook_event:161 - Full event data: {
+  "timestamp": "2025-06-30T17:31:58.397316",
+  "event_type": "livedata_creation_fallback",
+  "status": "warning",
+  "user": {
+    "username": "admin",
+    "user_id": 1,
+    "role": "admin"
+  },
+  "battery_id": 51,
+  "data_id": null,
+  "summary": null,
+  "error": "Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData"
+}
+2025-06-30 17:31:58,402 - webhook - INFO - log_webhook_event:130 - [database_save_success] User: admin | Battery: 51 | Status: success
+2025-06-30 17:31:58,403 - webhook - INFO - log_webhook_event:130 - [data_processed_successfully] User: admin | Battery: 51 | Status: success | Parsed: 26 fields | Time: 0.010s
+2025-06-30 17:31:58,846 - webhook - INFO - log_webhook_event:136 - [request_received] User: admin | Status: info
+2025-06-30 17:31:58,847 - webhook - INFO - log_webhook_event:130 - [authentication_success] User: admin | Battery: 52 | Status: success
+2025-06-30 17:31:58,847 - webhook - INFO - log_webhook_event:136 - [direct_format_detected] User: admin | Battery: 52 | Status: info
+2025-06-30 17:31:58,849 - webhook - INFO - log_webhook_event:130 - [battery_validated] User: admin | Battery: 52 | Status: success
+2025-06-30 17:31:58,850 - webhook - INFO - log_webhook_event:136 - [field_parsing_completed] User: admin | Battery: 52 | Status: info | Parsed: 26 fields
+2025-06-30 17:31:58,852 - webhook - WARNING - log_webhook_event:134 - [livedata_creation_fallback] User: admin | Battery: 52 | Status: warning | Error: Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData
+2025-06-30 17:31:58,852 - webhook - DEBUG - log_webhook_event:161 - Full event data: {
+  "timestamp": "2025-06-30T17:31:58.852365",
+  "event_type": "livedata_creation_fallback",
+  "status": "warning",
+  "user": {
+    "username": "admin",
+    "user_id": 1,
+    "role": "admin"
+  },
+  "battery_id": 52,
+  "data_id": null,
+  "summary": null,
+  "error": "Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData"
+}
+2025-06-30 17:31:58,857 - webhook - INFO - log_webhook_event:130 - [database_save_success] User: admin | Battery: 52 | Status: success
+2025-06-30 17:31:58,860 - webhook - INFO - log_webhook_event:130 - [data_processed_successfully] User: admin | Battery: 52 | Status: success | Parsed: 26 fields | Time: 0.014s
+2025-06-30 17:31:58,870 - webhook - INFO - log_webhook_event:136 - [request_received] User: admin | Status: info
+2025-06-30 17:31:58,871 - webhook - INFO - log_webhook_event:130 - [authentication_success] User: admin | Battery: 52 | Status: success
+2025-06-30 17:31:58,871 - webhook - INFO - log_webhook_event:136 - [direct_format_detected] User: admin | Battery: 52 | Status: info
+2025-06-30 17:31:58,873 - webhook - INFO - log_webhook_event:130 - [battery_validated] User: admin | Battery: 52 | Status: success
+2025-06-30 17:31:58,873 - webhook - INFO - log_webhook_event:136 - [field_parsing_completed] User: admin | Battery: 52 | Status: info | Parsed: 26 fields
+2025-06-30 17:31:58,874 - webhook - WARNING - log_webhook_event:134 - [livedata_creation_fallback] User: admin | Battery: 52 | Status: warning | Error: Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData
+2025-06-30 17:31:58,874 - webhook - DEBUG - log_webhook_event:161 - Full event data: {
+  "timestamp": "2025-06-30T17:31:58.874628",
+  "event_type": "livedata_creation_fallback",
+  "status": "warning",
+  "user": {
+    "username": "admin",
+    "user_id": 1,
+    "role": "admin"
+  },
+  "battery_id": 52,
+  "data_id": null,
+  "summary": null,
+  "error": "Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData"
+}
+2025-06-30 17:31:58,879 - webhook - INFO - log_webhook_event:130 - [database_save_success] User: admin | Battery: 52 | Status: success
+2025-06-30 17:31:58,880 - webhook - INFO - log_webhook_event:130 - [data_processed_successfully] User: admin | Battery: 52 | Status: success | Parsed: 26 fields | Time: 0.010s
+2025-06-30 17:31:58,890 - webhook - INFO - log_webhook_event:136 - [request_received] User: admin | Status: info
+2025-06-30 17:31:58,890 - webhook - INFO - log_webhook_event:130 - [authentication_success] User: admin | Battery: 52 | Status: success
+2025-06-30 17:31:58,891 - webhook - INFO - log_webhook_event:136 - [direct_format_detected] User: admin | Battery: 52 | Status: info
+2025-06-30 17:31:58,892 - webhook - INFO - log_webhook_event:130 - [battery_validated] User: admin | Battery: 52 | Status: success
+2025-06-30 17:31:58,893 - webhook - INFO - log_webhook_event:136 - [field_parsing_completed] User: admin | Battery: 52 | Status: info | Parsed: 26 fields
+2025-06-30 17:31:58,894 - webhook - WARNING - log_webhook_event:134 - [livedata_creation_fallback] User: admin | Battery: 52 | Status: warning | Error: Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData
+2025-06-30 17:31:58,894 - webhook - DEBUG - log_webhook_event:161 - Full event data: {
+  "timestamp": "2025-06-30T17:31:58.894665",
+  "event_type": "livedata_creation_fallback",
+  "status": "warning",
+  "user": {
+    "username": "admin",
+    "user_id": 1,
+    "role": "admin"
+  },
+  "battery_id": 52,
+  "data_id": null,
+  "summary": null,
+  "error": "Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData"
+}
+2025-06-30 17:31:58,899 - webhook - INFO - log_webhook_event:130 - [database_save_success] User: admin | Battery: 52 | Status: success
+2025-06-30 17:31:58,899 - webhook - INFO - log_webhook_event:130 - [data_processed_successfully] User: admin | Battery: 52 | Status: success | Parsed: 26 fields | Time: 0.009s
+2025-06-30 17:31:59,304 - webhook - INFO - log_webhook_event:136 - [request_received] User: admin | Status: info
+2025-06-30 17:31:59,305 - webhook - INFO - log_webhook_event:130 - [authentication_success] User: admin | Battery: 999 | Status: success
+2025-06-30 17:31:59,305 - webhook - INFO - log_webhook_event:136 - [direct_format_detected] User: admin | Battery: 999 | Status: info
+2025-06-30 17:31:59,307 - webhook - ERROR - log_webhook_event:132 - [battery_not_found] User: admin | Battery: 999 | Status: error | Error: Battery 999 does not exist in database
+2025-06-30 17:31:59,307 - webhook - DEBUG - log_webhook_event:161 - Full event data: {
+  "timestamp": "2025-06-30T17:31:59.307877",
+  "event_type": "battery_not_found",
+  "status": "error",
+  "user": {
+    "username": "admin",
+    "user_id": 1,
+    "role": "admin"
+  },
+  "battery_id": 999,
+  "data_id": null,
+  "summary": null,
+  "error": "Battery 999 does not exist in database"
+}
+2025-06-30 17:31:59,308 - webhook - ERROR - log_webhook_event:132 - [client_error] User: admin | Battery: 999 | Status: error | Error: HTTP 404: Battery 999 not found
+2025-06-30 17:31:59,309 - webhook - DEBUG - log_webhook_event:161 - Full event data: {
+  "timestamp": "2025-06-30T17:31:59.308664",
+  "event_type": "client_error",
+  "status": "error",
+  "user": {
+    "username": "admin",
+    "user_id": 1,
+    "role": "admin"
+  },
+  "battery_id": 999,
+  "data_id": null,
+  "summary": null,
+  "error": "HTTP 404: Battery 999 not found"
+}

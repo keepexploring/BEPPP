@@ -1,28 +1,32 @@
-import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.pool import NullPool
+import os
+from models import Base
 
-def get_database_url():
-    """Get database URL with proper format for SQLAlchemy"""
-    database_url = os.getenv('DATABASE_URL')
-    
-    if database_url:
-        # Convert Heroku's postgres:// to postgresql:// for SQLAlchemy 1.4+
-        if database_url.startswith('postgres://'):
-            database_url = database_url.replace('postgres://', 'postgresql://', 1)
-    
-    return database_url
+from dotenv import load_dotenv
 
-# Create engine with the corrected URL
-DATABASE_URL = get_database_url()
+# Load environment variables
+load_dotenv()
 
-if DATABASE_URL:
-    engine = create_engine(DATABASE_URL)
-else:
-    raise ValueError("DATABASE_URL environment variable not set")
+# Get database URL from environment variable
+DATABASE_URL = os.getenv("DATABASE_URL")
 
+# Heroku DATABASE_URL starts with postgres:// but SQLAlchemy needs postgresql://
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+# Create engine with connection pooling disabled for Heroku
+engine = create_engine(
+    DATABASE_URL,
+    poolclass=NullPool,  # Disable connection pooling for Heroku
+    echo=False  # Set to True for SQL query logging
+)
+
+# Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+# Dependency to get DB session
 def get_db():
     db = SessionLocal()
     try:
@@ -30,7 +34,6 @@ def get_db():
     finally:
         db.close()
 
+# Create all tables
 def init_db():
-    """Initialize database tables"""
-    from models import Base
     Base.metadata.create_all(bind=engine)

@@ -1,222 +1,180 @@
 #!/usr/bin/env python3
 """
-Test runner for Solar Hub Management API
-Run this from the project root directory
+Test runner script for the Solar Hub API
 """
-import sys
+
 import subprocess
+import sys
 import os
-import time
-import asyncio
-import argparse
-from pathlib import Path
-import requests
-from dotenv import load_dotenv
 
-import pdb
-
-# Load environment variables
-load_dotenv()
-
-project_root = Path(__file__).parent
-sys.path.insert(0, str(project_root))
-
-# Project paths
-PROJECT_ROOT = Path(__file__).parent
-API_PATH = PROJECT_ROOT / "api" / "app"
-PRISMA_SCHEMA = PROJECT_ROOT / "prisma" / "schema.prisma"
-
-def run_command(cmd, description, check=True):
-    """Run a command and display status"""
-    print(f"📍 {description}...")
-    try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        if check and result.returncode != 0:
-            print(f"❌ Failed: {result.stderr}")
-            return False
-        print(f"✅ {description} completed")
-        return True
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        return False
-
-def check_postgresql():
-    """Check if PostgreSQL is running"""
-    print("🐘 Checking PostgreSQL connection...")
-    result = subprocess.run("pg_isready -h localhost -p 5433", shell=True, capture_output=True)
-    if result.returncode != 0:
-        print("❌ PostgreSQL is not running on localhost:5433")
-        print("Please start PostgreSQL before running tests")
-        return False
-    print("✅ PostgreSQL is running")
-    return True
-
-def check_api_running():
-    """Check if API is already running"""
-    try:
-        response = requests.get("http://localhost:8000/health", timeout=2)
-        return response.status_code == 200
-    except:
-        return False
-
-async def ensure_test_user():
-    """Ensure test user exists in database"""
-    from prisma import Prisma
-    from passlib.context import CryptContext
+def run_tests():
+    """Run the pytest test suite"""
     
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    prisma = Prisma()
+    print("🚀 Starting Solar Hub API Comprehensive Tests")
+    print("=" * 60)
+    
+    # Make sure we're in the right directory (project root)
+    if not os.path.exists("api/app/main.py"):
+        print("❌ Error: Run this script from the project root directory")
+        print("   Expected structure: root/api/app/main.py")
+        return 1
+    
+    # Check if test file exists
+    if not os.path.exists("test_webhook_integration.py"):
+        print("❌ Error: test_webhook_integration.py not found in current directory")
+        return 1
     
     try:
-        await prisma.connect()
+        # Run pytest with verbose output
+        result = subprocess.run([
+            sys.executable, "-m", "pytest", 
+            "test_webhook_integration.py",
+            "-v",                    # Verbose output
+            "--tb=short",           # Short traceback format
+            "--color=yes",          # Colored output
+            "-s",                   # Don't capture output (show prints)
+            "--durations=10",       # Show 10 slowest tests
+            "--maxfail=5"           # Stop after 5 failures
+        ], check=False)
         
-        # Check if test user exists
-        user = await prisma.user.find_first(where={"username": "testuser"})
-        if not user:
-            # Create hub if needed
-            hub = await prisma.solarhub.find_first()
-            if not hub:
-                hub = await prisma.solarhub.create(
-                    data={
-                        "hub_id": 1,
-                        "what_three_word_location": "test.location.here",
-                        "solar_capacity_kw": 50,
-                        "country": "TestCountry"
-                    }
-                )
-            
-            # Create test user
-            await prisma.user.create(
-                data={
-                    "user_id": 999,
-                    "Name": "Test User",
-                    "hub_id": hub.hub_id,
-                    "user_access_level": "admin",
-                    "username": "testuser",
-                    "password_hash": pwd_context.hash("testpass123")
-                }
-            )
-            print("✅ Created test user")
+        if result.returncode == 0:
+            print("\n" + "=" * 60)
+            print("✅ All tests passed successfully!")
+            print("🎉 Your Solar Hub API is working correctly!")
         else:
-            print("✅ Test user already exists")
+            print("\n" + "=" * 60)
+            print("❌ Some tests failed!")
+            print("💡 Check the output above for details on what went wrong.")
+            
+        return result.returncode
+        
+    except KeyboardInterrupt:
+        print("\n🛑 Tests interrupted by user")
+        return 130
     except Exception as e:
-        print(f"⚠️  Error ensuring test user: {e}")
-    finally:
-        await prisma.disconnect()
+        print(f"❌ Error running tests: {e}")
+        return 1
 
-def main():
-    """Main test runner"""
-    parser = argparse.ArgumentParser(description="Run Solar Hub API tests")
-    parser.add_argument(
-        "category",
-        nargs="?",
-        default="all",
-        choices=["all", "auth", "hub", "user", "battery", "rental", "pue", "data", "webhook", "quick", "coverage"],
-        help="Test category to run"
-    )
-    parser.add_argument("--no-api", action="store_true", help="Don't start the API (assume it's already running)")
-    parser.add_argument("--keep-api", action="store_true", help="Keep API running after tests")
+def run_specific_test_class(test_class):
+    """Run a specific test class"""
+    print(f"🎯 Running {test_class} tests only...")
+    
+    try:
+        result = subprocess.run([
+            sys.executable, "-m", "pytest", 
+            f"test_webhook_integration.py::{test_class}",
+            "-v", "--tb=short", "--color=yes", "-s"
+        ], check=False)
+        
+        return result.returncode
+    except Exception as e:
+        print(f"❌ Error running {test_class} tests: {e}")
+        return 1
+
+def install_test_dependencies():
+    """Install test dependencies"""
+    print("📦 Installing test dependencies...")
+    
+    try:
+        subprocess.run([
+            sys.executable, "-m", "pip", "install", 
+            "-r", "test-requirements.txt"
+        ], check=True)
+        print("✅ Test dependencies installed")
+        return True
+    except subprocess.CalledProcessError:
+        print("❌ Failed to install test dependencies")
+        return False
+    except FileNotFoundError:
+        print("❌ test-requirements.txt not found")
+        return False
+
+def show_help():
+    """Show help message"""
+    print("""
+🔧 Solar Hub API Test Runner
+
+Usage:
+  python run_tests.py [options]
+
+Options:
+  --help                Show this help message
+  --install-deps        Install test dependencies first
+  --all                 Run all tests (default)
+  --basic               Run basic API tests only
+  --auth                Run authentication tests only
+  --hubs                Run hub management tests only
+  --batteries           Run battery management tests only
+  --users               Run user management tests only
+  --rentals             Run rental system tests only
+  --webhook             Run webhook integration tests only
+  --permissions         Run permission tests only
+  --errors              Run error handling tests only
+
+Examples:
+  python run_tests.py --install-deps --all
+  python run_tests.py --webhook
+  python run_tests.py --hubs --batteries
+""")
+
+if __name__ == "__main__":
+    
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Run Solar Hub API tests", add_help=False)
+    parser.add_argument("--help", action="store_true", help="Show help message")
+    parser.add_argument("--install-deps", action="store_true", help="Install test dependencies first")
+    parser.add_argument("--all", action="store_true", help="Run all tests (default)")
+    parser.add_argument("--basic", action="store_true", help="Run basic API tests")
+    parser.add_argument("--auth", action="store_true", help="Run authentication tests")
+    parser.add_argument("--hubs", action="store_true", help="Run hub management tests")
+    parser.add_argument("--batteries", action="store_true", help="Run battery management tests")
+    parser.add_argument("--users", action="store_true", help="Run user management tests")
+    parser.add_argument("--rentals", action="store_true", help="Run rental system tests")
+    parser.add_argument("--webhook", action="store_true", help="Run webhook integration tests")
+    parser.add_argument("--permissions", action="store_true", help="Run permission tests")
+    parser.add_argument("--errors", action="store_true", help="Run error handling tests")
     
     args = parser.parse_args()
     
-    print("🚀 Solar Hub Management API Test Runner")
-    print("======================================")
-    print(f"📁 Project root: {PROJECT_ROOT}")
+    if args.help:
+        show_help()
+        sys.exit(0)
     
-    # Check PostgreSQL
-    if not check_postgresql():
-        return 1
+    if args.install_deps:
+        if not install_test_dependencies():
+            sys.exit(1)
     
-    # Install dependencies
-    print("\n📥 Installing test dependencies...")
-    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "pytest", "pytest-asyncio", "httpx", "pytest-cov"])
+    # Determine which tests to run
+    test_classes = []
+    if args.basic:
+        test_classes.append("TestBasicAPI")
+    if args.auth:
+        test_classes.append("TestAuthentication")
+    if args.hubs:
+        test_classes.append("TestSolarHubManagement")
+    if args.batteries:
+        test_classes.append("TestBatteryManagement")
+    if args.users:
+        test_classes.append("TestUserManagement")
+    if args.rentals:
+        test_classes.append("TestRentalSystem")
+    if args.webhook:
+        test_classes.append("TestWebhookIntegration")
+    if args.permissions:
+        test_classes.append("TestPermissions")
+    if args.errors:
+        test_classes.append("TestErrorHandling")
     
-    # Generate Prisma client
-    if not run_command(
-        f'{sys.executable} -m prisma generate "{PRISMA_SCHEMA}"',
-        "Generating Prisma client"
-    ):
-        return 1
-    
-    # Push schema to database
-    if not run_command(
-        f'{sys.executable} -m prisma db push "{PRISMA_SCHEMA}"',
-        "Pushing schema to database"
-    ):
-        return 1
-    
-    # Check/Start API
-    api_process = None
-    if not args.no_api:
-        print("\n🌐 Checking API status...")
-        if check_api_running():
-            print("✅ API is already running")
-        else:
-            print("⚠️  API is not running. Starting API...")
-            api_process = subprocess.Popen(
-                [sys.executable, "run_api.py"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            
-            # Wait for API to start
-            for i in range(10):
-                time.sleep(1)
-                if check_api_running():
-                    print("✅ API started successfully")
-                    break
-            else:
-                print("❌ Failed to start API")
-                if api_process:
-                    api_process.terminate()
-                return 1
-    
-    # Ensure test user exists
-    print("\n👤 Ensuring test user exists...")
-    asyncio.run(ensure_test_user())
-    
-    # Run tests
-    print(f"\n🧪 Running {args.category} tests...")
-    print("=" * 50)
-    
-    test_commands = {
-        "all": "pytest test_api.py -v",
-        "auth": "pytest test_api.py::test_auth_token -v",
-        "hub": "pytest test_api.py::test_hub_operations -v",
-        "user": "pytest test_api.py::test_user_operations -v",
-        "battery": "pytest test_api.py::test_battery_operations -v",
-        "rental": "pytest test_api.py::test_rental_operations -v",
-        "pue": "pytest test_api.py::test_pue_operations -v",
-        "data": "pytest test_api.py::test_data_queries -v",
-        "webhook": "pytest test_api.py::test_webhook_live_data -v",
-        "quick": "pytest test_api.py::test_health_check test_api.py::test_root_endpoint test_api.py::test_auth_token -v",
-        "coverage": "pytest test_api.py --cov=api.app.main --cov-report=html --cov-report=term -v"
-    }
-    
-    test_cmd = test_commands.get(args.category, test_commands["all"])
-    result = subprocess.run(test_cmd, shell=True)
-    
-    # Clean up
-    print("\n🧹 Cleaning up...")
-    if api_process and not args.keep_api:
-        print("Stopping API...")
-        api_process.terminate()
-        api_process.wait()
-    
-    if args.category == "coverage":
-        print("\n📊 Coverage report generated in htmlcov/index.html")
-    
-    print("\n✅ Test run complete!")
-    
-    if result.returncode == 0:
-        print("All tests passed! 🎉")
+    # If no specific tests selected or --all specified, run all tests
+    if not test_classes or args.all:
+        exit_code = run_tests()
     else:
-        print("Some tests failed. Check the output above.")
+        # Run specific test classes
+        exit_code = 0
+        for test_class in test_classes:
+            result = run_specific_test_class(test_class)
+            if result != 0:
+                exit_code = result
     
-    print(f"\nUsage: {sys.argv[0]} [category] [--no-api] [--keep-api]")
-    print("Categories: all, auth, hub, user, battery, rental, pue, data, webhook, quick, coverage")
-    
-    return result.returncode
-
-if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(exit_code)

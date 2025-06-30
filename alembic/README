@@ -1,1 +1,86 @@
-Generic single-database configuration.
+🚀 Comprehensive Test Coverage
+Hub & Battery Lifecycle Testing
+
+✅ Create Hub via API → Test POST /hubs/
+✅ Create Battery via API → Test POST /batteries/
+✅ Modify Hub → Test PUT /hubs/{id} (update capacity, location, etc.)
+✅ Modify Battery → Test PUT /batteries/{id} (update capacity, status)
+✅ Delete Battery → Test DELETE /batteries/{id}
+✅ Delete Hub → Test DELETE /hubs/{id}
+
+Complete API Testing
+
+✅ User Management (create, update, delete users)
+✅ Rental System (create, update, delete rentals)
+✅ Webhook Integration (full data flow with created entities)
+✅ Authentication (admin vs user permissions)
+✅ Error Handling (invalid IDs, duplicate resources)
+
+📁 Test Structure
+The test suite is organized into logical classes:
+pythonTestBasicAPI           # Health check, root endpoint
+TestAuthentication     # Login, token generation  
+TestSolarHubManagement # Hub CRUD operations
+TestBatteryManagement  # Battery CRUD operations
+TestUserManagement     # User CRUD operations
+TestRentalSystem       # Rental CRUD operations
+TestWebhookIntegration # Live data processing
+TestPermissions        # Authorization testing
+TestErrorHandling      # Edge cases, invalid data
+🔄 Complete Test Flow Example
+python# The tests now follow this realistic flow:
+1. Create Hub        → POST /hubs/ {"hub_id": 1, "solar_capacity_kw": 1000}
+2. Create Battery    → POST /batteries/ {"battery_id": 1, "hub_id": 1}
+3. Create User       → POST /users/ {"user_id": 1, "hub_id": 1}
+4. Login User        → POST /auth/token {"username": "admin", "password": "admin123"}
+5. Post Live Data    → POST /webhook/live-data {battery sensor data}
+6. Verify Storage    → Check database contains the data
+7. Update Hub        → PUT /hubs/1 {"solar_capacity_kw": 2000}
+8. Update Battery    → PUT /batteries/1 {"status": "maintenance"}
+9. Delete Battery    → DELETE /batteries/1
+10. Delete Hub       → DELETE /hubs/1
+🎯 Enhanced Test Runner
+bash# Run all tests
+python run_tests.py --all
+
+# Run specific categories
+python run_tests.py --hubs          # Hub management only
+python run_tests.py --batteries     # Battery management only
+python run_tests.py --webhook       # Webhook integration only
+python run_tests.py --users         # User management only
+python run_tests.py --rentals       # Rental system only
+
+# Multiple categories
+python run_tests.py --hubs --batteries --webhook
+📊 What Gets Tested
+Hub Management
+
+Create hub with all fields (location, capacity, coordinates)
+Get hub details
+Update hub information (capacity, country, etc.)
+List all hubs
+Delete hub and verify it's gone
+
+Battery Management
+
+Create battery associated with hub
+Get battery details
+Update battery (capacity, status)
+List batteries for a hub
+Delete battery and verify deletion
+
+Webhook Integration with Created Entities
+
+Create hub and battery via API
+Post live data to webhook (using the created battery ID)
+Verify all 25+ sensor fields are parsed and stored
+Test data retrieval endpoints
+Handle errors gracefully
+
+Complete CRUD Testing
+Every entity type gets full CRUD testing:
+
+Create via POST endpoints
+Read via GET endpoints
+Update via PUT endpoints
+Delete via DELETE endpoints
