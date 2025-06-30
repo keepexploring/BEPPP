@@ -3,3 +3,4 @@
 .venv/
 .development_notes
 prisma-heroku/
+*.pyc
