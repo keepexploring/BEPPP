@@ -162,5 +162,16 @@ alembic current
 alembic history --verbose
 
 alembic revision --autogenerate -m "Fix schema and add LiveData fields"
+alembic revision --autogenerate -m "add battery_secret"
 alembic revision -m "Add additional fields to LiveData table"
 alembic upgrade head
+
+# Running the tests
+Start your API: python -m uvicorn main:app --reload
+Run tests: python test_runner.py or pytest test_api.py -v
+
+# Migrations - this is how to do
+
+check migration status: alembic current
+create the migration: alembic revision --autogenerate -m "add battery_secret"
+apply the migration: alembic upgrade head

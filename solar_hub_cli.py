@@ -588,5 +588,135 @@ def docs():
     click.echo(f"📚 Opening API docs at {url}")
     webbrowser.open(url)
 
+# ============= DATA_ADMIN Hub Access Management =============
+@cli.group()
+def data_admin():
+    """Manage DATA_ADMIN hub access"""
+    pass
+
+@data_admin.command('grant-hub')
+@click.option('--user-id', type=int, prompt=True, help='DATA_ADMIN user ID')
+@click.option('--hub-id', type=int, prompt=True, help='Hub ID to grant access to')
+def grant_hub_access(user_id, hub_id):
+    """Grant hub access to a DATA_ADMIN user"""
+    db = SessionLocal()
+    
+    try:
+        # Check if user exists and is DATA_ADMIN
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            click.echo(f"❌ User {user_id} not found!")
+            return
+        
+        if user.user_access_level != UserRole.DATA_ADMIN.value:
+            click.echo(f"❌ User {user_id} is not a DATA_ADMIN user!")
+            return
+        
+        # Check if hub exists
+        hub = db.query(SolarHub).filter(SolarHub.hub_id == hub_id).first()
+        if not hub:
+            click.echo(f"❌ Hub {hub_id} not found!")
+            return
+        
+        # Check if access already exists
+        if hub in user.accessible_hubs:
+            click.echo(f"❌ User {user_id} already has access to hub {hub_id}!")
+            return
+        
+        # Grant access
+        user.accessible_hubs.append(hub)
+        db.commit()
+        
+        click.echo(f"✅ Granted hub access:")
+        click.echo(f"   User: {user.Name} (ID: {user.user_id})")
+        click.echo(f"   Hub: {hub.hub_id} ({hub.country})")
+        
+    except Exception as e:
+        db.rollback()
+        click.echo(f"❌ Error: {e}")
+    finally:
+        db.close()
+
+@data_admin.command('revoke-hub')
+@click.option('--user-id', type=int, prompt=True, help='DATA_ADMIN user ID')
+@click.option('--hub-id', type=int, prompt=True, help='Hub ID to revoke access from')
+def revoke_hub_access(user_id, hub_id):
+    """Revoke hub access from a DATA_ADMIN user"""
+    db = SessionLocal()
+    
+    try:
+        # Check if user exists and is DATA_ADMIN
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            click.echo(f"❌ User {user_id} not found!")
+            return
+        
+        if user.user_access_level != UserRole.DATA_ADMIN.value:
+            click.echo(f"❌ User {user_id} is not a DATA_ADMIN user!")
+            return
+        
+        # Check if hub exists
+        hub = db.query(SolarHub).filter(SolarHub.hub_id == hub_id).first()
+        if not hub:
+            click.echo(f"❌ Hub {hub_id} not found!")
+            return
+        
+        # Check if access exists
+        if hub not in user.accessible_hubs:
+            click.echo(f"❌ User {user_id} does not have access to hub {hub_id}!")
+            return
+        
+        # Revoke access
+        user.accessible_hubs.remove(hub)
+        db.commit()
+        
+        click.echo(f"✅ Revoked hub access:")
+        click.echo(f"   User: {user.Name} (ID: {user.user_id})")
+        click.echo(f"   Hub: {hub.hub_id} ({hub.country})")
+        
+    except Exception as e:
+        db.rollback()
+        click.echo(f"❌ Error: {e}")
+    finally:
+        db.close()
+
+@data_admin.command('list-access')
+@click.option('--user-id', type=int, help='Show access for specific user')
+def list_hub_access(user_id):
+    """List DATA_ADMIN hub access permissions"""
+    db = SessionLocal()
+    
+    try:
+        if user_id:
+            users = [db.query(User).filter(User.user_id == user_id).first()]
+            if not users[0]:
+                click.echo(f"❌ User {user_id} not found!")
+                return
+        else:
+            users = db.query(User).filter(User.user_access_level == UserRole.DATA_ADMIN.value).all()
+        
+        if not users:
+            click.echo("No DATA_ADMIN users found!")
+            return
+        
+        for user in users:
+            if user.user_access_level != UserRole.DATA_ADMIN.value:
+                if user_id:
+                    click.echo(f"❌ User {user_id} is not a DATA_ADMIN user!")
+                continue
+            
+            click.echo(f"\n📊 DATA_ADMIN: {user.Name} (ID: {user.user_id})")
+            if user.accessible_hubs:
+                click.echo("   Accessible Hubs:")
+                for hub in user.accessible_hubs:
+                    click.echo(f"     - Hub {hub.hub_id}: {hub.country} ({hub.what_three_word_location})")
+            else:
+                click.echo("   No hub access granted")
+        
+    except Exception as e:
+        click.echo(f"❌ Error: {e}")
+    finally:
+        db.close()
+
 if __name__ == '__main__':
     cli()

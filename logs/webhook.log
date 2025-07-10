@@ -153,3 +153,342 @@
   "summary": null,
   "error": "HTTP 404: Battery 999 not found"
 }
+2025-07-03 10:45:50,073 - webhook - INFO - log_webhook_event:136 - [request_received] User: admin | Status: info
+2025-07-03 10:45:50,074 - webhook - INFO - log_webhook_event:130 - [authentication_success] User: admin | Battery: 1 | Status: success
+2025-07-03 10:45:50,074 - webhook - INFO - log_webhook_event:136 - [direct_format_detected] User: admin | Battery: 1 | Status: info
+2025-07-03 10:45:50,075 - webhook - INFO - log_webhook_event:130 - [battery_validated] User: admin | Battery: 1 | Status: success
+2025-07-03 10:45:50,076 - webhook - INFO - log_webhook_event:136 - [field_parsing_completed] User: admin | Battery: 1 | Status: info | Parsed: 26 fields
+2025-07-03 10:45:50,077 - webhook - WARNING - log_webhook_event:134 - [livedata_creation_fallback] User: admin | Battery: 1 | Status: warning | Error: Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData
+2025-07-03 10:45:50,078 - webhook - DEBUG - log_webhook_event:161 - Full event data: {
+  "timestamp": "2025-07-03T10:45:50.078558",
+  "event_type": "livedata_creation_fallback",
+  "status": "warning",
+  "user": {
+    "username": "admin",
+    "user_id": 1,
+    "role": "admin"
+  },
+  "battery_id": 1,
+  "data_id": null,
+  "summary": null,
+  "error": "Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData"
+}
+2025-07-03 10:45:50,088 - webhook - INFO - log_webhook_event:130 - [database_save_success] User: admin | Battery: 1 | Status: success
+2025-07-03 10:45:50,088 - webhook - INFO - log_webhook_event:130 - [data_processed_successfully] User: admin | Battery: 1 | Status: success | Parsed: 26 fields | Time: 0.015s
+2025-07-03 10:45:50,377 - webhook - INFO - log_webhook_event:136 - [request_received] User: admin | Status: info
+2025-07-03 10:45:50,377 - webhook - INFO - log_webhook_event:130 - [authentication_success] User: admin | Battery: 51 | Status: success
+2025-07-03 10:45:50,377 - webhook - INFO - log_webhook_event:136 - [direct_format_detected] User: admin | Battery: 51 | Status: info
+2025-07-03 10:45:50,378 - webhook - INFO - log_webhook_event:130 - [battery_validated] User: admin | Battery: 51 | Status: success
+2025-07-03 10:45:50,378 - webhook - INFO - log_webhook_event:136 - [field_parsing_completed] User: admin | Battery: 51 | Status: info | Parsed: 26 fields
+2025-07-03 10:45:50,379 - webhook - WARNING - log_webhook_event:134 - [livedata_creation_fallback] User: admin | Battery: 51 | Status: warning | Error: Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData
+2025-07-03 10:45:50,379 - webhook - DEBUG - log_webhook_event:161 - Full event data: {
+  "timestamp": "2025-07-03T10:45:50.379196",
+  "event_type": "livedata_creation_fallback",
+  "status": "warning",
+  "user": {
+    "username": "admin",
+    "user_id": 1,
+    "role": "admin"
+  },
+  "battery_id": 51,
+  "data_id": null,
+  "summary": null,
+  "error": "Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData"
+}
+2025-07-03 10:45:50,382 - webhook - INFO - log_webhook_event:130 - [database_save_success] User: admin | Battery: 51 | Status: success
+2025-07-03 10:45:50,383 - webhook - INFO - log_webhook_event:130 - [data_processed_successfully] User: admin | Battery: 51 | Status: success | Parsed: 26 fields | Time: 0.006s
+2025-07-03 10:45:50,683 - webhook - INFO - log_webhook_event:136 - [request_received] User: admin | Status: info
+2025-07-03 10:45:50,684 - webhook - INFO - log_webhook_event:130 - [authentication_success] User: admin | Battery: 52 | Status: success
+2025-07-03 10:45:50,685 - webhook - INFO - log_webhook_event:136 - [direct_format_detected] User: admin | Battery: 52 | Status: info
+2025-07-03 10:45:50,686 - webhook - INFO - log_webhook_event:130 - [battery_validated] User: admin | Battery: 52 | Status: success
+2025-07-03 10:45:50,687 - webhook - INFO - log_webhook_event:136 - [field_parsing_completed] User: admin | Battery: 52 | Status: info | Parsed: 26 fields
+2025-07-03 10:45:50,687 - webhook - WARNING - log_webhook_event:134 - [livedata_creation_fallback] User: admin | Battery: 52 | Status: warning | Error: Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData
+2025-07-03 10:45:50,690 - webhook - DEBUG - log_webhook_event:161 - Full event data: {
+  "timestamp": "2025-07-03T10:45:50.690817",
+  "event_type": "livedata_creation_fallback",
+  "status": "warning",
+  "user": {
+    "username": "admin",
+    "user_id": 1,
+    "role": "admin"
+  },
+  "battery_id": 52,
+  "data_id": null,
+  "summary": null,
+  "error": "Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData"
+}
+2025-07-03 10:45:50,693 - webhook - INFO - log_webhook_event:130 - [database_save_success] User: admin | Battery: 52 | Status: success
+2025-07-03 10:45:50,694 - webhook - INFO - log_webhook_event:130 - [data_processed_successfully] User: admin | Battery: 52 | Status: success | Parsed: 26 fields | Time: 0.010s
+2025-07-03 10:45:50,703 - webhook - INFO - log_webhook_event:136 - [request_received] User: admin | Status: info
+2025-07-03 10:45:50,703 - webhook - INFO - log_webhook_event:130 - [authentication_success] User: admin | Battery: 52 | Status: success
+2025-07-03 10:45:50,704 - webhook - INFO - log_webhook_event:136 - [direct_format_detected] User: admin | Battery: 52 | Status: info
+2025-07-03 10:45:50,706 - webhook - INFO - log_webhook_event:130 - [battery_validated] User: admin | Battery: 52 | Status: success
+2025-07-03 10:45:50,706 - webhook - INFO - log_webhook_event:136 - [field_parsing_completed] User: admin | Battery: 52 | Status: info | Parsed: 26 fields
+2025-07-03 10:45:50,707 - webhook - WARNING - log_webhook_event:134 - [livedata_creation_fallback] User: admin | Battery: 52 | Status: warning | Error: Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData
+2025-07-03 10:45:50,707 - webhook - DEBUG - log_webhook_event:161 - Full event data: {
+  "timestamp": "2025-07-03T10:45:50.707497",
+  "event_type": "livedata_creation_fallback",
+  "status": "warning",
+  "user": {
+    "username": "admin",
+    "user_id": 1,
+    "role": "admin"
+  },
+  "battery_id": 52,
+  "data_id": null,
+  "summary": null,
+  "error": "Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData"
+}
+2025-07-03 10:45:50,711 - webhook - INFO - log_webhook_event:130 - [database_save_success] User: admin | Battery: 52 | Status: success
+2025-07-03 10:45:50,711 - webhook - INFO - log_webhook_event:130 - [data_processed_successfully] User: admin | Battery: 52 | Status: success | Parsed: 26 fields | Time: 0.009s
+2025-07-03 10:45:50,725 - webhook - INFO - log_webhook_event:136 - [request_received] User: admin | Status: info
+2025-07-03 10:45:50,727 - webhook - INFO - log_webhook_event:130 - [authentication_success] User: admin | Battery: 52 | Status: success
+2025-07-03 10:45:50,727 - webhook - INFO - log_webhook_event:136 - [direct_format_detected] User: admin | Battery: 52 | Status: info
+2025-07-03 10:45:50,732 - webhook - INFO - log_webhook_event:130 - [battery_validated] User: admin | Battery: 52 | Status: success
+2025-07-03 10:45:50,736 - webhook - INFO - log_webhook_event:136 - [field_parsing_completed] User: admin | Battery: 52 | Status: info | Parsed: 26 fields
+2025-07-03 10:45:50,739 - webhook - WARNING - log_webhook_event:134 - [livedata_creation_fallback] User: admin | Battery: 52 | Status: warning | Error: Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData
+2025-07-03 10:45:50,740 - webhook - DEBUG - log_webhook_event:161 - Full event data: {
+  "timestamp": "2025-07-03T10:45:50.739994",
+  "event_type": "livedata_creation_fallback",
+  "status": "warning",
+  "user": {
+    "username": "admin",
+    "user_id": 1,
+    "role": "admin"
+  },
+  "battery_id": 52,
+  "data_id": null,
+  "summary": null,
+  "error": "Had to filter fields due to: 'created_at' is an invalid keyword argument for LiveData"
+}
+2025-07-03 10:45:50,789 - webhook - INFO - log_webhook_event:130 - [database_save_success] User: admin | Battery: 52 | Status: success
+2025-07-03 10:45:50,790 - webhook - INFO - log_webhook_event:130 - [data_processed_successfully] User: admin | Battery: 52 | Status: success | Parsed: 26 fields | Time: 0.065s
+2025-07-03 10:45:51,091 - webhook - INFO - log_webhook_event:136 - [request_received] User: admin | Status: info
+2025-07-03 10:45:51,091 - webhook - INFO - log_webhook_event:130 - [authentication_success] User: admin | Battery: 999 | Status: success
+2025-07-03 10:45:51,091 - webhook - INFO - log_webhook_event:136 - [direct_format_detected] User: admin | Battery: 999 | Status: info
+2025-07-03 10:45:51,092 - webhook - ERROR - log_webhook_event:132 - [battery_not_found] User: admin | Battery: 999 | Status: error | Error: Battery 999 does not exist in database
+2025-07-03 10:45:51,092 - webhook - DEBUG - log_webhook_event:161 - Full event data: {
+  "timestamp": "2025-07-03T10:45:51.092517",
+  "event_type": "battery_not_found",
+  "status": "error",
+  "user": {
+    "username": "admin",
+    "user_id": 1,
+    "role": "admin"
+  },
+  "battery_id": 999,
+  "data_id": null,
+  "summary": null,
+  "error": "Battery 999 does not exist in database"
+}
+2025-07-03 10:45:51,092 - webhook - ERROR - log_webhook_event:132 - [client_error] User: admin | Battery: 999 | Status: error | Error: HTTP 404: Battery 999 not found
+2025-07-03 10:45:51,092 - webhook - DEBUG - log_webhook_event:161 - Full event data: {
+  "timestamp": "2025-07-03T10:45:51.092805",
+  "event_type": "client_error",
+  "status": "error",
+  "user": {
+    "username": "admin",
+    "user_id": 1,
+    "role": "admin"
+  },
+  "battery_id": 999,
+  "data_id": null,
+  "summary": null,
+  "error": "HTTP 404: Battery 999 not found"
+}
+2025-07-03 11:26:16,414 - webhook - INFO - startup:575 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 11:26:16,414 - webhook - INFO - startup:575 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 11:26:17,042 - webhook - INFO - startup:584 - ✅ Database tables created/verified
+2025-07-03 11:26:17,042 - webhook - INFO - startup:584 - ✅ Database tables created/verified
+2025-07-03 11:41:43,618 - webhook - INFO - startup:600 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 11:41:43,618 - webhook - INFO - startup:600 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 11:41:43,773 - webhook - INFO - startup:609 - ✅ Database tables created/verified
+2025-07-03 11:41:43,773 - webhook - INFO - startup:609 - ✅ Database tables created/verified
+2025-07-03 12:03:32,223 - webhook - INFO - startup:600 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 12:03:32,223 - webhook - INFO - startup:600 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 12:03:32,333 - webhook - INFO - startup:609 - ✅ Database tables created/verified
+2025-07-03 12:03:32,333 - webhook - INFO - startup:609 - ✅ Database tables created/verified
+2025-07-03 16:27:59,763 - webhook - INFO - startup:600 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 16:27:59,763 - webhook - INFO - startup:600 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 16:27:59,799 - webhook - INFO - startup:609 - ✅ Database tables created/verified
+2025-07-03 16:27:59,799 - webhook - INFO - startup:609 - ✅ Database tables created/verified
+2025-07-03 16:30:22,330 - webhook - INFO - startup:600 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 16:30:22,330 - webhook - INFO - startup:600 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 16:30:22,366 - webhook - INFO - startup:609 - ✅ Database tables created/verified
+2025-07-03 16:30:22,366 - webhook - INFO - startup:609 - ✅ Database tables created/verified
+2025-07-03 16:30:24,194 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_11502 | Status: info
+2025-07-03 16:30:24,194 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_11502 | Status: info
+2025-07-03 16:30:24,194 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_11502 | Battery: 11502 | Status: success
+2025-07-03 16:30:24,194 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_11502 | Battery: 11502 | Status: success
+2025-07-03 16:30:24,194 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_11502 | Battery: 11502 | Status: info
+2025-07-03 16:30:24,194 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_11502 | Battery: 11502 | Status: info
+2025-07-03 16:30:24,220 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_11502 | Battery: 11502 | Status: success
+2025-07-03 16:30:24,220 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_11502 | Battery: 11502 | Status: success
+2025-07-03 16:30:24,221 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_11502 | Battery: 11502 | Status: info | Parsed: 4 fields
+2025-07-03 16:30:24,221 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_11502 | Battery: 11502 | Status: info | Parsed: 4 fields
+2025-07-03 16:30:24,263 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_11502 | Battery: 11502 | Status: success
+2025-07-03 16:30:24,263 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_11502 | Battery: 11502 | Status: success
+2025-07-03 16:30:24,263 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_11502 | Battery: 11502 | Status: success | Parsed: 4 fields | Time: 0.069s
+2025-07-03 16:30:24,263 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_11502 | Battery: 11502 | Status: success | Parsed: 4 fields | Time: 0.069s
+2025-07-03 16:30:27,065 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_11600 | Status: info
+2025-07-03 16:30:27,065 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_11600 | Status: info
+2025-07-03 16:30:27,065 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_11600 | Battery: 11600 | Status: success
+2025-07-03 16:30:27,065 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_11600 | Battery: 11600 | Status: success
+2025-07-03 16:30:27,065 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_11600 | Battery: 11600 | Status: info
+2025-07-03 16:30:27,065 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_11600 | Battery: 11600 | Status: info
+2025-07-03 16:30:27,106 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_11600 | Battery: 11600 | Status: success
+2025-07-03 16:30:27,106 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_11600 | Battery: 11600 | Status: success
+2025-07-03 16:30:27,107 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_11600 | Battery: 11600 | Status: info | Parsed: 5 fields
+2025-07-03 16:30:27,107 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_11600 | Battery: 11600 | Status: info | Parsed: 5 fields
+2025-07-03 16:30:27,149 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_11600 | Battery: 11600 | Status: success
+2025-07-03 16:30:27,149 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_11600 | Battery: 11600 | Status: success
+2025-07-03 16:30:27,150 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_11600 | Battery: 11600 | Status: success | Parsed: 5 fields | Time: 0.085s
+2025-07-03 16:30:27,150 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_11600 | Battery: 11600 | Status: success | Parsed: 5 fields | Time: 0.085s
+2025-07-03 16:41:36,013 - webhook - INFO - startup:600 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 16:41:36,013 - webhook - INFO - startup:600 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 16:41:36,064 - webhook - INFO - startup:609 - ✅ Database tables created/verified
+2025-07-03 16:41:36,064 - webhook - INFO - startup:609 - ✅ Database tables created/verified
+2025-07-03 16:41:38,081 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_9689 | Status: info
+2025-07-03 16:41:38,081 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_9689 | Status: info
+2025-07-03 16:41:38,081 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_9689 | Battery: 9689 | Status: success
+2025-07-03 16:41:38,081 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_9689 | Battery: 9689 | Status: success
+2025-07-03 16:41:38,081 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_9689 | Battery: 9689 | Status: info
+2025-07-03 16:41:38,081 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_9689 | Battery: 9689 | Status: info
+2025-07-03 16:41:38,108 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_9689 | Battery: 9689 | Status: success
+2025-07-03 16:41:38,108 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_9689 | Battery: 9689 | Status: success
+2025-07-03 16:41:38,108 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_9689 | Battery: 9689 | Status: info | Parsed: 4 fields
+2025-07-03 16:41:38,108 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_9689 | Battery: 9689 | Status: info | Parsed: 4 fields
+2025-07-03 16:41:38,153 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_9689 | Battery: 9689 | Status: success
+2025-07-03 16:41:38,153 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_9689 | Battery: 9689 | Status: success
+2025-07-03 16:41:38,153 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_9689 | Battery: 9689 | Status: success | Parsed: 4 fields | Time: 0.072s
+2025-07-03 16:41:38,153 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_9689 | Battery: 9689 | Status: success | Parsed: 4 fields | Time: 0.072s
+2025-07-03 16:41:40,614 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_9787 | Status: info
+2025-07-03 16:41:40,614 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_9787 | Status: info
+2025-07-03 16:41:40,615 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_9787 | Battery: 9787 | Status: success
+2025-07-03 16:41:40,615 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_9787 | Battery: 9787 | Status: success
+2025-07-03 16:41:40,615 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_9787 | Battery: 9787 | Status: info
+2025-07-03 16:41:40,615 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_9787 | Battery: 9787 | Status: info
+2025-07-03 16:41:40,638 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_9787 | Battery: 9787 | Status: success
+2025-07-03 16:41:40,638 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_9787 | Battery: 9787 | Status: success
+2025-07-03 16:41:40,639 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_9787 | Battery: 9787 | Status: info | Parsed: 5 fields
+2025-07-03 16:41:40,639 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_9787 | Battery: 9787 | Status: info | Parsed: 5 fields
+2025-07-03 16:41:40,668 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_9787 | Battery: 9787 | Status: success
+2025-07-03 16:41:40,668 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_9787 | Battery: 9787 | Status: success
+2025-07-03 16:41:40,668 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_9787 | Battery: 9787 | Status: success | Parsed: 5 fields | Time: 0.054s
+2025-07-03 16:41:40,668 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_9787 | Battery: 9787 | Status: success | Parsed: 5 fields | Time: 0.054s
+2025-07-03 16:48:26,618 - webhook - INFO - startup:600 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 16:48:26,618 - webhook - INFO - startup:600 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 16:48:26,655 - webhook - INFO - startup:609 - ✅ Database tables created/verified
+2025-07-03 16:48:26,655 - webhook - INFO - startup:609 - ✅ Database tables created/verified
+2025-07-03 16:48:28,768 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_10657 | Status: info
+2025-07-03 16:48:28,768 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_10657 | Status: info
+2025-07-03 16:48:28,769 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_10657 | Battery: 10657 | Status: success
+2025-07-03 16:48:28,769 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_10657 | Battery: 10657 | Status: success
+2025-07-03 16:48:28,769 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_10657 | Battery: 10657 | Status: info
+2025-07-03 16:48:28,769 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_10657 | Battery: 10657 | Status: info
+2025-07-03 16:48:28,799 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_10657 | Battery: 10657 | Status: success
+2025-07-03 16:48:28,799 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_10657 | Battery: 10657 | Status: success
+2025-07-03 16:48:28,800 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_10657 | Battery: 10657 | Status: info | Parsed: 4 fields
+2025-07-03 16:48:28,800 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_10657 | Battery: 10657 | Status: info | Parsed: 4 fields
+2025-07-03 16:48:28,864 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_10657 | Battery: 10657 | Status: success
+2025-07-03 16:48:28,864 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_10657 | Battery: 10657 | Status: success
+2025-07-03 16:48:28,865 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_10657 | Battery: 10657 | Status: success | Parsed: 4 fields | Time: 0.097s
+2025-07-03 16:48:28,865 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_10657 | Battery: 10657 | Status: success | Parsed: 4 fields | Time: 0.097s
+2025-07-03 16:48:30,058 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_10657 | Status: info
+2025-07-03 16:48:30,058 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_10657 | Status: info
+2025-07-03 16:48:30,058 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_10657 | Battery: 10657 | Status: success
+2025-07-03 16:48:30,058 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_10657 | Battery: 10657 | Status: success
+2025-07-03 16:48:30,058 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_10657 | Battery: 10657 | Status: info
+2025-07-03 16:48:30,058 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_10657 | Battery: 10657 | Status: info
+2025-07-03 16:48:30,084 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_10657 | Battery: 10657 | Status: success
+2025-07-03 16:48:30,084 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_10657 | Battery: 10657 | Status: success
+2025-07-03 16:48:30,085 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_10657 | Battery: 10657 | Status: info | Parsed: 7 fields
+2025-07-03 16:48:30,085 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_10657 | Battery: 10657 | Status: info | Parsed: 7 fields
+2025-07-03 16:48:30,116 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_10657 | Battery: 10657 | Status: success
+2025-07-03 16:48:30,116 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_10657 | Battery: 10657 | Status: success
+2025-07-03 16:48:30,116 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_10657 | Battery: 10657 | Status: success | Parsed: 7 fields | Time: 0.058s
+2025-07-03 16:48:30,116 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_10657 | Battery: 10657 | Status: success | Parsed: 7 fields | Time: 0.058s
+2025-07-03 16:48:31,206 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_10755 | Status: info
+2025-07-03 16:48:31,206 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_10755 | Status: info
+2025-07-03 16:48:31,207 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_10755 | Battery: 10755 | Status: success
+2025-07-03 16:48:31,207 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_10755 | Battery: 10755 | Status: success
+2025-07-03 16:48:31,207 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_10755 | Battery: 10755 | Status: info
+2025-07-03 16:48:31,207 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_10755 | Battery: 10755 | Status: info
+2025-07-03 16:48:31,231 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_10755 | Battery: 10755 | Status: success
+2025-07-03 16:48:31,231 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_10755 | Battery: 10755 | Status: success
+2025-07-03 16:48:31,231 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_10755 | Battery: 10755 | Status: info | Parsed: 5 fields
+2025-07-03 16:48:31,231 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_10755 | Battery: 10755 | Status: info | Parsed: 5 fields
+2025-07-03 16:48:31,260 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_10755 | Battery: 10755 | Status: success
+2025-07-03 16:48:31,260 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_10755 | Battery: 10755 | Status: success
+2025-07-03 16:48:31,261 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_10755 | Battery: 10755 | Status: success | Parsed: 5 fields | Time: 0.054s
+2025-07-03 16:48:31,261 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_10755 | Battery: 10755 | Status: success | Parsed: 5 fields | Time: 0.054s
+2025-07-03 16:49:39,210 - webhook - INFO - startup:600 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 16:49:39,210 - webhook - INFO - startup:600 - 🚀 Webhook logging system initialized (DEBUG MODE)
+2025-07-03 16:49:39,244 - webhook - INFO - startup:609 - ✅ Database tables created/verified
+2025-07-03 16:49:39,244 - webhook - INFO - startup:609 - ✅ Database tables created/verified
+2025-07-03 16:49:41,006 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_13903 | Status: info
+2025-07-03 16:49:41,006 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_13903 | Status: info
+2025-07-03 16:49:41,006 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_13903 | Battery: 13903 | Status: success
+2025-07-03 16:49:41,006 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_13903 | Battery: 13903 | Status: success
+2025-07-03 16:49:41,007 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_13903 | Battery: 13903 | Status: info
+2025-07-03 16:49:41,007 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_13903 | Battery: 13903 | Status: info
+2025-07-03 16:49:41,034 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_13903 | Battery: 13903 | Status: success
+2025-07-03 16:49:41,034 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_13903 | Battery: 13903 | Status: success
+2025-07-03 16:49:41,035 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_13903 | Battery: 13903 | Status: info | Parsed: 4 fields
+2025-07-03 16:49:41,035 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_13903 | Battery: 13903 | Status: info | Parsed: 4 fields
+2025-07-03 16:49:41,072 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_13903 | Battery: 13903 | Status: success
+2025-07-03 16:49:41,072 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_13903 | Battery: 13903 | Status: success
+2025-07-03 16:49:41,072 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_13903 | Battery: 13903 | Status: success | Parsed: 4 fields | Time: 0.066s
+2025-07-03 16:49:41,072 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_13903 | Battery: 13903 | Status: success | Parsed: 4 fields | Time: 0.066s
+2025-07-03 16:49:42,304 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_13903 | Status: info
+2025-07-03 16:49:42,304 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_13903 | Status: info
+2025-07-03 16:49:42,304 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_13903 | Battery: 13903 | Status: success
+2025-07-03 16:49:42,304 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_13903 | Battery: 13903 | Status: success
+2025-07-03 16:49:42,305 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_13903 | Battery: 13903 | Status: info
+2025-07-03 16:49:42,305 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_13903 | Battery: 13903 | Status: info
+2025-07-03 16:49:42,330 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_13903 | Battery: 13903 | Status: success
+2025-07-03 16:49:42,330 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_13903 | Battery: 13903 | Status: success
+2025-07-03 16:49:42,331 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_13903 | Battery: 13903 | Status: info | Parsed: 7 fields
+2025-07-03 16:49:42,331 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_13903 | Battery: 13903 | Status: info | Parsed: 7 fields
+2025-07-03 16:49:42,359 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_13903 | Battery: 13903 | Status: success
+2025-07-03 16:49:42,359 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_13903 | Battery: 13903 | Status: success
+2025-07-03 16:49:42,359 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_13903 | Battery: 13903 | Status: success | Parsed: 7 fields | Time: 0.056s
+2025-07-03 16:49:42,359 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_13903 | Battery: 13903 | Status: success | Parsed: 7 fields | Time: 0.056s
+2025-07-03 16:49:43,517 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_14001 | Status: info
+2025-07-03 16:49:43,517 - webhook - INFO - log_webhook_event:162 - [request_received] User: battery_14001 | Status: info
+2025-07-03 16:49:43,517 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_14001 | Battery: 14001 | Status: success
+2025-07-03 16:49:43,517 - webhook - INFO - log_webhook_event:156 - [authentication_success] User: battery_14001 | Battery: 14001 | Status: success
+2025-07-03 16:49:43,518 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_14001 | Battery: 14001 | Status: info
+2025-07-03 16:49:43,518 - webhook - INFO - log_webhook_event:162 - [direct_format_detected] User: battery_14001 | Battery: 14001 | Status: info
+2025-07-03 16:49:43,547 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_14001 | Battery: 14001 | Status: success
+2025-07-03 16:49:43,547 - webhook - INFO - log_webhook_event:156 - [battery_validated] User: battery_14001 | Battery: 14001 | Status: success
+2025-07-03 16:49:43,547 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_14001 | Battery: 14001 | Status: info | Parsed: 5 fields
+2025-07-03 16:49:43,547 - webhook - INFO - log_webhook_event:162 - [field_parsing_completed] User: battery_14001 | Battery: 14001 | Status: info | Parsed: 5 fields
+2025-07-03 16:49:43,577 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_14001 | Battery: 14001 | Status: success
+2025-07-03 16:49:43,577 - webhook - INFO - log_webhook_event:156 - [database_save_success] User: battery_14001 | Battery: 14001 | Status: success
+2025-07-03 16:49:43,577 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_14001 | Battery: 14001 | Status: success | Parsed: 5 fields | Time: 0.060s
+2025-07-03 16:49:43,577 - webhook - INFO - log_webhook_event:156 - [data_processed_successfully] User: battery_14001 | Battery: 14001 | Status: success | Parsed: 5 fields | Time: 0.060s
+2025-07-04 15:32:33,217 - webhook - INFO - startup:2814 - 🚀 Enhanced API with PUE & Analytics initialized (DEBUG MODE)
+2025-07-04 15:32:33,217 - webhook - INFO - startup:2814 - 🚀 Enhanced API with PUE & Analytics initialized (DEBUG MODE)
+2025-07-04 15:32:36,232 - webhook - INFO - startup:2823 - ✅ Database tables created/verified
+2025-07-04 15:32:36,232 - webhook - INFO - startup:2823 - ✅ Database tables created/verified
+2025-07-09 15:37:58,044 - webhook - INFO - startup:2965 - 🚀 Enhanced API with PUE & Analytics initialized (DEBUG MODE)
+2025-07-09 15:37:58,044 - webhook - INFO - startup:2965 - 🚀 Enhanced API with PUE & Analytics initialized (DEBUG MODE)
+2025-07-09 15:37:58,531 - webhook - INFO - startup:2974 - ✅ Database tables created/verified
+2025-07-09 15:37:58,531 - webhook - INFO - startup:2974 - ✅ Database tables created/verified
+2025-07-09 19:13:39,382 - webhook - INFO - startup:2258 - 🚀 Enhanced API with PUE & Analytics initialized (DEBUG MODE)
+2025-07-09 19:13:39,382 - webhook - INFO - startup:2258 - 🚀 Enhanced API with PUE & Analytics initialized (DEBUG MODE)
+2025-07-09 19:13:40,110 - webhook - INFO - startup:2266 - ✅ Database tables created/verified
+2025-07-09 19:13:40,110 - webhook - INFO - startup:2266 - ✅ Database tables created/verified
+2025-07-09 22:59:54,629 - webhook - INFO - startup:2668 - 🚀 Enhanced API with PUE & Analytics initialized (DEBUG MODE)
+2025-07-09 22:59:54,629 - webhook - INFO - startup:2668 - 🚀 Enhanced API with PUE & Analytics initialized (DEBUG MODE)
+2025-07-09 22:59:55,177 - webhook - INFO - startup:2676 - ✅ Database tables created/verified
+2025-07-09 22:59:55,177 - webhook - INFO - startup:2676 - ✅ Database tables created/verified
+2025-07-10 09:41:52,567 - webhook - INFO - startup:3187 - 🚀 Enhanced API with PUE & Analytics initialized (DEBUG MODE)
+2025-07-10 09:41:52,567 - webhook - INFO - startup:3187 - 🚀 Enhanced API with PUE & Analytics initialized (DEBUG MODE)
+2025-07-10 09:41:52,835 - webhook - INFO - startup:3195 - ✅ Database tables created/verified
+2025-07-10 09:41:52,835 - webhook - INFO - startup:3195 - ✅ Database tables created/verified
+2025-07-10 09:47:57,548 - webhook - INFO - startup:3187 - 🚀 Enhanced API with PUE & Analytics initialized (DEBUG MODE)
+2025-07-10 09:47:57,548 - webhook - INFO - startup:3187 - 🚀 Enhanced API with PUE & Analytics initialized (DEBUG MODE)
+2025-07-10 09:47:57,607 - webhook - INFO - startup:3195 - ✅ Database tables created/verified
+2025-07-10 09:47:57,607 - webhook - INFO - startup:3195 - ✅ Database tables created/verified
