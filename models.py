@@ -203,11 +203,8 @@ class Rental(Base):
     timestamp_taken = Column(DateTime)
     due_back = Column(DateTime)
     battery_returned_date = Column(DateTime, nullable=True)  # When battery was returned
-    
-    battery_returned = Column(DateTime(timezone=True))
     battery_return_condition = Column(String(50))
     battery_return_notes = Column(Text)
-    date_returned = Column(DateTime(timezone=True))
     status = Column(String(20), default='active')
     
     # *** ENHANCED RENTAL FIELDS ***
