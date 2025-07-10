@@ -47,7 +47,12 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
     # Create engine using your app's DATABASE_URL from config
-    connectable = create_engine(DATABASE_URL)
+    # Heroku DATABASE_URL starts with postgres:// but SQLAlchemy needs postgresql://
+    database_url = DATABASE_URL
+    if database_url and database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
+    
+    connectable = create_engine(database_url)
 
     with connectable.connect() as connection:
         context.configure(
