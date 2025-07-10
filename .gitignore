@@ -4,3 +4,4 @@
 .development_notes
 prisma-heroku/
 *.pyc
+__pycache__/
