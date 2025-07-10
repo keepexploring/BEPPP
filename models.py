@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, BigInteger, String, Float, DateTime, ForeignKey, Table, Integer, func, Boolean, Text, Enum
+from sqlalchemy import create_engine, Column, BigInteger, String, Float, DateTime, ForeignKey, Table, Integer, func, Boolean, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
@@ -7,11 +7,6 @@ import enum
 Base = declarative_base()
 
 # Enums for structured data
-class PUEUsageLocation(enum.Enum):
-    HUB_ONLY = "hub_only"           # Can only be used at the hub
-    BATTERY_ONLY = "battery_only"   # Can only be used with battery pack
-    BOTH = "both"                   # Can be used in either location
-
 class UserRole(enum.Enum):
     USER = "user"           # Kiosk operator
     ADMIN = "admin"         # Admin (everything except webhook)
@@ -129,7 +124,7 @@ class ProductiveUseEquipment(Base):
     
     # *** ENHANCED PUE FIELDS ***
     power_rating_watts = Column(Float, nullable=True)  # Power consumption in watts
-    usage_location = Column(Enum(PUEUsageLocation), default=PUEUsageLocation.BOTH)  # Where it can be used
+    usage_location = Column(String(50), default="both")  # Where it can be used: hub_only, battery_only, both
     storage_location = Column(String(255), nullable=True)  # Physical storage location
     suggested_cost_per_day = Column(Float, nullable=True)  # Suggested daily rental cost
     
