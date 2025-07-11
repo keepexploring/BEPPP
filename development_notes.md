@@ -170,8 +170,49 @@ alembic upgrade head
 Start your API: python -m uvicorn main:app --reload
 Run tests: python test_runner.py or pytest test_api.py -v
 
-# Migrations - this is how to do
+# Migrations - Best Practice Workflow
 
-check migration status: alembic current
-create the migration: alembic revision --autogenerate -m "add battery_secret"
-apply the migration: alembic upgrade head
+## Local Development
+1. Check migration status: `alembic current`
+2. Create the migration: `alembic revision --autogenerate -m "descriptive message"`
+3. Review the generated migration file for correctness
+4. Apply the migration locally: `alembic upgrade head`
+5. Test thoroughly before committing
+
+## Production Deployment (Heroku)
+1. Commit all changes including migration files
+2. Push to Heroku: `git push heroku main`
+3. The migration will run automatically during deployment
+
+## Handling Migration Issues
+If you encounter migration conflicts or enum issues:
+
+### Option 1: Fix the migration file
+- Edit the problematic migration file
+- Ensure proper enum handling and data conversion
+
+### Option 2: Fresh start (when safe to lose data)
+1. **Local cleanup:**
+   ```bash
+   rm alembic/versions/*.py
+   rm -rf alembic/versions/__pycache__
+   ```
+2. **Clear local database migration history:**
+   ```bash
+   python -c "from config import DATABASE_URL; from sqlalchemy import create_engine, text; engine = create_engine(DATABASE_URL.replace('postgres://', 'postgresql://')); conn = engine.connect(); conn.execute(text('DROP TABLE IF EXISTS alembic_version')); conn.commit(); print('Cleared alembic version table')"
+   ```
+3. **Create fresh migration:**
+   ```bash
+   alembic revision --autogenerate -m "Initial migration"
+   ```
+4. **For production (DESTRUCTIVE - will lose all data):**
+   ```bash
+   heroku pg:reset DATABASE --app your-app-name --confirm your-app-name
+   git push heroku main  # This will create fresh database with new migration
+   ```
+
+## Important Notes
+- Always backup production data before making destructive changes
+- Test migrations on a staging environment first
+- Enum changes require careful handling - consider the data migration path
+- Never edit already-applied migration files in production
