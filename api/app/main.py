@@ -2,10 +2,10 @@ from fastapi import FastAPI, HTTPException, Depends, status, Query, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func, and_, or_, desc
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, timezone, timedelta
 import json
 import pandas as pd
@@ -271,14 +271,14 @@ class BatterySecretUpdate(BaseModel):
     new_secret: str
 
 class PUECreate(BaseModel):
-    model_config = {'arbitrary_types_allowed': True}
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     pue_id: int
     hub_id: int
     name: str
     description: Optional[str] = None
     power_rating_watts: Optional[float] = None
-    usage_location: PUEUsageLocation = PUEUsageLocation.BOTH
+    usage_location: str = Field(default="both", description="Usage location: hub_only, battery_only, or both")
     storage_location: Optional[str] = None
     suggested_cost_per_day: Optional[float] = None
     rental_cost: Optional[float] = None
@@ -287,18 +287,29 @@ class PUECreate(BaseModel):
 
 
 class PUEUpdate(BaseModel):
-    model_config = {'arbitrary_types_allowed': True}
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name: Optional[str] = None
     description: Optional[str] = None
     power_rating_watts: Optional[float] = None
-    usage_location: Optional[PUEUsageLocation] = None
+    usage_location: Optional[str] = Field(default=None, description="Usage location: hub_only, battery_only, or both")
     storage_location: Optional[str] = None
     suggested_cost_per_day: Optional[float] = None
     rental_cost: Optional[float] = None
     status: Optional[str] = None
     
     
+
+class RentalCreateUserFriendly(BaseModel):
+    """User-friendly rental creation model"""
+    user_name: str
+    user_mobile: str
+    battery_id: int
+    rental_cost: Optional[float] = None
+    due_back: Optional[datetime] = None
+    pue_item_ids: Optional[List[int]] = []
+    deposit_amount: Optional[float] = None
+    rental_notes: Optional[str] = None
 
 class RentalCreate(BaseModel):
     rentral_id: int
@@ -313,6 +324,7 @@ class RentalCreate(BaseModel):
 class RentalUpdate(BaseModel):
     due_back: Optional[datetime] = None
     date_returned: Optional[datetime] = None
+    battery_returned_date: Optional[datetime] = None
     pue_item_ids: Optional[List[int]] = None
     total_cost: Optional[float] = None
 
@@ -356,24 +368,24 @@ class BatterySelectionCriteria(BaseModel):
     all_batteries: bool = False
 
 class DataAggregationRequest(BaseModel):
-    model_config = {'arbitrary_types_allowed': True}
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     battery_selection: BatterySelectionCriteria
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
-    time_period: Optional[TimePeriod] = None
-    aggregation_period: AggregationPeriod
-    aggregation_function: AggregationFunction
+    time_period: Optional[str] = Field(default=None, description="Time period: last_24_hours, last_week, etc.")
+    aggregation_period: str = Field(..., description="Period: hour, day, week, month")
+    aggregation_function: str = Field(..., description="Function: sum, mean, median, min, max")
     metric: str
 
 class RentalAnalyticsRequest(BaseModel):
-    model_config = {'arbitrary_types_allowed': True}
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     hub_ids: Optional[List[int]] = None
     pue_ids: Optional[List[int]] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
-    time_period: Optional[TimePeriod] = None
+    time_period: Optional[str] = Field(default=None, description="Time period: last_24_hours, last_week, etc.")
     group_by: Optional[str] = "pue_id"
 
 class RentalReturnRequest(BaseModel):
@@ -392,7 +404,7 @@ class AddPUEToRentalRequest(BaseModel):
     due_back: Optional[datetime] = Field(None, description="Due date for new PUE items")
 
 class DataQuery(BaseModel):
-    model_config = {'arbitrary_types_allowed': True}
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     battery_ids: Optional[List[int]] = None
     start_timestamp: Optional[datetime] = None
@@ -428,9 +440,17 @@ A comprehensive API for managing solar hubs, batteries, productive use equipment
 - **CLI Integration**: Command-line interface for system administration
 
 ### Authentication:
-- JWT-based authentication with role-based permissions
-- Battery-specific authentication for IoT devices
-- Token refresh capabilities
+- **JWT-based authentication** with role-based permissions
+- **Battery-specific authentication** for IoT devices with separate token system
+- **Token refresh capabilities** for both user and battery tokens
+- **Secure token management** with configurable expiration times
+
+### Battery Token System:
+- **Separate Authentication**: Battery devices use dedicated endpoints (`/auth/battery-login`, `/auth/battery-refresh`)
+- **Limited Scope**: Battery tokens are restricted to data submission operations (`webhook_write`)
+- **Secure Design**: Uses separate secret keys and token validation for enhanced security
+- **Auto-Refresh**: Tokens can be refreshed before expiration to maintain continuous connectivity
+- **IoT Optimized**: Designed specifically for battery management IoT devices
     """,
     version="2.0.0",
     contact={
@@ -444,7 +464,7 @@ A comprehensive API for managing solar hubs, batteries, productive use equipment
     tags_metadata=[
         {
             "name": "Authentication",
-            "description": "User and battery authentication endpoints",
+            "description": "User and battery authentication endpoints. Includes battery-specific login and token refresh for IoT devices.",
         },
         {
             "name": "Hubs",
@@ -574,41 +594,41 @@ def create_timestamp_from_fields(battery_data):
         print(f"Warning: Could not create timestamp from date/time fields: {e}")
         return datetime.now(timezone.utc)
 
-def calculate_time_period(time_period: TimePeriod) -> tuple[datetime, datetime]:
+def calculate_time_period(time_period: str) -> tuple[datetime, datetime]:
     now = datetime.now(timezone.utc)
     
-    if time_period == TimePeriod.LAST_24_HOURS:
+    if time_period == "last_24_hours":
         start_time = now - timedelta(hours=24)
         end_time = now
-    elif time_period == TimePeriod.LAST_WEEK:
+    elif time_period == "last_week":
         start_time = now - timedelta(weeks=1)
         end_time = now
-    elif time_period == TimePeriod.LAST_2_WEEKS:
+    elif time_period == "last_2_weeks":
         start_time = now - timedelta(weeks=2)
         end_time = now
-    elif time_period == TimePeriod.LAST_MONTH:
+    elif time_period == "last_month":
         start_time = now - timedelta(days=30)
         end_time = now
-    elif time_period == TimePeriod.LAST_2_MONTHS:
+    elif time_period == "last_2_months":
         start_time = now - timedelta(days=60)
         end_time = now
-    elif time_period == TimePeriod.LAST_3_MONTHS:
+    elif time_period == "last_3_months":
         start_time = now - timedelta(days=90)
         end_time = now
-    elif time_period == TimePeriod.LAST_6_MONTHS:
+    elif time_period == "last_6_months":
         start_time = now - timedelta(days=180)
         end_time = now
-    elif time_period == TimePeriod.LAST_YEAR:
+    elif time_period == "last_year":
         start_time = now - timedelta(days=365)
         end_time = now
-    elif time_period == TimePeriod.THIS_WEEK:
+    elif time_period == "this_week":
         days_since_monday = now.weekday()
         start_time = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days_since_monday)
         end_time = now
-    elif time_period == TimePeriod.THIS_MONTH:
+    elif time_period == "this_month":
         start_time = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         end_time = now
-    elif time_period == TimePeriod.THIS_YEAR:
+    elif time_period == "this_year":
         start_time = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
         end_time = now
     else:
@@ -963,7 +983,12 @@ async def handle_webhook_format(webhook_data: dict, db: Session, current_user: d
     description="""
     ## Battery Data Submission Endpoint
 
-    Endpoint for battery IoT devices to submit live data.
+    Endpoint for battery IoT devices to submit live data including power metrics, GPS location, environmental data, and system status.
+    
+    ### Authentication:
+    1. **Login**: Use `/auth/battery-login` with `battery_id` and `battery_secret`
+    2. **Submit Data**: Use returned token in `Authorization: Bearer {token}` header
+    3. **Refresh**: Use `/auth/battery-refresh` to refresh token before expiration
     
     ### Permissions:
     - **BATTERY**: Battery devices can submit data
@@ -975,15 +1000,113 @@ async def handle_webhook_format(webhook_data: dict, db: Session, current_user: d
     - Real-time data processing
     - Comprehensive error handling and logging
     
-    ### Data Fields:
-    - **State of charge, voltage, current, power**
-    - **GPS coordinates and fix quality**
-    - **Temperature and environmental data**
-    - **USB port usage and charging status**
-    - **System status and diagnostics**
+    ### Data Fields Mapping:
     
-    ### Usage:
-    Battery devices authenticate using their device token and submit data in JSON format.
+    **Power & Battery Status:**
+    - `soc`: State of charge (0-100%)
+    - `v`: Voltage (V)
+    - `i`: Current (A)
+    - `p`: Power (W)
+    - `t`: Temperature (°C)
+    - `tr`: Time remaining (-1 = infinite)
+    - `nc`: Number of charge cycles
+    - `cc`: Charge consumed since last full charge (Ah)
+    - `tcc`: Total charge consumed over lifetime (Ah)
+    
+    **Charging System:**
+    - `ci`: Charger current (A)
+    - `cv`: Charger voltage (V)
+    - `cp`: Charger power (W)
+    - `ec`: Charging enabled (1/0)
+    
+    **USB Port:**
+    - `ui`: USB current (A)
+    - `uv`: USB voltage (V)
+    - `up`: USB power (W)
+    - `eu`: USB enabled (1/0)
+    
+    **GPS & Location:**
+    - `lat`: GPS latitude (decimal degrees)
+    - `lon`: GPS longitude (decimal degrees)
+    - `alt`: Altitude (m)
+    - `gs`: Number of GPS satellites
+    - `gf`: GPS fix quality (0-9)
+    - `gd`: GPS date (YYYY-MM-DD)
+    - `gt`: GPS time (HH:MM:SS)
+    
+    **System Status:**
+    - `ef`: Fan enabled (1/0)
+    - `ei`: Inverter enabled (1/0)
+    - `sa`: Stay awake state (1/0)
+    - `ts`: Tilt sensor state (0-9)
+    
+    **Timing & Identification:**
+    - `id`: Battery ID (string or number)
+    - `d`: RTC date (YYYY-MM-DD)
+    - `tm`: RTC time (HH:MM:SS)
+    - `k`: Battery secret key (for authentication)
+    
+    ### Example Data:
+    ```json
+    {
+        "id": "123",
+        "soc": 85.5,
+        "v": 12.4,
+        "i": 2.1,
+        "p": 25.6,
+        "t": 21.5,
+        "lat": 55.6227,
+        "lon": -3.52763,
+        "alt": 226.9,
+        "gs": 11,
+        "gf": 1,
+        "ci": 0.5,
+        "cv": 14.2,
+        "cp": 7.1,
+        "ec": 1,
+        "ui": 0.0,
+        "uv": 0.0,
+        "up": 0.0,
+        "eu": 0,
+        "ef": 1,
+        "ei": 0,
+        "sa": 1,
+        "ts": 0,
+        "nc": 15,
+        "cc": 2.5,
+        "tcc": 150.0,
+        "tr": -1.0,
+        "gd": "2025-07-11",
+        "gt": "14:30:15",
+        "d": "2025-07-11",
+        "tm": "14:30:20",
+        "k": "your_battery_secret_key"
+    }
+    ```
+    
+    ### Response Format:
+    ```json
+    {
+        "status": "success",
+        "data_id": 12345,
+        "battery_id": 123,
+        "timestamp": "2025-07-11T14:30:20Z",
+        "fields_processed": 25
+    }
+    ```
+    
+    ### Error Handling:
+    - **401**: Invalid or expired token
+    - **403**: Insufficient permissions 
+    - **400**: Invalid data format or missing required fields
+    - **500**: Server processing error
+    
+    ### Best Practices:
+    - Submit data regularly (every 1-5 minutes recommended)
+    - Include GPS coordinates when available for location tracking
+    - Monitor token expiration and refresh proactively
+    - Handle network failures gracefully with retry logic
+    - Validate data locally before submission
     """,
     response_description="Data submission confirmation and metadata")
 async def receive_live_data(
@@ -1193,13 +1316,26 @@ async def create_token(
     ## Battery Device Authentication
 
     Login endpoint specifically for battery IoT devices to obtain authentication tokens.
+    Battery devices use this endpoint to authenticate and receive JWT tokens for data submission.
     
     ### Permissions:
-    - **Public**: No authentication required
+    - **Public**: No authentication required for this endpoint
+    
+    ### Prerequisites:
+    - Battery must be registered in the system with a valid `battery_id`
+    - Battery must have a configured `battery_secret` for authentication
+    - Battery must be associated with a valid solar hub
     
     ### Returns:
-    - JWT access token for battery device
-    - Token type and expiration
+    - JWT access token for battery device (expires in 24 hours by default)
+    - Token type and expiration information
+    - Battery ID and scope details
+    
+    ### Token Features:
+    - **Scope**: `webhook_write` (limited to data submission)
+    - **Expiration**: Configurable (default 24 hours)
+    - **Security**: Uses separate secret key from user tokens
+    - **Refresh**: Can be refreshed using `/auth/battery-refresh` endpoint
     
     ### Usage:
     ```
@@ -1209,8 +1345,38 @@ async def create_token(
         "battery_secret": "device_secret_key"
     }
     ```
+    
+    ### Response Example:
+    ```json
+    {
+        "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+        "token_type": "bearer",
+        "battery_id": 123,
+        "expires_in": 86400,
+        "expires_in_hours": 24,
+        "scope": "webhook_write"
+    }
+    ```
+    
+    ### Using the Token:
+    After authentication, include the token in the Authorization header:
+    ```
+    Authorization: Bearer {access_token}
+    ```
+    
+    ### Error Handling:
+    - 401: Invalid battery credentials or battery not found
+    - 401: Battery not configured for authentication
+    - 422: Invalid request format
+    - 500: Internal server error
+    
+    ### Best Practices:
+    - Store tokens securely on the device
+    - Implement token refresh before expiration
+    - Use HTTPS for all authentication requests
+    - Handle authentication failures gracefully
     """,
-    response_description="JWT token for battery device")
+    response_description="JWT token for battery device with expiration and scope information")
 async def battery_login(
     battery_login: BatteryLogin,
     db: Session = Depends(get_db)
@@ -1255,12 +1421,102 @@ async def battery_login(
             detail=f"Battery authentication error: {str(e)}"
         )
 
-@app.post("/auth/battery-refresh")
+@app.post("/auth/battery-refresh",
+    tags=["Authentication"],
+    summary="Refresh Battery Token",
+    description="""
+    ## Battery Token Refresh
+    
+    Refresh an existing battery authentication token before it expires to maintain continuous connectivity for IoT devices.
+    
+    ### Permissions:
+    - **Battery Device**: Must have valid battery token
+    - **Superadmin**: Can refresh any battery token
+    
+    ### Authentication:
+    - Requires valid battery token in Authorization header
+    - Token must be of type 'battery' with `webhook_write` scope
+    - Token must not be expired (within valid time window)
+    
+    ### Token Information:
+    - **Default Expiration**: 24 hours
+    - **Refresh Window**: Can be refreshed anytime before expiration
+    - **New Token Duration**: Full duration from refresh time (24 hours)
+    - **Scope**: `webhook_write` (data submission only)
+    
+    ### Usage Example:
+    ```bash
+    # Refresh token
+    curl -X POST "https://your-api.com/auth/battery-refresh" \
+         -H "Authorization: Bearer {current_battery_token}" \
+         -H "Content-Type: application/json"
+    ```
+    
+    ### Response Format:
+    ```json
+    {
+        "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+        "token_type": "bearer",
+        "battery_id": 123,
+        "expires_in": 86400,
+        "expires_in_hours": 24,
+        "scope": "webhook_write",
+        "refresh_time": "2025-07-11T14:30:20Z"
+    }
+    ```
+    
+    ### Implementation Best Practices:
+    
+    **Proactive Refresh:**
+    - Refresh tokens 5-10 minutes before expiration
+    - Monitor token expiration timestamps
+    - Implement automatic refresh logic in your IoT device
+    
+    **Error Handling:**
+    - Implement exponential backoff for failed refresh attempts
+    - Fall back to full authentication if refresh fails
+    - Log refresh attempts for monitoring
+    
+    **Security:**
+    - Replace old token immediately after successful refresh
+    - Store tokens securely (encrypted if possible)
+    - Clear expired tokens from memory
+    
+    ### Sample Implementation:
+    ```python
+    import requests
+    from datetime import datetime, timedelta
+    
+    def refresh_battery_token(current_token):
+        headers = {
+            'Authorization': f'Bearer {current_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        response = requests.post(
+            'https://your-api.com/auth/battery-refresh',
+            headers=headers
+        )
+        
+        if response.status_code == 200:
+            return response.json()['access_token']
+        else:
+            raise Exception(f"Token refresh failed: {response.text}")
+    ```
+    
+    ### Error Handling:
+    - **401**: Invalid or expired token - perform full authentication
+    - **403**: Token is not a battery token - check token type
+    - **404**: Battery not found in database - verify battery registration
+    - **422**: Invalid request format - check request headers
+    - **500**: Server error - retry with exponential backoff
+    """,
+    response_description="New JWT token for battery device")
 async def battery_refresh_token(
     db: Session = Depends(get_db),
     current_battery: dict = Depends(verify_battery_or_superadmin_token)
 ):
-    """Refresh battery token"""
+    """Refresh battery token with extended expiration"""
     try:
         if current_battery.get('type') != 'battery':
             raise HTTPException(
@@ -1887,24 +2143,77 @@ async def update_battery(
 @app.delete("/batteries/{battery_id}")
 async def delete_battery(
     battery_id: int,
+    force: bool = Query(False, description="Force delete with all related data (superadmin only)"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """Delete a battery (admin/superadmin only)"""
+    """
+    Delete a battery with data integrity protection
+    
+    - Normal deletion: Only allowed if no live data or rentals exist
+    - Force deletion: Superadmin can delete everything (battery + all related data)
+    """
     if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
         raise HTTPException(status_code=403, detail="Admin access required")
     
+    # Force deletion requires superadmin
+    if force and current_user.get('role') != UserRole.SUPERADMIN:
+        raise HTTPException(status_code=403, detail="Force deletion requires superadmin access")
+    
+    battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_id).first()
+    if not battery:
+        raise HTTPException(status_code=404, detail="Battery not found")
+    
+    # Check for associated data
+    live_data_count = db.query(LiveData).filter(LiveData.battery_id == battery_id).count()
+    rental_count = db.query(Rental).filter(Rental.battery_id == battery_id).count()
+    
+    # If there's associated data and not forcing, reject the deletion
+    if (live_data_count > 0 or rental_count > 0) and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete battery: has {live_data_count} live data records and {rental_count} rentals. Data must be removed first, or use force=true (superadmin only)"
+        )
+    
     try:
-        battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_id).first()
-        if not battery:
-            raise HTTPException(status_code=404, detail="Battery not found")
-        
-        db.delete(battery)
-        db.commit()
-        return {"message": "Battery deleted successfully"}
+        if force:
+            # Superadmin force deletion - remove all related data first
+            # Order matters for foreign key constraints
+            
+            # 1. Delete rental PUE items for rentals with this battery
+            rental_ids = [r.rentral_id for r in db.query(Rental).filter(Rental.battery_id == battery_id).all()]
+            deleted_pue_items = 0
+            if rental_ids:
+                deleted_pue_items = db.query(RentalPUEItem).filter(RentalPUEItem.rental_id.in_(rental_ids)).delete(synchronize_session=False)
+            
+            # 2. Delete rentals
+            deleted_rentals = db.query(Rental).filter(Rental.battery_id == battery_id).delete(synchronize_session=False)
+            
+            # 3. Delete live data
+            deleted_live_data = db.query(LiveData).filter(LiveData.battery_id == battery_id).delete(synchronize_session=False)
+            
+            # 4. Finally delete the battery
+            db.delete(battery)
+            db.commit()
+            
+            return {
+                "message": "Battery and all related data force deleted",
+                "deleted": {
+                    "battery_id": battery_id,
+                    "live_data_records": deleted_live_data,
+                    "rentals": deleted_rentals,
+                    "rental_pue_items": deleted_pue_items
+                }
+            }
+        else:
+            # Safe deletion - no associated data
+            db.delete(battery)
+            db.commit()
+            return {"message": f"Battery {battery_id} deleted successfully"}
+            
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @app.get("/hubs/{hub_id}/batteries")
 async def list_hub_batteries(
@@ -1964,15 +2273,30 @@ async def create_pue_item(
         raise HTTPException(status_code=403, detail="Admin access required")
     
     try:
-        pue_data = pue.dict()
+        pue_data = pue.model_dump()
+        
+        # Validate usage_location against enum values
         if 'usage_location' in pue_data and pue_data['usage_location']:
-            pue_data['usage_location'] = pue_data['usage_location'].value
+            # Convert to uppercase to match database enum
+            if pue_data['usage_location'].upper() in ["HUB_ONLY", "BATTERY_ONLY", "BOTH"]:
+                pue_data['usage_location'] = pue_data['usage_location'].upper()
+            elif pue_data['usage_location'].lower() in ["hub_only", "battery_only", "both"]:
+                pue_data['usage_location'] = pue_data['usage_location'].upper()
+            
+            if pue_data['usage_location'] not in ["HUB_ONLY", "BATTERY_ONLY", "BOTH"]:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Invalid usage_location. Must be one of: hub_only, battery_only, both"
+                )
         
         db_pue = ProductiveUseEquipment(**pue_data)
         db.add(db_pue)
         db.commit()
         db.refresh(db_pue)
         return db_pue
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -2013,10 +2337,21 @@ async def update_pue_item(
         if not pue:
             raise HTTPException(status_code=404, detail="PUE item not found")
         
-        update_data = pue_update.dict(exclude_unset=True)
+        update_data = pue_update.model_dump(exclude_unset=True)
         
+        # Validate usage_location against enum values
         if 'usage_location' in update_data and update_data['usage_location']:
-            update_data['usage_location'] = update_data['usage_location'].value
+            # Convert to uppercase to match database enum
+            if update_data['usage_location'].upper() in ["HUB_ONLY", "BATTERY_ONLY", "BOTH"]:
+                update_data['usage_location'] = update_data['usage_location'].upper()
+            elif update_data['usage_location'].lower() in ["hub_only", "battery_only", "both"]:
+                update_data['usage_location'] = update_data['usage_location'].upper()
+            
+            if update_data['usage_location'] not in ["HUB_ONLY", "BATTERY_ONLY", "BOTH"]:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Invalid usage_location. Must be one of: hub_only, battery_only, both"
+                )
         
         for key, value in update_data.items():
             setattr(pue, key, value)
@@ -2048,6 +2383,9 @@ async def delete_pue_item(
         pue.updated_at = datetime.utcnow()
         db.commit()
         return {"message": "PUE item deactivated successfully"}
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -2130,7 +2468,7 @@ async def list_hub_available_pue_items(
     """,
     response_description="Created rental with battery and PUE details")
 async def create_rental(
-    rental: RentalCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -2171,6 +2509,68 @@ async def create_rental(
         raise HTTPException(status_code=403, detail="Data admins cannot create rentals")
     
     try:
+        # Parse request body
+        rental_data_raw = await request.json()
+        
+        # Determine which format to use based on the fields present
+        if 'user_name' in rental_data_raw or 'user_mobile' in rental_data_raw:
+            # User-friendly format
+            try:
+                rental = RentalCreateUserFriendly(**rental_data_raw)
+            except Exception as e:
+                raise HTTPException(status_code=422, detail=f"Invalid user-friendly rental data: {str(e)}")
+        else:
+            # Standard format
+            try:
+                rental = RentalCreate(**rental_data_raw)
+            except Exception as e:
+                raise HTTPException(status_code=422, detail=f"Invalid rental data: {str(e)}")
+        
+        # Handle different rental creation formats
+        if isinstance(rental, RentalCreateUserFriendly):
+            # User-friendly format: create or find user by name/mobile
+            battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == rental.battery_id).first()
+            if not battery:
+                raise HTTPException(status_code=404, detail="Battery not found")
+            
+            # Check if battery is already rented
+            existing_rental = db.query(Rental).filter(
+                Rental.battery_id == rental.battery_id,
+                Rental.battery_returned_date.is_(None)
+            ).first()
+            if existing_rental:
+                raise HTTPException(status_code=409, detail="Battery is already rented")
+            
+            # Find or create user
+            user = db.query(User).filter(User.mobile_number == rental.user_mobile).first()
+            if not user:
+                # Create new user
+                new_user_id = int(datetime.now().timestamp() * 1000) % 1000000
+                user = User(
+                    user_id=new_user_id,
+                    Name=rental.user_name,
+                    mobile_number=rental.user_mobile,
+                    hub_id=battery.hub_id,
+                    user_access_level=UserRole.USER
+                )
+                db.add(user)
+                db.flush()
+            
+            # Convert to standard rental format (ignore notes since they're not in the model)
+            rental_data = {
+                "rentral_id": int(datetime.now().timestamp() * 1000) % 1000000,
+                "battery_id": rental.battery_id,
+                "user_id": user.user_id,
+                "timestamp_taken": datetime.now(timezone.utc),
+                "due_back": rental.due_back or (datetime.now(timezone.utc) + timedelta(days=7)),
+                "pue_item_ids": rental.pue_item_ids or [],
+                "total_cost": rental.rental_cost,
+                "deposit_amount": rental.deposit_amount
+            }
+            # Create a proper RentalCreate object
+            from types import SimpleNamespace
+            rental = SimpleNamespace(**rental_data)
+        
         battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == rental.battery_id).first()
         if not battery:
             raise HTTPException(status_code=404, detail="Battery not found")
@@ -2184,35 +2584,48 @@ async def create_rental(
                 raise HTTPException(status_code=403, detail="Access denied")
         
         pue_items = []
-        if rental.pue_item_ids:
+        pue_item_ids = getattr(rental, 'pue_item_ids', []) or []
+        if pue_item_ids:
             pue_items = db.query(ProductiveUseEquipment).filter(
-                ProductiveUseEquipment.pue_id.in_(rental.pue_item_ids),
+                ProductiveUseEquipment.pue_id.in_(pue_item_ids),
                 ProductiveUseEquipment.is_active == True
             ).all()
             
-            if len(pue_items) != len(rental.pue_item_ids):
+            if len(pue_items) != len(pue_item_ids):
                 raise HTTPException(status_code=400, detail="Some PUE items not found or inactive")
         
-        rental_data = rental.dict(exclude={'pue_item_ids'})
+        # Handle both Pydantic models and SimpleNamespace objects
+        if hasattr(rental, 'dict'):
+            rental_data = rental.dict(exclude={'pue_item_ids'})
+        else:
+            rental_data = {k: v for k, v in rental.__dict__.items() if k != 'pue_item_ids'}
         db_rental = Rental(**rental_data)
         db.add(db_rental)
         db.flush()
+        
+        # Update battery status to in_use
+        battery.status = "in_use"
         
         for pue_item in pue_items:
             rental_pue_item = RentalPUEItem(
                 rental_id=db_rental.rentral_id,
                 pue_id=pue_item.pue_id,
                 rental_cost=pue_item.rental_cost,
-                due_back=rental.due_back
+                due_back=getattr(rental, 'due_back', None)
             )
             db.add(rental_pue_item)
         
         db.commit()
         db.refresh(db_rental)
         return db_rental
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=400, detail=f"Rental creation failed: {str(e)}")
 
 @app.get("/rentals/{rental_id}")
 async def get_rental_with_pue(
@@ -2247,11 +2660,24 @@ async def get_rental_with_pue(
             if not battery or battery.hub_id != current_user.get('hub_id'):
                 raise HTTPException(status_code=403, detail="Access denied")
     
+    # Calculate summary statistics
+    pue_items = rental.pue_items if rental.pue_items else []
+    total_pue_items = len(pue_items)
+    returned_pue_items = len([item for item in pue_items if item.returned_date])
+    battery_returned = bool(rental.date_returned or rental.battery_returned_date)
+    rental_complete = battery_returned and (returned_pue_items == total_pue_items)
+    
     rental_dict = {
         "rental": rental,
-        "pue_items": rental.pue_items,
+        "pue_items": pue_items,
         "battery": rental.battery,
-        "user": rental.user if current_user.get('role') != UserRole.DATA_ADMIN else None
+        "user": rental.user if current_user.get('role') != UserRole.DATA_ADMIN else None,
+        "summary": {
+            "total_pue_items": total_pue_items,
+            "returned_pue_items": returned_pue_items,
+            "battery_returned": battery_returned,
+            "rental_complete": rental_complete
+        }
     }
     
     return rental_dict
@@ -2364,6 +2790,9 @@ async def delete_rental(
         db.delete(rental)
         db.commit()
         return {"message": "Rental deleted successfully"}
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -2699,6 +3128,69 @@ async def add_pue_to_rental(
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.put("/rentals/{rental_id}/pue-items/{pue_id}/return",
+    tags=["Rentals"],
+    summary="Return Individual PUE Item",
+    description="Return a specific PUE item from a rental")
+async def return_individual_pue_item(
+    rental_id: int,
+    pue_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Return a specific PUE item from a rental"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.USER]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Get the rental
+    rental = db.query(Rental).filter(Rental.rentral_id == rental_id).first()
+    if not rental:
+        raise HTTPException(status_code=404, detail="Rental not found")
+    
+    # Check access permissions
+    if current_user.get('role') == UserRole.USER:
+        battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == rental.battery_id).first()
+        if not battery or battery.hub_id != current_user.get('hub_id'):
+            raise HTTPException(status_code=403, detail="Access denied")
+    
+    try:
+        # Find the PUE item in this rental
+        pue_item = db.query(RentalPUEItem).filter(
+            RentalPUEItem.rental_id == rental_id,
+            RentalPUEItem.pue_id == pue_id,
+            RentalPUEItem.is_returned == False
+        ).first()
+        
+        if not pue_item:
+            raise HTTPException(status_code=404, detail="PUE item not found in this rental or already returned")
+        
+        # Mark the PUE item as returned
+        pue_item.is_returned = True
+        pue_item.returned_date = datetime.now(timezone.utc)
+        
+        # Update PUE equipment status to available
+        pue_equipment = db.query(ProductiveUseEquipment).filter(
+            ProductiveUseEquipment.pue_id == pue_id
+        ).first()
+        
+        if pue_equipment:
+            pue_equipment.status = "available"
+        
+        db.commit()
+        
+        return {
+            "message": "PUE item returned successfully",
+            "rental_id": rental_id,
+            "pue_id": pue_id,
+            "returned_date": pue_item.returned_date.isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Error returning PUE item: {str(e)}")
+
 # ============================================================================
 # DATA QUERY ENDPOINTS
 # ============================================================================
@@ -2774,10 +3266,17 @@ async def get_battery_data(
         raise HTTPException(status_code=404, detail=f"No data found for battery {battery_id}")
     
     # Convert to dicts
-    data_dicts = [
-        {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
-        for obj in data
-    ]
+    data_dicts = []
+    for obj in data:
+        row_dict = {}
+        for c in obj.__table__.columns:
+            value = getattr(obj, c.name)
+            # Convert datetime objects to ISO format strings for JSON serialization
+            if isinstance(value, datetime):
+                row_dict[c.name] = value.isoformat()
+            else:
+                row_dict[c.name] = value
+        data_dicts.append(row_dict)
 
     # Format response
     if format == "json":
@@ -2908,7 +3407,7 @@ async def get_hub_summary(
                 db.query(BEPPPBattery.battery_id).filter(BEPPPBattery.hub_id == hub.hub_id)
             ),
             Rental.is_active == True,
-            Rental.date_returned.is_(None)
+            Rental.battery_returned_date.is_(None)
         ).count()
         
         hub_summaries.append({
@@ -2949,13 +3448,13 @@ async def get_power_usage_analytics(
         
         if request.time_period:
             start_time, end_time = calculate_time_period(request.time_period)
-            time_period_description = f"Predefined period: {request.time_period.value}"
+            time_period_description = f"Predefined period: {request.time_period}"
         elif request.start_time and request.end_time:
             start_time, end_time = request.start_time, request.end_time
             time_period_description = f"Custom period: {start_time.isoformat()} to {end_time.isoformat()}"
         else:
-            start_time, end_time = calculate_time_period(TimePeriod.LAST_WEEK)
-            time_period_description = f"Default period: {TimePeriod.LAST_WEEK.value}"
+            start_time, end_time = calculate_time_period("last_week")
+            time_period_description = f"Default period: last_week"
         
         battery_ids = []
         
@@ -3003,24 +3502,24 @@ async def get_power_usage_analytics(
         
         df = pd.DataFrame(data_dicts)
         
-        if request.aggregation_period == AggregationPeriod.HOUR:
+        if request.aggregation_period == "hour":
             df['time_group'] = df['timestamp'].dt.floor('H')
-        elif request.aggregation_period == AggregationPeriod.DAY:
+        elif request.aggregation_period == "day":
             df['time_group'] = df['timestamp'].dt.floor('D')
-        elif request.aggregation_period == AggregationPeriod.WEEK:
+        elif request.aggregation_period == "week":
             df['time_group'] = df['timestamp'].dt.to_period('W').dt.start_time
-        elif request.aggregation_period == AggregationPeriod.MONTH:
+        elif request.aggregation_period == "month":
             df['time_group'] = df['timestamp'].dt.to_period('M').dt.start_time
         
-        if request.aggregation_function == AggregationFunction.SUM:
+        if request.aggregation_function == "sum":
             agg_func = 'sum'
-        elif request.aggregation_function == AggregationFunction.MEAN:
+        elif request.aggregation_function == "mean":
             agg_func = 'mean'
-        elif request.aggregation_function == AggregationFunction.MEDIAN:
+        elif request.aggregation_function == "median":
             agg_func = 'median'
-        elif request.aggregation_function == AggregationFunction.MIN:
+        elif request.aggregation_function == "min":
             agg_func = 'min'
-        elif request.aggregation_function == AggregationFunction.MAX:
+        elif request.aggregation_function == "max":
             agg_func = 'max'
         
         if request.metric in df.columns:
@@ -3064,6 +3563,465 @@ async def get_power_usage_analytics(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analytics error: {str(e)}")
+
+@app.get("/analytics/battery-performance",
+    tags=["Data & Analytics"],
+    summary="Battery Performance Analytics",
+    description="Get performance analytics for specific batteries over a time period")
+async def get_battery_performance_analytics(
+    battery_ids: str = Query(..., description="Comma-separated battery IDs"),
+    days_back: int = Query(7, description="Number of days to analyze"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get battery performance analytics"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.DATA_ADMIN]:
+        raise HTTPException(status_code=403, detail="Data access required")
+    
+    try:
+        # Parse battery IDs
+        battery_id_list = [int(bid.strip()) for bid in battery_ids.split(',')]
+        
+        # Calculate time range
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(days=days_back)
+        
+        # Get battery performance data
+        performance_data = []
+        for battery_id in battery_id_list:
+            # Get battery info
+            battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_id).first()
+            if not battery:
+                continue
+                
+            # Get live data for this battery
+            live_data = db.query(LiveData).filter(
+                LiveData.battery_id == battery_id,
+                LiveData.timestamp >= start_time,
+                LiveData.timestamp <= end_time
+            ).all()
+            
+            if live_data:
+                voltages = [d.voltage for d in live_data if d.voltage]
+                currents = [d.current_amps for d in live_data if d.current_amps]
+                soc_values = [d.state_of_charge for d in live_data if d.state_of_charge]
+                
+                performance_data.append({
+                    "battery_id": battery_id,
+                    "battery_capacity_wh": battery.battery_capacity_wh,
+                    "data_points": len(live_data),
+                    "avg_voltage": sum(voltages) / len(voltages) if voltages else 0,
+                    "avg_current": sum(currents) / len(currents) if currents else 0,
+                    "avg_soc": sum(soc_values) / len(soc_values) if soc_values else 0,
+                    "min_soc": min(soc_values) if soc_values else 0,
+                    "max_soc": max(soc_values) if soc_values else 0
+                })
+            else:
+                performance_data.append({
+                    "battery_id": battery_id,
+                    "battery_capacity_wh": battery.battery_capacity_wh,
+                    "data_points": 0,
+                    "avg_voltage": 0,
+                    "avg_current": 0,
+                    "avg_soc": 0,
+                    "min_soc": 0,
+                    "max_soc": 0
+                })
+        
+        return {
+            "battery_performance": performance_data,
+            "analysis_period": {
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+                "days_analyzed": days_back
+            },
+            "summary": {
+                "total_batteries_analyzed": len(performance_data),
+                "batteries_with_data": len([b for b in performance_data if b["data_points"] > 0])
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Battery performance analytics error: {str(e)}")
+
+@app.post("/analytics/rental-statistics",
+    tags=["Data & Analytics"],
+    summary="Rental Statistics Analytics",
+    description="Get rental statistics for specified hubs and time period")
+async def get_rental_statistics_analytics(
+    request: dict,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get rental statistics analytics"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.DATA_ADMIN]:
+        raise HTTPException(status_code=403, detail="Data access required")
+    
+    try:
+        hub_ids = request.get("hub_ids", [])
+        time_period = request.get("time_period", "last_month")
+        
+        # Calculate time range based on period
+        end_time = datetime.now(timezone.utc)
+        if time_period == "last_week":
+            start_time = end_time - timedelta(days=7)
+        elif time_period == "last_month":
+            start_time = end_time - timedelta(days=30)
+        elif time_period == "last_year":
+            start_time = end_time - timedelta(days=365)
+        else:
+            start_time = end_time - timedelta(days=30)  # Default to month
+        
+        # Build query
+        query = db.query(Rental)
+        if hub_ids:
+            # Get batteries in specified hubs
+            battery_ids = db.query(BEPPPBattery.battery_id).filter(
+                BEPPPBattery.hub_id.in_(hub_ids)
+            ).all()
+            battery_id_list = [b.battery_id for b in battery_ids]
+            query = query.filter(Rental.battery_id.in_(battery_id_list))
+        
+        # Filter by time period
+        rentals = query.filter(
+            Rental.timestamp_taken >= start_time,
+            Rental.timestamp_taken <= end_time
+        ).all()
+        
+        # Calculate statistics
+        total_rentals = len(rentals)
+        completed_rentals = len([r for r in rentals if r.date_returned or r.battery_returned_date])
+        active_rentals = total_rentals - completed_rentals
+        
+        total_revenue = sum([r.total_cost or 0 for r in rentals])
+        avg_rental_duration = 0
+        
+        if completed_rentals > 0:
+            durations = []
+            for rental in rentals:
+                if rental.date_returned or rental.battery_returned_date:
+                    return_date = rental.date_returned or rental.battery_returned_date
+                    duration = (return_date - rental.timestamp_taken).days
+                    durations.append(duration)
+            
+            if durations:
+                avg_rental_duration = sum(durations) / len(durations)
+        
+        return {
+            "time_period": {
+                "description": time_period,
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+                "days_analyzed": (end_time - start_time).days
+            },
+            "overall_statistics": {
+                "total_rentals": total_rentals,
+                "completed_rentals": completed_rentals,
+                "active_rentals": active_rentals,
+                "total_revenue": total_revenue,
+                "average_rental_duration_days": avg_rental_duration
+            },
+            "hub_breakdown": hub_ids if hub_ids else "all_hubs"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Rental statistics error: {str(e)}")
+
+@app.get("/analytics/revenue",
+    tags=["Data & Analytics"], 
+    summary="Revenue Analytics",
+    description="Get revenue analytics including rental and PUE income")
+async def get_revenue_analytics(
+    days_back: int = Query(30, description="Number of days to analyze"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get revenue analytics"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        # Calculate time range
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(days=days_back)
+        
+        # Get rental revenue
+        rentals = db.query(Rental).filter(
+            Rental.timestamp_taken >= start_time,
+            Rental.timestamp_taken <= end_time
+        ).all()
+        
+        rental_revenue = sum([r.total_cost or 0 for r in rentals])
+        
+        # Get PUE revenue (from rental PUE items)
+        pue_rentals = db.query(RentalPUEItem).join(Rental).filter(
+            Rental.timestamp_taken >= start_time,
+            Rental.timestamp_taken <= end_time
+        ).all()
+        
+        pue_revenue = sum([item.rental_cost or 0 for item in pue_rentals])
+        
+        total_revenue = rental_revenue + pue_revenue
+        
+        return {
+            "time_period": {
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+                "days_analyzed": days_back
+            },
+            "total_revenue": total_revenue,
+            "rental_revenue": rental_revenue,
+            "pue_revenue": pue_revenue,
+            "revenue_breakdown": {
+                "battery_rentals": rental_revenue,
+                "pue_equipment": pue_revenue
+            },
+            "statistics": {
+                "total_rentals": len(rentals),
+                "avg_revenue_per_rental": rental_revenue / len(rentals) if rentals else 0,
+                "daily_avg_revenue": total_revenue / days_back if days_back > 0 else 0
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Revenue analytics error: {str(e)}")
+
+@app.get("/analytics/device-utilization/{hub_id}",
+    tags=["Data & Analytics"],
+    summary="Device Utilization Analytics", 
+    description="Get device utilization rates for a specific hub")
+async def get_device_utilization_analytics(
+    hub_id: int,
+    days_back: int = Query(30, description="Number of days to analyze"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get device utilization analytics for a hub"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.DATA_ADMIN]:
+        raise HTTPException(status_code=403, detail="Data access required")
+    
+    try:
+        # Calculate time range
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(days=days_back)
+        
+        # Get batteries for this hub
+        batteries = db.query(BEPPPBattery).filter(BEPPPBattery.hub_id == hub_id).all()
+        total_batteries = len(batteries)
+        
+        # Get battery utilization
+        if batteries:
+            battery_rentals = db.query(Rental).filter(
+                Rental.battery_id.in_([b.battery_id for b in batteries]),
+                Rental.timestamp_taken >= start_time,
+                Rental.timestamp_taken <= end_time
+            ).all()
+        else:
+            battery_rentals = []
+        
+        battery_rental_days = 0
+        for rental in battery_rentals:
+            try:
+                if rental.date_returned or rental.battery_returned_date:
+                    return_date = rental.date_returned or rental.battery_returned_date
+                    if rental.timestamp_taken and return_date:
+                        # Ensure both dates are timezone-aware or naive consistently
+                        if return_date.tzinfo is None and rental.timestamp_taken.tzinfo is not None:
+                            return_date = return_date.replace(tzinfo=timezone.utc)
+                        elif return_date.tzinfo is not None and rental.timestamp_taken.tzinfo is None:
+                            timestamp_taken = rental.timestamp_taken.replace(tzinfo=timezone.utc)
+                        else:
+                            timestamp_taken = rental.timestamp_taken
+                        
+                        duration = (return_date - timestamp_taken).days
+                        battery_rental_days += max(duration, 1)  # At least 1 day
+                    else:
+                        battery_rental_days += 1  # Default if dates are missing
+                else:
+                    # Still active, count days since start
+                    if rental.timestamp_taken:
+                        # Ensure timezone consistency
+                        timestamp_taken = rental.timestamp_taken
+                        if timestamp_taken.tzinfo is None:
+                            timestamp_taken = timestamp_taken.replace(tzinfo=timezone.utc)
+                        duration = (end_time - timestamp_taken).days
+                        battery_rental_days += max(duration, 1)
+                    else:
+                        battery_rental_days += 1  # Default if timestamp missing
+            except Exception as e:
+                # Log error but continue processing
+                print(f"Error processing battery rental {rental.rentral_id}: {e}")
+                battery_rental_days += 1  # Default to 1 day for problematic rentals
+        
+        battery_utilization_rate = (battery_rental_days / (total_batteries * days_back)) * 100 if total_batteries > 0 else 0
+        
+        # Get PUE equipment for this hub
+        pue_items = db.query(ProductiveUseEquipment).filter(
+            ProductiveUseEquipment.hub_id == hub_id
+        ).all()
+        total_pue = len(pue_items)
+        
+        # Get PUE utilization
+        if pue_items:
+            pue_rentals = db.query(RentalPUEItem).join(Rental).filter(
+                RentalPUEItem.pue_id.in_([p.pue_id for p in pue_items]),
+                Rental.timestamp_taken >= start_time,
+                Rental.timestamp_taken <= end_time
+            ).all()
+        else:
+            pue_rentals = []
+        
+        pue_rental_days = 0
+        for item in pue_rentals:
+            try:
+                if item.returned_date and item.added_at:
+                    # Ensure both dates are timezone-aware or naive consistently
+                    returned_date = item.returned_date
+                    added_at = item.added_at
+                    
+                    # Handle timezone consistency
+                    if returned_date.tzinfo is None and added_at.tzinfo is not None:
+                        returned_date = returned_date.replace(tzinfo=timezone.utc)
+                    elif returned_date.tzinfo is not None and added_at.tzinfo is None:
+                        added_at = added_at.replace(tzinfo=timezone.utc)
+                    
+                    # Calculate actual rental duration
+                    duration_days = (returned_date - added_at).days
+                    pue_rental_days += max(duration_days, 1)  # At least 1 day
+                else:
+                    # Default to 1 day if dates are missing
+                    pue_rental_days += 1
+            except Exception as e:
+                # Log error but continue processing
+                print(f"Error processing PUE rental item {item.id}: {e}")
+                pue_rental_days += 1  # Default to 1 day for problematic items
+        pue_utilization_rate = (pue_rental_days / (total_pue * days_back)) * 100 if total_pue > 0 else 0
+        
+        overall_utilization = (battery_utilization_rate + pue_utilization_rate) / 2 if (total_batteries > 0 or total_pue > 0) else 0
+        
+        return {
+            "hub_id": hub_id,
+            "analysis_period": {
+                "start_time": start_time.isoformat(), 
+                "end_time": end_time.isoformat(),
+                "days_analyzed": days_back
+            },
+            "battery_utilization": {
+                "total_batteries": total_batteries,
+                "rental_days": battery_rental_days,
+                "utilization_rate": round(battery_utilization_rate, 2)
+            },
+            "pue_utilization": {
+                "total_pue_items": total_pue,
+                "rental_days": pue_rental_days,
+                "utilization_rate": round(pue_utilization_rate, 2)
+            },
+            "utilization_rate": round(overall_utilization, 2)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Device utilization error: {str(e)}")
+
+@app.get("/analytics/export/{hub_id}",
+    tags=["Data & Analytics"],
+    summary="Export Analytics Data",
+    description="Export analytics data in CSV or JSON format")
+async def export_analytics_data(
+    hub_id: int,
+    format: str = Query("json", description="Export format: csv or json"),
+    days_back: int = Query(30, description="Number of days to include"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Export analytics data for a hub"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.DATA_ADMIN]:
+        raise HTTPException(status_code=403, detail="Data access required")
+    
+    try:
+        # Calculate time range
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(days=days_back)
+        
+        # Get hub data
+        hub = db.query(SolarHub).filter(SolarHub.hub_id == hub_id).first()
+        if not hub:
+            raise HTTPException(status_code=404, detail="Hub not found")
+        
+        # Get batteries and their data
+        batteries = db.query(BEPPPBattery).filter(BEPPPBattery.hub_id == hub_id).all()
+        
+        # Get rental data
+        rentals = db.query(Rental).filter(
+            Rental.battery_id.in_([b.battery_id for b in batteries]),
+            Rental.timestamp_taken >= start_time,
+            Rental.timestamp_taken <= end_time
+        ).all()
+        
+        # Prepare export data
+        export_data = {
+            "hub_info": {
+                "hub_id": hub.hub_id,
+                "location": hub.what_three_word_location,
+                "solar_capacity_kw": hub.solar_capacity_kw,
+                "country": hub.country
+            },
+            "export_period": {
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+                "days_included": days_back
+            },
+            "batteries": [
+                {
+                    "battery_id": b.battery_id,
+                    "capacity_wh": b.battery_capacity_wh,
+                    "status": b.status
+                } for b in batteries
+            ],
+            "rentals": [
+                {
+                    "rental_id": r.rentral_id,
+                    "battery_id": r.battery_id,
+                    "user_id": r.user_id,
+                    "timestamp_taken": r.timestamp_taken.isoformat() if r.timestamp_taken else None,
+                    "date_returned": r.battery_returned_date.isoformat() if r.battery_returned_date else None,
+                    "rental_cost": r.total_cost
+                } for r in rentals
+            ]
+        }
+        
+        if format.lower() == "csv":
+            # Create CSV response
+            from io import StringIO
+            import csv
+            
+            output = StringIO()
+            
+            # Write rental data as CSV
+            if rentals:
+                writer = csv.writer(output)
+                writer.writerow(["rental_id", "battery_id", "user_id", "timestamp_taken", "date_returned", "rental_cost"])
+                for rental in rentals:
+                    writer.writerow([
+                        rental.rentral_id,
+                        rental.battery_id,
+                        rental.user_id,
+                        rental.timestamp_taken.isoformat() if rental.timestamp_taken else "",
+                        rental.battery_returned_date.isoformat() if rental.battery_returned_date else "",
+                        rental.total_cost or 0
+                    ])
+            
+            from fastapi.responses import Response
+            return Response(
+                content=output.getvalue(),
+                media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename=hub_{hub_id}_analytics.csv"}
+            )
+        else:
+            # Return JSON
+            return export_data
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export error: {str(e)}")
 
 # ============================================================================
 # ADMIN ENDPOINTS
@@ -3138,6 +4096,28 @@ async def root():
             "enhanced_rentals": "Battery rentals with PUE equipment",
             "flexible_returns": "Comprehensive return system with partial returns and item exchanges",
             "role_based_access": "Fine-grained permission system"
+        },
+        "new_endpoints": {
+            "pue_management": [
+                "POST /pue/ - Create PUE equipment",
+                "GET /pue/{id} - Get PUE details",
+                "PUT /pue/{id} - Update PUE equipment",
+                "GET /hubs/{id}/pue - List hub PUE items"
+            ],
+            "data_analytics": [
+                "GET /analytics/hub-summary - Hub statistics",
+                "POST /analytics/power-usage - Power analytics",
+                "GET /analytics/battery-performance - Battery performance",
+                "POST /analytics/rental-statistics - Rental statistics", 
+                "GET /analytics/revenue - Revenue analytics",
+                "GET /analytics/device-utilization/{hub_id} - Device utilization",
+                "GET /analytics/export/{hub_id} - Export analytics data"
+            ]
+        },
+        "data_admin_capabilities": {
+            "analytics_access": "Full access to analytics endpoints",
+            "restricted_user_data": "Cannot view individual user information",
+            "hub_filtering": "Access only to assigned hubs"
         },
         "key_endpoints": {
             "rentals": {

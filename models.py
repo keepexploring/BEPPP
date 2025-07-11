@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, BigInteger, String, Float, DateTime, ForeignKey, Table, Integer, func, Boolean, Text
+from sqlalchemy import create_engine, Column, BigInteger, String, Float, DateTime, ForeignKey, Table, Integer, func, Boolean, Text, Enum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
@@ -13,6 +13,11 @@ class UserRole(enum.Enum):
     SUPERADMIN = "superadmin"  # Can do everything
     BATTERY = "battery"     # Can only write to webhook
     DATA_ADMIN = "data_admin"  # Can only view data analytics, no user info
+
+class PUEUsageLocation(enum.Enum):
+    HUB_ONLY = "HUB_ONLY"
+    BATTERY_ONLY = "BATTERY_ONLY"
+    BOTH = "BOTH"
 
 # Junction tables for many-to-many relationships
 user_hub_access = Table('user_hub_access', Base.metadata,
@@ -55,10 +60,14 @@ class SolarHub(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relations
-    users = relationship("User", back_populates="hub")
+    users = relationship("User", back_populates="hub", foreign_keys="User.hub_id")
     batteries = relationship("BEPPPBattery", back_populates="hub")
     pue_items = relationship("ProductiveUseEquipment", back_populates="hub")
-    data_admin_users = relationship("User", secondary=user_hub_access, back_populates="accessible_hubs")
+    data_admin_users = relationship("User", 
+                                  secondary=user_hub_access, 
+                                  back_populates="accessible_hubs",
+                                  primaryjoin="SolarHub.hub_id == user_hub_access.c.hub_id",
+                                  secondaryjoin="User.user_id == user_hub_access.c.user_id")
 
 class User(Base):
     __tablename__ = 'user'
@@ -77,10 +86,14 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     
     # Relations
-    hub = relationship("SolarHub", back_populates="users")
+    hub = relationship("SolarHub", back_populates="users", foreign_keys=[hub_id])
     battery_rentals = relationship("Rental", back_populates="user")
     pue_rentals = relationship("PUERental", back_populates="user")
-    accessible_hubs = relationship("SolarHub", secondary=user_hub_access, back_populates="data_admin_users")
+    accessible_hubs = relationship("SolarHub", 
+                                 secondary=user_hub_access, 
+                                 back_populates="data_admin_users",
+                                 primaryjoin="User.user_id == user_hub_access.c.user_id",
+                                 secondaryjoin="SolarHub.hub_id == user_hub_access.c.hub_id")
 
 class Note(Base):
     __tablename__ = 'note'
@@ -124,7 +137,7 @@ class ProductiveUseEquipment(Base):
     
     # *** ENHANCED PUE FIELDS ***
     power_rating_watts = Column(Float, nullable=True)  # Power consumption in watts
-    usage_location = Column(String(50), default="both")  # Where it can be used: hub_only, battery_only, both
+    usage_location = Column(Enum(PUEUsageLocation), default=PUEUsageLocation.BOTH)  # Where it can be used: hub_only, battery_only, both
     storage_location = Column(String(255), nullable=True)  # Physical storage location
     suggested_cost_per_day = Column(Float, nullable=True)  # Suggested daily rental cost
     

@@ -26,6 +26,20 @@ from database import DATABASE_URL, engine, SessionLocal
 from passlib.context import CryptContext
 from dotenv import load_dotenv
 
+# Import UserRole enum from main.py
+sys.path.append(os.path.join(project_root, 'api', 'app'))
+try:
+    from main import UserRole
+except ImportError:
+    # Fallback if main.py is not accessible
+    from enum import Enum
+    class UserRole(str, Enum):
+        USER = "user"
+        ADMIN = "admin"
+        SUPERADMIN = "superadmin"
+        BATTERY = "battery"
+        DATA_ADMIN = "data_admin"
+
 # Load environment variables
 load_dotenv()
 
@@ -59,12 +73,12 @@ def user():
     pass
 
 @user.command()
-@click.option('--username', prompt=True, help='Username for the admin user')
-@click.option('--password', prompt=True, hide_input=True, confirmation_prompt=True, help='Password for the admin user')
-@click.option('--name', prompt=True, default='Admin User', help='Full name')
+@click.option('--username', prompt=True, help='Username for the superadmin user')
+@click.option('--password', prompt=True, hide_input=True, confirmation_prompt=True, help='Password for the superadmin user')
+@click.option('--name', prompt=True, default='Super Admin User', help='Full name')
 @click.option('--hub-id', type=int, help='Hub ID (creates default hub if not specified)')
-def create_admin(username, password, name, hub_id):
-    """Create an admin user"""
+def create_superadmin(username, password, name, hub_id):
+    """Create a superadmin user with full system access"""
     db = SessionLocal()
     
     try:
@@ -94,22 +108,23 @@ def create_admin(username, password, name, hub_id):
         max_user_id = db.query(func.max(User.user_id)).scalar()
         next_user_id = (max_user_id + 1) if max_user_id else 1
         
-        # Create admin user
-        admin_user = User(
+        # Create superadmin user
+        superadmin_user = User(
             user_id=next_user_id,
             Name=name,
             hub_id=hub_id,
-            user_access_level="admin",
+            user_access_level=UserRole.SUPERADMIN.value,
             username=username,
             password_hash=hash_password(password)
         )
-        db.add(admin_user)
+        db.add(superadmin_user)
         db.commit()
         
-        click.echo(f"✅ Created admin user:")
-        click.echo(f"   Username: {admin_user.username}")
-        click.echo(f"   User ID: {admin_user.user_id}")
-        click.echo(f"   Hub ID: {admin_user.hub_id}")
+        click.echo(f"✅ Created superadmin user:")
+        click.echo(f"   Username: {superadmin_user.username}")
+        click.echo(f"   User ID: {superadmin_user.user_id}")
+        click.echo(f"   Access Level: {superadmin_user.user_access_level}")
+        click.echo(f"   Hub ID: {superadmin_user.hub_id}")
         
     except Exception as e:
         db.rollback()
@@ -173,7 +188,7 @@ def create(username, password, name, hub_id, access_level, mobile, address):
 
 @user.command('list')
 @click.option('--hub-id', type=int, help='Filter by hub ID')
-@click.option('--access-level', type=click.Choice(['user', 'admin', 'technician']), help='Filter by access level')
+@click.option('--access-level', type=click.Choice(['user', 'admin', 'superadmin', 'data_admin']), help='Filter by access level')
 def list_users(hub_id, access_level):
     """List all users"""
     db = SessionLocal()
@@ -407,7 +422,8 @@ def battery():
 @click.option('--battery-id', type=int, prompt=True, help='Battery ID')
 @click.option('--hub-id', type=int, prompt=True, help='Hub ID')
 @click.option('--capacity', type=int, prompt=True, help='Battery capacity in Wh')
-def create(battery_id, hub_id, capacity):
+@click.option('--secret', help='Battery secret for authentication (auto-generated if not provided)')
+def create(battery_id, hub_id, capacity, secret):
     """Create a new battery"""
     db = SessionLocal()
     
@@ -424,12 +440,18 @@ def create(battery_id, hub_id, capacity):
             click.echo(f"❌ Hub {hub_id} not found!")
             return
         
+        # Generate secret if not provided
+        if not secret:
+            import secrets
+            secret = secrets.token_urlsafe(32)
+        
         # Create battery
         battery = BEPPPBattery(
             battery_id=battery_id,
             hub_id=hub_id,
             battery_capacity_wh=capacity,
-            status="available"
+            status="available",
+            battery_secret=secret
         )
         db.add(battery)
         db.commit()
@@ -439,6 +461,8 @@ def create(battery_id, hub_id, capacity):
         click.echo(f"   Hub ID: {battery.hub_id}")
         click.echo(f"   Capacity: {battery.battery_capacity_wh} Wh")
         click.echo(f"   Status: {battery.status}")
+        click.echo(f"   Battery Secret: {battery.battery_secret}")
+        click.echo(f"   🔑 Store this secret securely - it's needed for battery authentication!")
         
     except Exception as e:
         db.rollback()
@@ -488,6 +512,108 @@ def list_batteries(hub_id, status):
         headers = ["ID", "Hub ID", "Hub Location", "Capacity", "Status", "Rentals", "Data Points"]
         click.echo(tabulate(table_data, headers=headers, tablefmt="grid"))
         click.echo(f"\nTotal batteries: {len(batteries)}")
+        
+    except Exception as e:
+        click.echo(f"❌ Error: {e}")
+    finally:
+        db.close()
+
+# ============= PUE Equipment Management =============
+@cli.group()
+def pue():
+    """Manage Productive Use Equipment (PUE)"""
+    pass
+
+@pue.command()
+@click.option('--pue-id', type=int, prompt=True, help='PUE ID')
+@click.option('--hub-id', type=int, prompt=True, help='Hub ID')
+@click.option('--equipment-type', prompt=True, help='Equipment type (e.g., Light, Radio, Fan)')
+@click.option('--description', help='Equipment description')
+def create(pue_id, hub_id, equipment_type, description):
+    """Create a new PUE equipment"""
+    db = SessionLocal()
+    
+    try:
+        # Check if PUE already exists
+        existing_pue = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == pue_id).first()
+        if existing_pue:
+            click.echo(f"❌ PUE {pue_id} already exists!")
+            return
+        
+        # Check if hub exists
+        hub = db.query(SolarHub).filter(SolarHub.hub_id == hub_id).first()
+        if not hub:
+            click.echo(f"❌ Hub {hub_id} not found!")
+            return
+        
+        # Create PUE
+        pue = ProductiveUseEquipment(
+            pue_id=pue_id,
+            hub_id=hub_id,
+            equipment_type=equipment_type,
+            description=description,
+            status="available"
+        )
+        db.add(pue)
+        db.commit()
+        
+        click.echo(f"✅ Created PUE equipment:")
+        click.echo(f"   PUE ID: {pue.pue_id}")
+        click.echo(f"   Hub ID: {pue.hub_id}")
+        click.echo(f"   Type: {pue.equipment_type}")
+        click.echo(f"   Description: {pue.description or 'N/A'}")
+        click.echo(f"   Status: {pue.status}")
+        
+    except Exception as e:
+        db.rollback()
+        click.echo(f"❌ Error: {e}")
+    finally:
+        db.close()
+
+@pue.command('list')
+@click.option('--hub-id', type=int, help='Filter by hub ID')
+@click.option('--equipment-type', help='Filter by equipment type')
+@click.option('--status', type=click.Choice(['available', 'in_use', 'maintenance']), help='Filter by status')
+def list_pue(hub_id, equipment_type, status):
+    """List all PUE equipment"""
+    db = SessionLocal()
+    
+    try:
+        # Build query
+        query = db.query(ProductiveUseEquipment)
+        if hub_id:
+            query = query.filter(ProductiveUseEquipment.hub_id == hub_id)
+        if equipment_type:
+            query = query.filter(ProductiveUseEquipment.equipment_type == equipment_type)
+        if status:
+            query = query.filter(ProductiveUseEquipment.status == status)
+        
+        # Get PUE equipment
+        pue_items = query.all()
+        
+        if not pue_items:
+            click.echo("No PUE equipment found.")
+            return
+        
+        # Prepare table data
+        table_data = []
+        for pue in pue_items:
+            rental_count = db.query(PUERental).filter(PUERental.pue_id == pue.pue_id).count()
+            
+            table_data.append([
+                pue.pue_id,
+                pue.hub_id,
+                pue.hub.what_three_word_location if pue.hub else "N/A",
+                pue.equipment_type,
+                pue.description or "N/A",
+                pue.status,
+                rental_count
+            ])
+        
+        # Display table
+        headers = ["PUE ID", "Hub ID", "Hub Location", "Type", "Description", "Status", "Rentals"]
+        click.echo(tabulate(table_data, headers=headers, tablefmt="grid"))
+        click.echo(f"\nTotal PUE equipment: {len(pue_items)}")
         
     except Exception as e:
         click.echo(f"❌ Error: {e}")
