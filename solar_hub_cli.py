@@ -113,7 +113,7 @@ def create_superadmin(username, password, name, hub_id):
             user_id=next_user_id,
             Name=name,
             hub_id=hub_id,
-            user_access_level=UserRole.SUPERADMIN.value,
+            user_access_level=UserRole.SUPERADMIN,
             username=username,
             password_hash=hash_password(password)
         )
@@ -734,7 +734,7 @@ def grant_hub_access(user_id, hub_id):
             click.echo(f"❌ User {user_id} not found!")
             return
         
-        if user.user_access_level != UserRole.DATA_ADMIN.value:
+        if user.user_access_level != UserRole.DATA_ADMIN:
             click.echo(f"❌ User {user_id} is not a DATA_ADMIN user!")
             return
         
@@ -777,7 +777,7 @@ def revoke_hub_access(user_id, hub_id):
             click.echo(f"❌ User {user_id} not found!")
             return
         
-        if user.user_access_level != UserRole.DATA_ADMIN.value:
+        if user.user_access_level != UserRole.DATA_ADMIN:
             click.echo(f"❌ User {user_id} is not a DATA_ADMIN user!")
             return
         
@@ -819,14 +819,14 @@ def list_hub_access(user_id):
                 click.echo(f"❌ User {user_id} not found!")
                 return
         else:
-            users = db.query(User).filter(User.user_access_level == UserRole.DATA_ADMIN.value).all()
+            users = db.query(User).filter(User.user_access_level == UserRole.DATA_ADMIN).all()
         
         if not users:
             click.echo("No DATA_ADMIN users found!")
             return
         
         for user in users:
-            if user.user_access_level != UserRole.DATA_ADMIN.value:
+            if user.user_access_level != UserRole.DATA_ADMIN:
                 if user_id:
                     click.echo(f"❌ User {user_id} is not a DATA_ADMIN user!")
                 continue

@@ -216,3 +216,184 @@ If you encounter migration conflicts or enum issues:
 - Test migrations on a staging environment first
 - Enum changes require careful handling - consider the data migration path
 - Never edit already-applied migration files in production
+
+# Solar Hub CLI Usage Guide
+
+## Creating a Hub
+To create a new solar hub:
+```bash
+python solar_hub_cli.py hub create
+```
+You'll be prompted for:
+- Hub ID (unique integer)
+- What3Words location (e.g., "main.solar.hub")
+- Solar capacity in kW
+- Country
+- Latitude (optional)
+- Longitude (optional)
+
+Example:
+```bash
+python solar_hub_cli.py hub create
+# Hub ID: 1
+# What3Words location: central.nairobi.hub
+# Solar capacity in kW: 100
+# Country: Kenya
+```
+
+## Creating a Superadmin User
+To create a superadmin user with full system access:
+```bash
+python solar_hub_cli.py user create-superadmin
+```
+You'll be prompted for:
+- Username
+- Password (hidden input with confirmation)
+- Full name (defaults to "Super Admin User")
+- Hub ID (optional - creates default hub if not specified)
+
+Example:
+```bash
+python solar_hub_cli.py user create-superadmin
+# Username: admin
+# Password: [hidden]
+# Repeat for confirmation: [hidden]
+# Full name [Super Admin User]: System Administrator
+# Hub ID: 1
+```
+
+## Creating Different User Types
+To create regular users with different access levels:
+```bash
+python solar_hub_cli.py user create
+```
+Available access levels:
+- `user` - Basic user access
+- `admin` - Administrative access
+- `technician` - Technical support access
+
+You'll be prompted for:
+- Username
+- Password (hidden input with confirmation)
+- Full name
+- Hub ID (must exist)
+- Access level
+- Mobile number (optional)
+- Address (optional)
+
+Example:
+```bash
+python solar_hub_cli.py user create
+# Username: john_doe
+# Password: [hidden]
+# Repeat for confirmation: [hidden]
+# Full name: John Doe
+# Hub ID: 1
+# Access level [user]: admin
+# Mobile: +254712345678
+# Address: Nairobi, Kenya
+```
+
+## Adding a Battery to a Hub
+To add a battery to an existing hub:
+```bash
+python solar_hub_cli.py battery create
+```
+You'll be prompted for:
+- Battery ID (unique integer)
+- Hub ID (must exist)
+- Battery capacity in Wh (watt-hours)
+- Battery secret (optional - auto-generated if not provided)
+
+Example:
+```bash
+python solar_hub_cli.py battery create
+# Battery ID: 1001
+# Hub ID: 1
+# Battery capacity in Wh: 5000
+# Battery secret: [leave blank for auto-generation]
+```
+
+**Important:** Store the battery secret securely - it's needed for battery authentication!
+
+## Useful Management Commands
+
+### List all hubs:
+```bash
+python solar_hub_cli.py hub list
+```
+
+### List all users (with optional filters):
+```bash
+python solar_hub_cli.py user list
+python solar_hub_cli.py user list --hub-id 1
+python solar_hub_cli.py user list --access-level admin
+```
+
+### List all batteries (with optional filters):
+```bash
+python solar_hub_cli.py battery list
+python solar_hub_cli.py battery list --hub-id 1
+python solar_hub_cli.py battery list --status available
+```
+
+### Generate access token for API authentication:
+```bash
+python solar_hub_cli.py user generate-token
+```
+
+### Database operations:
+```bash
+# Show database statistics
+python solar_hub_cli.py db stats
+
+# Initialize database tables
+python solar_hub_cli.py db init
+
+# Reset database (WARNING: deletes all data)
+python solar_hub_cli.py db reset
+```
+
+### Start the API server:
+```bash
+python solar_hub_cli.py api start
+```
+
+## Complete Setup Example
+Here's a complete example of setting up a new system from scratch:
+
+```bash
+# 1. Initialize database
+python solar_hub_cli.py db init
+
+# 2. Create a hub
+python solar_hub_cli.py hub create
+# Hub ID: 1, Location: central.nairobi.hub, Capacity: 100, Country: Kenya
+
+# 3. Create superadmin
+python solar_hub_cli.py user create-superadmin
+# Username: admin, Password: [secure_password], Name: System Admin
+
+# 4. Create regular users
+python solar_hub_cli.py user create
+# Username: technician1, Access level: technician
+
+python solar_hub_cli.py user create  
+# Username: customer1, Access level: user
+
+# 5. Add batteries to the hub
+python solar_hub_cli.py battery create
+# Battery ID: 1001, Hub ID: 1, Capacity: 5000
+
+python solar_hub_cli.py battery create
+# Battery ID: 1002, Hub ID: 1, Capacity: 3000
+
+# 6. Check everything is set up correctly
+python solar_hub_cli.py db stats
+python solar_hub_cli.py hub list
+python solar_hub_cli.py user list
+python solar_hub_cli.py battery list
+
+# 7. Start the API
+python solar_hub_cli.py api start
+```
