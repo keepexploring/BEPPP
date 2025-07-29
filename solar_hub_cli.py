@@ -844,5 +844,372 @@ def list_hub_access(user_id):
     finally:
         db.close()
 
+# ============= Frontend Management =============
+@cli.group()
+def frontend():
+    """Manage the frontend PWA"""
+    pass
+
+@frontend.command()
+@click.option('--local', is_flag=True, help='Connect to local API (localhost:8000)')
+@click.option('--api-url', help='Custom API URL to connect to')
+@click.option('--port', default=3000, help='Frontend port (default: 3000)')
+def start(local, api_url, port):
+    """Start the frontend development server"""
+    frontend_dir = Path(__file__).parent / 'frontend'
+    
+    if not frontend_dir.exists():
+        click.echo("❌ Frontend directory not found!")
+        click.echo("   Make sure the frontend folder exists in the project root.")
+        return
+    
+    # Determine API URL
+    if api_url:
+        target_api = api_url
+        env_name = f"Custom ({api_url})"
+    elif local:
+        target_api = "http://localhost:8000"
+        env_name = "Local"
+    else:
+        target_api = "https://data.beppp.cloud"
+        env_name = "Live"
+    
+    click.echo(f"🚀 Starting BEPPP Frontend...")
+    click.echo(f"📡 API Environment: {env_name}")
+    click.echo(f"🌐 API URL: {target_api}")
+    click.echo(f"🏠 Frontend URL: http://localhost:{port}")
+    click.echo()
+    
+    try:
+        # Set up environment
+        env = os.environ.copy()
+        env['VITE_API_BASE_URL'] = target_api
+        env['VITE_PORT'] = str(port)
+        
+        # Check if dependencies are installed
+        node_modules = frontend_dir / 'node_modules'
+        if not node_modules.exists():
+            click.echo("📦 Installing frontend dependencies...")
+            subprocess.run(['npm', 'install', '--legacy-peer-deps'], cwd=frontend_dir, check=True)
+        
+        # Start the development server
+        subprocess.run(['npm', 'run', 'dev'], cwd=frontend_dir, env=env, check=True)
+        
+    except subprocess.CalledProcessError as e:
+        click.echo(f"❌ Failed to start frontend: {e}")
+    except KeyboardInterrupt:
+        click.echo("\n👋 Frontend server stopped.")
+
+@frontend.command()
+@click.option('--local', is_flag=True, help='Build for local API')
+@click.option('--api-url', help='Custom API URL for build')
+@click.option('--output-dir', default='dist', help='Output directory (default: dist)')
+def build(local, api_url, output_dir):
+    """Build the frontend for production"""
+    frontend_dir = Path(__file__).parent / 'frontend'
+    
+    if not frontend_dir.exists():
+        click.echo("❌ Frontend directory not found!")
+        return
+    
+    # Determine API URL
+    if api_url:
+        target_api = api_url
+        env_name = f"Custom ({api_url})"
+    elif local:
+        target_api = "http://localhost:8000"
+        env_name = "Local"
+    else:
+        target_api = "https://data.beppp.cloud"
+        env_name = "Live"
+    
+    click.echo(f"🏗️  Building BEPPP Frontend...")
+    click.echo(f"📡 API Environment: {env_name}")
+    click.echo(f"🌐 API URL: {target_api}")
+    click.echo(f"📁 Output Directory: {output_dir}")
+    click.echo()
+    
+    try:
+        # Set up environment
+        env = os.environ.copy()
+        env['VITE_API_BASE_URL'] = target_api
+        
+        # Build the frontend
+        subprocess.run(['npm', 'run', 'build'], cwd=frontend_dir, env=env, check=True)
+        
+        click.echo("✅ Frontend built successfully!")
+        click.echo(f"   📁 Build files are in: {frontend_dir / output_dir}")
+        click.echo("   🚀 Ready for deployment!")
+        
+    except subprocess.CalledProcessError as e:
+        click.echo(f"❌ Failed to build frontend: {e}")
+
+@frontend.command()
+def test():
+    """Test the frontend API connections"""
+    frontend_dir = Path(__file__).parent / 'frontend'
+    test_file = frontend_dir / 'test-runner.html'
+    
+    if not test_file.exists():
+        click.echo("❌ Frontend test file not found!")
+        return
+    
+    click.echo("🧪 Frontend API Connection Test")
+    click.echo(f"   Open this file in your browser: {test_file}")
+    click.echo("   Or run: python -m webbrowser 'file://" + str(test_file) + "'")
+    
+    try:
+        import webbrowser
+        webbrowser.open('file://' + str(test_file))
+        click.echo("✅ Opened test runner in browser")
+    except:
+        click.echo("⚠️  Could not automatically open browser")
+
+@frontend.command()
+def install():
+    """Install frontend dependencies"""
+    frontend_dir = Path(__file__).parent / 'frontend'
+    
+    if not frontend_dir.exists():
+        click.echo("❌ Frontend directory not found!")
+        return
+    
+    click.echo("📦 Installing frontend dependencies...")
+    
+    try:
+        subprocess.run(['npm', 'install', '--legacy-peer-deps'], cwd=frontend_dir, check=True)
+        click.echo("✅ Frontend dependencies installed successfully!")
+    except subprocess.CalledProcessError as e:
+        click.echo(f"❌ Failed to install dependencies: {e}")
+
+# ============= Development Management =============
+@cli.group()
+def dev():
+    """Development environment management"""
+    pass
+
+@dev.command()
+@click.option('--local', is_flag=True, help='Use local API backend')
+@click.option('--api-url', help='Custom API URL for frontend')
+@click.option('--frontend-port', default=3000, help='Frontend port (default: 3000)')
+@click.option('--backend-port', default=8000, help='Backend port (default: 8000)')
+@click.option('--no-frontend', is_flag=True, help='Start only backend')
+@click.option('--no-backend', is_flag=True, help='Start only frontend')
+def start(local, api_url, frontend_port, backend_port, no_frontend, no_backend):
+    """Start full development environment (backend + frontend)"""
+    
+    if no_frontend and no_backend:
+        click.echo("❌ Cannot disable both frontend and backend!")
+        return
+    
+    processes = []
+    
+    try:
+        # Start backend if requested
+        if not no_backend:
+            click.echo(f"🔧 Starting Backend API on port {backend_port}...")
+            backend_env = os.environ.copy()
+            backend_env['PORT'] = str(backend_port)
+            
+            backend_process = subprocess.Popen([
+                'uvicorn', 'main:app', '--reload', 
+                '--host', '0.0.0.0', '--port', str(backend_port)
+            ], cwd=Path(__file__).parent / 'api' / 'app', env=backend_env)
+            processes.append(('Backend', backend_process))
+            
+            # Wait a moment for backend to start
+            import time
+            time.sleep(2)
+            
+            click.echo(f"✅ Backend API started on http://localhost:{backend_port}")
+            click.echo(f"   📖 API Documentation: http://localhost:{backend_port}/docs")
+        
+        # Start frontend if requested
+        if not no_frontend:
+            # Determine API URL
+            if api_url:
+                target_api = api_url
+                env_name = f"Custom ({api_url})"
+            elif local or not no_backend:
+                target_api = f"http://localhost:{backend_port}"
+                env_name = "Local Backend"
+            else:
+                target_api = "https://data.beppp.cloud"
+                env_name = "Live API"
+            
+            click.echo(f"🎨 Starting Frontend on port {frontend_port}...")
+            click.echo(f"📡 Frontend API Target: {env_name} ({target_api})")
+            
+            frontend_dir = Path(__file__).parent / 'frontend'
+            frontend_env = os.environ.copy()
+            frontend_env['VITE_API_BASE_URL'] = target_api
+            frontend_env['VITE_PORT'] = str(frontend_port)
+            
+            # Check dependencies
+            if not (frontend_dir / 'node_modules').exists():
+                click.echo("📦 Installing frontend dependencies...")
+                subprocess.run(['npm', 'install', '--legacy-peer-deps'], cwd=frontend_dir, check=True)
+            
+            frontend_process = subprocess.Popen([
+                'npm', 'run', 'dev'
+            ], cwd=frontend_dir, env=frontend_env)
+            processes.append(('Frontend', frontend_process))
+            
+            click.echo(f"✅ Frontend started on http://localhost:{frontend_port}")
+        
+        click.echo()
+        click.echo("🎉 Development environment is running!")
+        click.echo()
+        if not no_backend:
+            click.echo(f"   🔧 Backend API: http://localhost:{backend_port}")
+            click.echo(f"   📖 API Docs: http://localhost:{backend_port}/docs")
+        if not no_frontend:
+            click.echo(f"   🎨 Frontend PWA: http://localhost:{frontend_port}")
+        click.echo()
+        click.echo("Press Ctrl+C to stop all services...")
+        
+        # Wait for processes
+        try:
+            for name, process in processes:
+                process.wait()
+        except KeyboardInterrupt:
+            click.echo("\n🛑 Stopping development environment...")
+            for name, process in processes:
+                click.echo(f"   Stopping {name}...")
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    click.echo(f"   Force killing {name}...")
+                    process.kill()
+            
+            click.echo("✅ Development environment stopped.")
+            
+    except subprocess.CalledProcessError as e:
+        click.echo(f"❌ Failed to start development environment: {e}")
+        # Clean up any running processes
+        for name, process in processes:
+            try:
+                process.terminate()
+            except:
+                pass
+    except Exception as e:
+        click.echo(f"❌ Unexpected error: {e}")
+        # Clean up any running processes
+        for name, process in processes:
+            try:
+                process.terminate()
+            except:
+                pass
+
+@dev.command()
+def status():
+    """Check development environment status"""
+    click.echo("🔍 Checking Development Environment Status...")
+    click.echo()
+    
+    # Check backend
+    try:
+        import requests
+        backend_response = requests.get('http://localhost:8000/health', timeout=5)
+        if backend_response.status_code == 200:
+            click.echo("✅ Backend API: Running on http://localhost:8000")
+        else:
+            click.echo(f"⚠️  Backend API: Responding with status {backend_response.status_code}")
+    except:
+        click.echo("❌ Backend API: Not running or not accessible")
+    
+    # Check frontend
+    try:
+        frontend_response = requests.get('http://localhost:3000', timeout=5)
+        if frontend_response.status_code == 200:
+            click.echo("✅ Frontend PWA: Running on http://localhost:3000")
+        else:
+            click.echo(f"⚠️  Frontend PWA: Responding with status {frontend_response.status_code}")
+    except:
+        click.echo("❌ Frontend PWA: Not running or not accessible")
+    
+    # Check live API
+    try:
+        live_response = requests.get('https://data.beppp.cloud/health', timeout=10)
+        if live_response.status_code == 200:
+            click.echo("✅ Live API: Available at https://data.beppp.cloud")
+        else:
+            click.echo(f"⚠️  Live API: Responding with status {live_response.status_code}")
+    except:
+        click.echo("❌ Live API: Not accessible")
+    
+    click.echo()
+    
+    # Check file structure
+    frontend_dir = Path(__file__).parent / 'frontend'
+    backend_dir = Path(__file__).parent / 'api' / 'app'
+    
+    if frontend_dir.exists():
+        click.echo("✅ Frontend directory: Found")
+        if (frontend_dir / 'node_modules').exists():
+            click.echo("✅ Frontend dependencies: Installed")
+        else:
+            click.echo("⚠️  Frontend dependencies: Not installed (run 'python solar_hub_cli.py frontend install')")
+    else:
+        click.echo("❌ Frontend directory: Not found")
+    
+    if backend_dir.exists():
+        click.echo("✅ Backend directory: Found")
+    else:
+        click.echo("❌ Backend directory: Not found")
+
+@dev.command()
+def setup():
+    """Set up the complete development environment"""
+    click.echo("🔧 Setting up BEPPP Development Environment...")
+    click.echo()
+    
+    # Check Python dependencies
+    click.echo("📦 Checking Python dependencies...")
+    try:
+        import uvicorn, fastapi, sqlalchemy
+        click.echo("✅ Python dependencies: OK")
+    except ImportError as e:
+        click.echo(f"❌ Missing Python dependency: {e}")
+        click.echo("   Run: pip install -r requirements.txt")
+        return
+    
+    # Install frontend dependencies
+    frontend_dir = Path(__file__).parent / 'frontend'
+    if frontend_dir.exists():
+        if not (frontend_dir / 'node_modules').exists():
+            click.echo("📦 Installing frontend dependencies...")
+            try:
+                subprocess.run(['npm', 'install', '--legacy-peer-deps'], cwd=frontend_dir, check=True)
+                click.echo("✅ Frontend dependencies installed")
+            except subprocess.CalledProcessError:
+                click.echo("❌ Failed to install frontend dependencies")
+                return
+        else:
+            click.echo("✅ Frontend dependencies: Already installed")
+    
+    # Check database
+    click.echo("🗄️  Checking database...")
+    try:
+        db = SessionLocal()
+        # Try to query something simple
+        db.query(User).first()
+        db.close()
+        click.echo("✅ Database: Connected")
+    except Exception as e:
+        click.echo(f"⚠️  Database: Connection issue - {e}")
+        click.echo("   Make sure your DATABASE_URL is configured correctly")
+    
+    click.echo()
+    click.echo("🎉 Development environment setup complete!")
+    click.echo()
+    click.echo("Next steps:")
+    click.echo("  1. Start full environment: python solar_hub_cli.py dev start --local")
+    click.echo("  2. Or start components separately:")
+    click.echo("     - Backend only: python solar_hub_cli.py api start")
+    click.echo("     - Frontend only: python solar_hub_cli.py frontend start --local")
+    click.echo("  3. Check status: python solar_hub_cli.py dev status")
+
 if __name__ == '__main__':
     cli()

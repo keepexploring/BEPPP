@@ -262,6 +262,60 @@ python solar_hub_cli.py user create-superadmin
 # Hub ID: 1
 ```
 
+## Creating a Hub Manager (Admin User)
+After creating a superadmin user, you can create hub managers who have administrative access to specific hubs:
+
+### Using CLI:
+```bash
+python solar_hub_cli.py user create
+```
+You'll be prompted for:
+- Username
+- Password (hidden input with confirmation)
+- Full name
+- Hub ID (must exist)
+- Access level (select `admin`)
+- Mobile number (optional)
+- Address (optional)
+
+Example:
+```bash
+python solar_hub_cli.py user create
+# Username: hub_manager_1
+# Password: [hidden]
+# Repeat for confirmation: [hidden]
+# Full name: Hub Manager One
+# Hub ID: 1
+# Access level [user]: admin
+# Mobile: +254712345678
+# Address: Nairobi, Kenya
+```
+
+### Using API:
+You can also create hub managers through the API endpoint:
+```bash
+POST /users/
+```
+With body:
+```json
+{
+  "username": "hub_manager_1",
+  "password": "secure_password",
+  "name": "Hub Manager One",
+  "hub_id": 1,
+  "user_access_level": "admin",
+  "mobile_number": "+254712345678",
+  "address": "Nairobi, Kenya"
+}
+```
+
+**Authentication required**: Must be logged in as superadmin or admin user.
+
+**Permissions**: 
+- SUPERADMIN: Can create admin users for any hub
+- ADMIN: Can create users (including other admins) within their own hub
+- USER: Can create basic users within their own hub (but not admin users)
+
 ## Creating Different User Types
 To create regular users with different access levels:
 ```bash
@@ -296,6 +350,8 @@ python solar_hub_cli.py user create
 
 ## Adding a Battery to a Hub
 To add a battery to an existing hub:
+
+### Using CLI:
 ```bash
 python solar_hub_cli.py battery create
 ```
@@ -313,6 +369,29 @@ python solar_hub_cli.py battery create
 # Battery capacity in Wh: 5000
 # Battery secret: [leave blank for auto-generation]
 ```
+
+### Using API:
+You can also add batteries through the API endpoint:
+```bash
+POST /batteries/
+```
+With body:
+```json
+{
+  "battery_id": 1001,
+  "hub_id": 1,
+  "battery_capacity_wh": 5000,
+  "battery_secret": "auto-generated-if-not-provided"
+}
+```
+
+**Authentication required**: Must be logged in as superadmin, admin, or user.
+
+**Permissions**:
+- SUPERADMIN: Can create batteries in any hub
+- ADMIN: Can create batteries in any hub  
+- USER: Can only create batteries in their own hub
+- DATA_ADMIN: Cannot create batteries (read-only access)
 
 **Important:** Store the battery secret securely - it's needed for battery authentication!
 
@@ -397,3 +476,314 @@ python solar_hub_cli.py battery list
 # 7. Start the API
 python solar_hub_cli.py api start
 ```
+
+## Admin Commands Reference
+
+### Create superadmin user:
+```bash
+# Interactive mode (prompts for username, password, name)
+python solar_hub_cli.py user create-superadmin
+
+# With specific hub ID (use --hub-id to specify)
+python solar_hub_cli.py user create-superadmin --username admin2 --password bepppfortheworld123 --name "Admin User" --hub-id 2
+
+# On Heroku (requires proper quoting)
+heroku run "python solar_hub_cli.py user create-superadmin --username admin2 --password bepppfortheworld123 --name \"Admin User\" --hub-id 2"
+```
+
+### List hubs to find valid hub IDs:
+```bash
+# Local
+python solar_hub_cli.py hub list
+
+# Heroku
+heroku run "python solar_hub_cli.py hub list"
+```
+
+### Create regular admin user:
+```bash
+python solar_hub_cli.py user create --access-level admin --hub-id 2
+```
+
+### List all users:
+```bash
+python solar_hub_cli.py user list
+```
+
+### Database stats:
+```bash
+python solar_hub_cli.py db stats
+```
+
+### Start API server:
+```bash
+python solar_hub_cli.py api start
+```
+
+### Run tests:
+```bash
+python solar_hub_cli.py api test
+```
+
+### Connect locally to production database:
+```bash
+DATABASE_URL="postgres://ue8a4gf4jgv0af:pc1d6978428d85cec480a821e5e9770cffbcbc0e9363069527028114bf843e53c@ca8lne8pi75f88.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/dat51kg35m4ku" python solar_hub_cli.py user create-superadmin --hub-id 2
+```
+
+### Important Notes:
+- Always check existing hub IDs with `python solar_hub_cli.py hub list` before creating users
+- Use `--hub-id` parameter to specify which hub the user belongs to
+- On Heroku, wrap the entire command in quotes and escape inner quotes with backslashes
+- Hub ID 2 exists in production but may not exist in local development database
+
+# Frontend PWA Development
+
+## Quick Start
+
+### 🚀 Easy Commands (Recommended)
+```bash
+# Start backend + frontend together
+python solar_hub_cli.py dev start          # Backend + Frontend with live API
+python solar_hub_cli.py dev start --local  # Backend + Frontend with local API
+
+# Frontend only
+python solar_hub_cli.py frontend start          # Frontend with live API
+python solar_hub_cli.py frontend start --local  # Frontend with local API
+python solar_hub_cli.py frontend start --api-url https://custom-api.com  # Custom API URL
+
+# Backend only
+python solar_hub_cli.py api start          # Local backend server
+```
+
+### Manual Commands (Alternative)
+```bash
+cd frontend
+
+# Development with live API (data.beppp.cloud)
+node run.js dev live        # or npm run dev:live
+
+# Development with local API (localhost:8000)
+node run.js dev local       # or npm run dev:local
+
+# Build for production
+node run.js build live      # or npm run build:live
+```
+
+### Test Without Installation
+Open `frontend/test-runner.html` in your browser to test API connections
+
+## Frontend Features
+
+### 🔐 Authentication & Roles
+- **SuperAdmin**: Full system access (hubs, users, batteries, PUE, analytics)
+- **Admin**: Battery/PUE management, rentals, data analytics
+- **User**: Rentals, personal data viewing, equipment returns
+
+### 📊 Core Functionality
+- **Dashboard**: Role-specific with statistics and quick actions
+- **Battery Management**: CRUD, real-time data, secret generation
+- **Hub Management**: Create/manage solar hubs (SuperAdmin only)
+- **PUE Equipment**: Manage productive use equipment
+- **Rental System**: Battery/PUE rentals with flexible returns
+- **Data Analytics**: Real-time charts with Chart.js, time filtering
+- **Data Export**: CSV/PDF export with custom date ranges
+
+### 📱 PWA Features
+- Installable on mobile devices
+- Offline functionality with service worker
+- Responsive design for all screen sizes
+- Push notifications (framework ready)
+
+### 🎯 Advanced Features
+- **Overdue Tracking**: Find and manage overdue rentals
+- **Return Management**: Flexible returns with condition assessment
+- **Equipment Search**: Find available batteries and PUE equipment
+- **Role-based UI**: Dynamic interface based on user permissions
+- **API Switching**: Easy toggle between local and live APIs
+
+## Environment Configuration
+
+The frontend automatically detects API URLs in this order:
+1. CLI parameters (`--api-url`, `--local`)
+2. Environment variables (`VITE_API_BASE_URL`)
+3. URL parameters (`?api=local`, `?api=live`)
+4. Saved preferences (localStorage)
+5. Default: `https://data.beppp.cloud`
+
+### Available APIs
+- **Local**: `http://localhost:8000` (development)
+- **Live**: `https://data.beppp.cloud` (production)
+- **Custom**: Any URL specified with `--api-url`
+
+## Complete Development Workflow
+
+### 1. First-time Setup
+```bash
+# Install backend dependencies (if not done)
+cd api/app
+pip install -r requirements.txt
+
+# Install frontend dependencies
+cd ../../frontend
+npm install --legacy-peer-deps
+```
+
+### 2. Development Options
+
+#### Option A: Full Stack Development (Recommended)
+```bash
+# Start both backend and frontend together
+python solar_hub_cli.py dev start --local
+
+# This will:
+# - Start backend on localhost:8000
+# - Start frontend on localhost:3000
+# - Connect frontend to local backend
+```
+
+#### Option B: Frontend with Live API
+```bash
+# Frontend connects to production API
+python solar_hub_cli.py frontend start
+
+# Or manually:
+cd frontend
+node run.js dev live
+```
+
+#### Option C: Backend Only
+```bash
+# Just start the backend API
+python solar_hub_cli.py api start
+```
+
+### 3. Building for Production
+```bash
+# Build frontend for production deployment
+python solar_hub_cli.py frontend build
+
+# Or manually:
+cd frontend
+node run.js build live
+```
+
+## Deployment
+
+### Frontend Deployment
+The built frontend (in `frontend/dist/`) can be deployed to:
+- **Netlify**: Automatic deployments from Git
+- **Vercel**: Optimized for Vue applications  
+- **AWS S3 + CloudFront**: Scalable with CDN
+- **GitHub Pages**: Free hosting
+- **Any static web server**: Apache, Nginx, etc.
+
+### Environment Variables for Deployment
+```env
+VITE_API_BASE_URL=https://data.beppp.cloud
+VITE_ENABLE_NOTIFICATIONS=true
+VITE_DEBUG=false
+```
+
+## Testing & Debugging
+
+### API Connection Testing
+1. Open `frontend/test-runner.html`
+2. Select Local or Live API
+3. Click "Test Connection"
+
+### Frontend Testing
+```bash
+# Test all user roles and permissions
+# Login with different accounts:
+# - SuperAdmin: Full access
+# - Admin: Battery/PUE management
+# - User: Rentals and personal data
+```
+
+### Common Issues
+- **CORS errors**: Check API server CORS settings
+- **Authentication failed**: Clear localStorage and re-login  
+- **Charts not loading**: Verify data availability and Chart.js
+- **PWA not installing**: Ensure HTTPS is used
+
+## API Endpoints Coverage
+
+✅ All endpoints implemented:
+- Authentication (`/auth/*`)
+- Hubs (`/hubs/*`) 
+- Batteries (`/batteries/*`)
+- PUE Equipment (`/pue/*`)
+- Rentals (`/rentals/*`)
+- Data & Analytics (`/data/*`, `/analytics/*`)
+- User Management (`/users/*`)
+
+## CLI Integration
+
+The solar_hub_cli.py now includes frontend management:
+
+```bash
+# Show all available commands
+python solar_hub_cli.py --help
+
+# Frontend-specific commands
+python solar_hub_cli.py frontend --help
+
+# Development commands  
+python solar_hub_cli.py dev --help
+```
+
+---
+
+## TODO: Frontend Recreation Plan
+
+The current frontend has Quasar CLI issues and needs to be recreated. Plan for next session:
+
+### Steps to Complete:
+1. **Backup Complete**: ✅ Current frontend backed up to `frontend_broken_backup`
+2. **Manual Quasar Creation**: 🔄 User will manually create new Quasar project using `npm init quasar` (interactive)
+3. **Integration Tasks** (for next session):
+   - Move/integrate the new Quasar project into correct location 
+   - Copy custom components from backup: pages/, stores/, components/, config/, router/
+   - Restore package.json dependencies (axios, chart.js, pinia, etc.)
+   - Update CLI script integration if needed
+   - Test dev server works with both local and live API
+   - Verify authentication, routing, and core functionality
+
+### Files to Restore from Backup:
+- `src/pages/` - All custom pages (auth, data, rentals, admin, etc.)
+- `src/components/` - Custom components
+- `src/stores/` - Pinia stores (auth.js)
+- `src/config/environment.js` - API configuration
+- `src/router/routes.js` - Custom routing
+- `src/css/app.scss` - Custom styles
+- Custom dependencies from package.json
+
+### Current Issue:
+Quasar CLI not recognizing project as valid Quasar project despite correct files (quasar.config.js, .quasarrc, etc.) being present. Likely due to Node.js version compatibility (using v24.3.0, project expects ^20 || ^18 || ^16).
+
+**Next Action**: User creates fresh Quasar project manually, then we integrate existing code.
+
+# Generating migrations
+Local Development Process:
+
+  1. Make model changes in models.py
+  2. Generate migration:
+  alembic revision --autogenerate -m "describe your changes"
+  3. Review generated migration in alembic/versions/
+  4. Apply migration locally:
+  alembic upgrade head
+
+  Heroku Deployment Process:
+
+  1. Push changes to git repository
+  2. Deploy to Heroku (migration runs automatically via release phase or manually):
+  heroku run alembic upgrade head -a your-app-name
+
+  Current Issue:
+
+  Your initial migration 521540103763_initial_migration.py is empty despite having comprehensive
+  models. You should first generate a proper baseline migration:
+
+
+  The alembic setup in alembic/env.py is properly configured to handle Heroku PostgreSQL URLs and
+  imports your models correctly.

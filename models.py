@@ -195,6 +195,7 @@ class LiveData(Base):
     stay_awake_state = Column(Integer, nullable=True)
     tilt_sensor_state = Column(Integer, nullable=True)
     total_charge_consumed = Column(Float, nullable=True)
+    err = Column(String(255), nullable=True)  # Error messages if any
     
     # Record metadata
     created_at = Column(DateTime, default=datetime.utcnow)

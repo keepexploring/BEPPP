@@ -543,6 +543,7 @@ LIVE_DATA_FIELD_MAPPING = {
     'sa': ('stay_awake_state', int),
     'ts': ('tilt_sensor_state', int),
     'tcc': ('total_charge_consumed', float),
+    'err': ('err', str),
 }
 
 def safe_convert_value(value, target_type, field_name):
@@ -1043,12 +1044,23 @@ async def handle_webhook_format(webhook_data: dict, db: Session, current_user: d
     - `ei`: Inverter enabled (1/0)
     - `sa`: Stay awake state (1/0)
     - `ts`: Tilt sensor state (0-9)
+    - `err`: Error codes (string) - See error codes below
+    
+    **Error Codes (err field):**
+    - `R`: rtcError - Real-time clock error
+    - `C`: powerSensorChargeError - Power sensor charge error
+    - `U`: powerSensorUsbError - Power sensor USB error
+    - `T`: tempSensorError - Temperature sensor error
+    - `B`: batteryMonitorError - Battery monitor error
+    - `G`: gpsError - GPS error
+    - `S`: sdError - SD card error
+    - `L`: lteError - LTE connection error
+    - `D`: displayError - Display error
     
     **Timing & Identification:**
     - `id`: Battery ID (string or number)
     - `d`: RTC date (YYYY-MM-DD)
     - `tm`: RTC time (HH:MM:SS)
-    - `k`: Battery secret key (for authentication)
     
     ### Example Data:
     ```json
@@ -1084,7 +1096,7 @@ async def handle_webhook_format(webhook_data: dict, db: Session, current_user: d
         "gt": "14:30:15",
         "d": "2025-07-11",
         "tm": "14:30:20",
-        "k": "your_battery_secret_key"
+        "err": "TG"
     }
     ```
     

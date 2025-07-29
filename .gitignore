@@ -5,3 +5,6 @@
 prisma-heroku/
 *.pyc
 __pycache__/
+frontend/
+frontend_backup/
+frontend_broken_backup/
