@@ -502,7 +502,8 @@ app.add_middleware(
     allow_origins=[
         "https://data.beppp.cloud",
         "http://localhost:3000",
-        "http://localhost:8000"
+        "http://localhost:8000",
+        "http://localhost:9000"
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
