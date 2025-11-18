@@ -1,0 +1,29 @@
+# Dockerfile for Panel Analytics
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+COPY panel_dashboard/requirements.txt ./panel_requirements.txt
+
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -r panel_requirements.txt
+
+# Copy application code
+COPY panel_dashboard /app/panel_dashboard
+COPY models.py database.py config.py ./
+
+# Expose port
+EXPOSE 5100
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:5100 || exit 1
+
+# Run Panel server
+CMD ["panel", "serve", "panel_dashboard/battery_analytics.py", \
+     "--port", "5100", \
+     "--address", "0.0.0.0", \
+     "--allow-websocket-origin=*", \
+     "--use-xheaders"]

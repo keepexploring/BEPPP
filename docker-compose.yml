@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: battery-hub-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-beppp}
+      POSTGRES_USER: ${POSTGRES_USER:-beppp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-beppp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - battery-hub-network
+    restart: unless-stopped
+
+  # FastAPI Backend
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: battery-hub-api
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-beppp}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-beppp}
+      SECRET_KEY: ${SECRET_KEY:-change-this-to-a-secure-random-key}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-change-this-webhook-secret}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      DEBUG: ${DEBUG:-False}
+      USER_TOKEN_EXPIRE_HOURS: ${USER_TOKEN_EXPIRE_HOURS:-24}
+      BATTERY_TOKEN_EXPIRE_HOURS: ${BATTERY_TOKEN_EXPIRE_HOURS:-8760}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - battery-hub-network
+    restart: unless-stopped
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        sleep 5 &&
+        echo 'Running migrations...' &&
+        alembic upgrade head &&
+        echo 'Starting API server...' &&
+        uvicorn api.app.main:app --host 0.0.0.0 --port 8000 --workers 4
+      "
+
+  # Panel Analytics Dashboard
+  panel:
+    build:
+      context: .
+      dockerfile: Dockerfile.panel
+    container_name: battery-hub-panel
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-beppp}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-beppp}
+      SECRET_KEY: ${SECRET_KEY:-change-this-to-a-secure-random-key}
+    depends_on:
+      - postgres
+      - api
+    ports:
+      - "${PANEL_PORT:-5100}:5100"
+    networks:
+      - battery-hub-network
+    restart: unless-stopped
+
+  # Quasar Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: battery-hub-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - api
+      - panel
+    networks:
+      - battery-hub-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  battery-hub-network:
+    driver: bridge
