@@ -13,7 +13,10 @@
   "dependencies": {
     "@quasar/extras": "^1.16.9",
     "axios": "^1.6.2",
+    "html5-qrcode": "^2.3.8",
+    "jspdf": "^2.5.1",
     "pinia": "^2.1.7",
+    "qrcode": "^1.5.3",
     "quasar": "^2.14.1",
     "vue": "^3.4.15",
     "vue-router": "^4.2.5"

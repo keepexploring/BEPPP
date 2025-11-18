@@ -74,6 +74,7 @@ export const hubsAPI = {
 // Users
 export const usersAPI = {
   get: (userId) => api.get(`/users/${userId}`),
+  getByShortId: (shortId) => api.get(`/users/by-short-id/${shortId}`),
   create: (data) => api.post('/users/', data),
   update: (userId, data) => api.put(`/users/${userId}`, data),
   delete: (userId) => api.delete(`/users/${userId}`),
@@ -86,6 +87,7 @@ export const usersAPI = {
 // Batteries
 export const batteriesAPI = {
   get: (batteryId) => api.get(`/batteries/${batteryId}`),
+  getByShortId: (shortId) => api.get(`/batteries/by-short-id/${shortId}`),
   create: (data) => api.post('/batteries/', data),
   update: (batteryId, data) => api.put(`/batteries/${batteryId}`, data),
   delete: (batteryId) => api.delete(`/batteries/${batteryId}`),
