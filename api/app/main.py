@@ -1943,7 +1943,7 @@ async def create_user(
     """Create a new user"""
     if current_user.get('role') == UserRole.DATA_ADMIN:
         raise HTTPException(status_code=403, detail="Data admins cannot create users")
-    
+
     if current_user.get('role') == UserRole.USER:
         if user.hub_id != current_user.get('hub_id'):
             raise HTTPException(status_code=403, detail="Can only create users in your own hub")
@@ -1951,14 +1951,19 @@ async def create_user(
             raise HTTPException(status_code=403, detail="Cannot create admin or superadmin users")
     elif current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     try:
         user_data = user.dict()
         user_data["password_hash"] = hash_password(user_data.pop("password"))
         user_data["Name"] = user_data.pop("name")
-        
+
         db_user = User(**user_data)
         db.add(db_user)
+        db.flush()  # Flush to get the ID before committing
+
+        # Generate short_id for QR codes
+        db_user.short_id = f"BH-{str(db_user.user_id).zfill(4)}"
+
         db.commit()
         db.refresh(db_user)
         return db_user
@@ -2057,12 +2062,33 @@ async def list_hub_users(
     """List all users for a hub"""
     if current_user.get('role') == UserRole.DATA_ADMIN:
         raise HTTPException(status_code=403, detail="Data admins cannot access user information")
-    
+
     if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
         if current_user.get('hub_id') != hub_id:
             raise HTTPException(status_code=403, detail="Access denied")
-    
+
     return db.query(User).filter(User.hub_id == hub_id).all()
+
+@app.get("/users/by-short-id/{short_id}")
+async def get_user_by_short_id(
+    short_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get user by their short ID from QR code (e.g., BH-0001)"""
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot access user information")
+
+    user = db.query(User).filter(User.short_id == short_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User with short ID '{short_id}' not found")
+
+    # Check access rights
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        if user.hub_id != current_user.get('hub_id'):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    return user
 
 # ============================================================================
 # BATTERY ENDPOINTS
@@ -2077,24 +2103,30 @@ async def create_battery(
     """Create a new battery"""
     if current_user.get('role') == UserRole.DATA_ADMIN:
         raise HTTPException(status_code=403, detail="Data admins cannot create batteries")
-    
+
     if current_user.get('role') == UserRole.USER:
         if battery.hub_id != current_user.get('hub_id'):
             raise HTTPException(status_code=403, detail="Can only add batteries to your own hub")
     elif current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     try:
         battery_data = battery.dict()
         db_battery = BEPPPBattery(**battery_data)
         db.add(db_battery)
+        db.flush()  # Flush to get the ID before committing
+
+        # Generate short_id for QR codes
+        db_battery.short_id = f"BAT-{str(db_battery.battery_id).zfill(4)}"
+
         db.commit()
         db.refresh(db_battery)
-        
+
         result = {**battery_data}
         result.pop('battery_secret', None)
         result['id'] = db_battery.battery_id
-        
+        result['short_id'] = db_battery.short_id
+
         return result
     except Exception as e:
         db.rollback()
@@ -2242,8 +2274,26 @@ async def list_hub_batteries(
     if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.DATA_ADMIN]:
         if current_user.get('hub_id') != hub_id:
             raise HTTPException(status_code=403, detail="Access denied")
-    
+
     return db.query(BEPPPBattery).filter(BEPPPBattery.hub_id == hub_id).all()
+
+@app.get("/batteries/by-short-id/{short_id}")
+async def get_battery_by_short_id(
+    short_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get battery by their short ID from QR code (e.g., BAT-0001)"""
+    battery = db.query(BEPPPBattery).filter(BEPPPBattery.short_id == short_id).first()
+    if not battery:
+        raise HTTPException(status_code=404, detail=f"Battery with short ID '{short_id}' not found")
+
+    # Check access rights
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.DATA_ADMIN]:
+        if battery.hub_id != current_user.get('hub_id'):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    return battery
 
 # ============================================================================
 # PUE ENDPOINTS

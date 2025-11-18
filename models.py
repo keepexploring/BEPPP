@@ -71,7 +71,7 @@ class SolarHub(Base):
 
 class User(Base):
     __tablename__ = 'user'
-    
+
     user_id = Column(BigInteger, primary_key=True)
     Name = Column(String(255))
     users_identification_document_number = Column(String)
@@ -81,6 +81,7 @@ class User(Base):
     user_access_level = Column(String(255))  # Will store UserRole enum values
     username = Column(String(255), unique=True)
     password_hash = Column(String(255))
+    short_id = Column(String(20), unique=True, index=True, nullable=True)  # QR code ID (e.g., BH-0001)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)
@@ -112,12 +113,13 @@ class Note(Base):
 
 class BEPPPBattery(Base):
     __tablename__ = 'bepppbattery'
-    
+
     battery_id = Column(BigInteger, primary_key=True)
     hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id'))
     battery_capacity_wh = Column(BigInteger)
     status = Column(String, default="available")
     battery_secret = Column(String(255), nullable=True)  # Secret for battery self-authentication
+    short_id = Column(String(20), unique=True, index=True, nullable=True)  # QR code ID (e.g., BAT-0001)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_data_received = Column(DateTime, nullable=True)  # Last time we got data from this battery
     
