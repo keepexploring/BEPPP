@@ -66,18 +66,41 @@ else
 fi
 
 ###############################################################################
+# BACKUP NGINX CONFIG
+###############################################################################
+
+log_info "Backing up nginx configuration..."
+cp "$APP_DIR/nginx/conf.d/default.conf" "$APP_DIR/nginx/conf.d/default.conf.backup"
+log_success "Nginx config backed up"
+
+###############################################################################
 # PULL LATEST CODE
 ###############################################################################
 
 log_info "Pulling latest code from GitHub..."
-cd "$APP_DIR"
 
-if [ -d ".git" ]; then
+# Use the git repo in /root/BEPPP if it exists
+REPO_DIR="/root/BEPPP"
+if [ -d "$REPO_DIR" ]; then
+    log_info "Using repository at $REPO_DIR"
+    cd "$REPO_DIR"
     git pull origin main
     log_success "Code updated from GitHub"
+
+    # Copy updated files to app directory (except nginx config)
+    log_info "Copying updated files to $APP_DIR..."
+    rsync -av --exclude='nginx/conf.d/default.conf' --exclude='.git' --exclude='*.backup' "$REPO_DIR/" "$APP_DIR/"
+    log_success "Files copied"
+
+    # Restore nginx config with SSL enabled
+    log_info "Restoring nginx SSL configuration..."
+    mv "$APP_DIR/nginx/conf.d/default.conf.backup" "$APP_DIR/nginx/conf.d/default.conf"
+    log_success "Nginx config restored"
 else
-    log_warning "Not a git repository - skipping git pull"
-    log_info "If you need to update code, manually copy files to $APP_DIR"
+    log_error "Repository not found at $REPO_DIR"
+    log_info "Please clone the repository first:"
+    log_info "  cd /root && git clone git@github.com:keepexploring/BEPPP.git"
+    exit 1
 fi
 
 ###############################################################################
