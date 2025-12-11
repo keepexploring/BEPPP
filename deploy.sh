@@ -175,6 +175,28 @@ ufw --force enable
 log_success "Firewall configured"
 
 ###############################################################################
+# STOP CONFLICTING WEB SERVERS
+###############################################################################
+
+log_info "Stopping any conflicting web servers on port 80/443..."
+
+# Stop and disable system nginx if it exists
+if systemctl is-active --quiet nginx 2>/dev/null; then
+    systemctl stop nginx
+    systemctl disable nginx
+    log_info "System nginx stopped and disabled"
+fi
+
+# Stop and disable apache if it exists
+if systemctl is-active --quiet apache2 2>/dev/null; then
+    systemctl stop apache2
+    systemctl disable apache2
+    log_info "Apache stopped and disabled"
+fi
+
+log_success "Port 80/443 are now available"
+
+###############################################################################
 # CREATE APPLICATION DIRECTORY
 ###############################################################################
 
@@ -425,6 +447,19 @@ chmod +x $APP_DIR/backup.sh
 log_success "Backup script created and scheduled"
 
 ###############################################################################
+# STOP ANY EXISTING CONTAINERS
+###############################################################################
+
+log_info "Stopping any existing Docker containers..."
+
+# Stop and remove any existing battery-hub containers
+if [ -f "$APP_DIR/docker-compose.prod.yml" ]; then
+    docker compose -f $APP_DIR/docker-compose.prod.yml down 2>/dev/null || true
+fi
+
+log_success "Existing containers stopped"
+
+###############################################################################
 # BUILD AND START SERVICES
 ###############################################################################
 
@@ -518,21 +553,47 @@ fi
 
 log_info "Setting up SSL certificates with Let's Encrypt..."
 
-# Stop nginx temporarily
+# Stop nginx container temporarily to free port 80 for certbot
+log_info "Stopping nginx container temporarily for SSL certificate generation..."
 docker compose -f docker-compose.prod.yml stop nginx
 
+# Also ensure no other service is using port 80
+if lsof -Pi :80 -sTCP:LISTEN -t >/dev/null 2>&1; then
+    log_warning "Port 80 is still in use, attempting to identify the process..."
+    lsof -Pi :80 -sTCP:LISTEN || true
+fi
+
 # Get certificates
-certbot certonly --standalone \
+log_info "Requesting SSL certificates from Let's Encrypt..."
+if certbot certonly --standalone \
     --non-interactive \
     --agree-tos \
     --email $SSL_EMAIL \
     -d $MAIN_DOMAIN \
     -d $API_DOMAIN \
-    -d $PANEL_DOMAIN
+    -d $PANEL_DOMAIN; then
 
-# Copy certificates to nginx directory
-cp /etc/letsencrypt/live/$MAIN_DOMAIN/fullchain.pem $APP_DIR/nginx/ssl/
-cp /etc/letsencrypt/live/$MAIN_DOMAIN/privkey.pem $APP_DIR/nginx/ssl/
+    # Copy certificates to nginx directory
+    cp /etc/letsencrypt/live/$MAIN_DOMAIN/fullchain.pem $APP_DIR/nginx/ssl/
+    cp /etc/letsencrypt/live/$MAIN_DOMAIN/privkey.pem $APP_DIR/nginx/ssl/
+
+    log_success "SSL certificates obtained and copied"
+else
+    log_error "Failed to obtain SSL certificates from Let's Encrypt"
+    log_warning "Possible reasons:"
+    log_warning "  1. DNS records not pointing to this server yet"
+    log_warning "  2. Port 80 still in use by another process"
+    log_warning "  3. Rate limit reached (5 certificates per domain per week)"
+    log_warning "Continuing deployment - you can obtain certificates manually later with:"
+    log_warning "  sudo certbot certonly --standalone -d $MAIN_DOMAIN -d $API_DOMAIN -d $PANEL_DOMAIN"
+
+    # Start nginx anyway without SSL (HTTP only for now)
+    log_info "Starting nginx in HTTP-only mode..."
+    docker compose -f docker-compose.prod.yml start nginx
+
+    log_warning "IMPORTANT: Your site is running on HTTP only. Configure DNS and run certbot manually to enable HTTPS."
+    exit 0
+fi
 
 # Update nginx config to enable SSL
 sed -i 's/# listen 443 ssl http2;/listen 443 ssl http2;/g' $APP_DIR/nginx/conf.d/default.conf
