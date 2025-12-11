@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY models.py .
-COPY process_subscription_billing.py .
+COPY scripts/process_subscription_billing.py .
 
 # Copy crontab file
 COPY docker/crontab /etc/cron.d/subscription-billing
