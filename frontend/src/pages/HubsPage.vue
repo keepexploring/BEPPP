@@ -20,7 +20,7 @@
         <q-table
           :rows="hubs"
           :columns="columns"
-          row-key="id"
+          row-key="hub_id"
           :loading="loading"
           :filter="filter"
         >
@@ -46,7 +46,7 @@
                 dense
                 icon="visibility"
                 color="primary"
-                :to="{ name: 'hub-detail', params: { id: props.row.id } }"
+                :to="{ name: 'hub-detail', params: { id: props.row.hub_id } }"
               />
               <q-btn
                 v-if="authStore.isAdmin"
@@ -82,26 +82,57 @@
         <q-card-section>
           <q-form @submit="saveHub" class="q-gutter-md">
             <q-input
-              v-model="formData.name"
-              label="Hub Name"
+              v-if="!editingHub"
+              v-model.number="formData.hub_id"
+              label="Hub ID"
+              type="number"
               outlined
-              :rules="[val => !!val || 'Name is required']"
+              :rules="[val => !!val || 'Hub ID is required']"
+              hint="Unique identifier for this hub"
             />
 
             <q-input
-              v-model="formData.location"
-              label="Location"
+              v-model="formData.what_three_word_location"
+              label="What3Words Location"
               outlined
               :rules="[val => !!val || 'Location is required']"
+              hint="e.g., main.solar.hub"
             />
 
             <q-input
-              v-model="formData.description"
-              label="Description"
-              type="textarea"
+              v-model.number="formData.solar_capacity_kw"
+              label="Solar Capacity (kW)"
+              type="number"
               outlined
-              rows="3"
+              hint="Solar panel capacity in kilowatts"
             />
+
+            <q-input
+              v-model="formData.country"
+              label="Country"
+              outlined
+            />
+
+            <div class="row q-col-gutter-md">
+              <div class="col-6">
+                <q-input
+                  v-model.number="formData.latitude"
+                  label="Latitude"
+                  type="number"
+                  step="any"
+                  outlined
+                />
+              </div>
+              <div class="col-6">
+                <q-input
+                  v-model.number="formData.longitude"
+                  label="Longitude"
+                  type="number"
+                  step="any"
+                  outlined
+                />
+              </div>
+            </div>
 
             <div class="row justify-end q-gutter-sm">
               <q-btn
@@ -140,16 +171,19 @@ const editingHub = ref(null)
 const saving = ref(false)
 
 const formData = ref({
-  name: '',
-  location: '',
-  description: ''
+  hub_id: null,
+  what_three_word_location: '',
+  solar_capacity_kw: null,
+  country: '',
+  latitude: null,
+  longitude: null
 })
 
 const columns = [
-  { name: 'id', label: 'ID', field: 'id', align: 'left', sortable: true },
-  { name: 'name', label: 'Name', field: 'name', align: 'left', sortable: true },
-  { name: 'location', label: 'Location', field: 'location', align: 'left', sortable: true },
-  { name: 'description', label: 'Description', field: 'description', align: 'left' },
+  { name: 'hub_id', label: 'ID', field: 'hub_id', align: 'left', sortable: true },
+  { name: 'what_three_word_location', label: 'Location', field: 'what_three_word_location', align: 'left', sortable: true },
+  { name: 'country', label: 'Country', field: 'country', align: 'left', sortable: true },
+  { name: 'solar_capacity_kw', label: 'Capacity (kW)', field: 'solar_capacity_kw', align: 'left', sortable: true },
   { name: 'actions', label: 'Actions', align: 'center' }
 ]
 
@@ -179,7 +213,7 @@ const saveHub = async () => {
   saving.value = true
   try {
     if (editingHub.value) {
-      await hubsAPI.update(editingHub.value.id, formData.value)
+      await hubsAPI.update(editingHub.value.hub_id, formData.value)
       $q.notify({
         type: 'positive',
         message: 'Hub updated successfully',
@@ -210,12 +244,12 @@ const saveHub = async () => {
 const deleteHub = (hub) => {
   $q.dialog({
     title: 'Confirm Delete',
-    message: `Are you sure you want to delete "${hub.name}"?`,
+    message: `Are you sure you want to delete hub at "${hub.what_three_word_location}"?`,
     cancel: true,
     persistent: true
   }).onOk(async () => {
     try {
-      await hubsAPI.delete(hub.id)
+      await hubsAPI.delete(hub.hub_id)
       $q.notify({
         type: 'positive',
         message: 'Hub deleted successfully',
@@ -234,9 +268,12 @@ const deleteHub = (hub) => {
 
 const resetForm = () => {
   formData.value = {
-    name: '',
-    location: '',
-    description: ''
+    hub_id: null,
+    what_three_word_location: '',
+    solar_capacity_kw: null,
+    country: '',
+    latitude: null,
+    longitude: null
   }
   editingHub.value = null
 }

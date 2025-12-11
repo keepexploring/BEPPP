@@ -4,7 +4,8 @@
       <div class="col">
         <div class="text-h4">Productive Use Equipment (PUE)</div>
       </div>
-      <div class="col-auto">
+      <div class="col-auto row items-center q-gutter-sm">
+        <HubFilter v-model="selectedHub" @change="onHubChange" />
         <q-btn
           v-if="authStore.isAdmin"
           label="Add Equipment"
@@ -20,9 +21,10 @@
         <q-table
           :rows="pueItems"
           :columns="columns"
-          row-key="id"
+          row-key="pue_id"
           :loading="loading"
           :filter="filter"
+          :no-data-label="selectedHub ? 'No equipment found for this hub - add some to get started!' : 'No equipment available yet - add your first PUE item!'"
         >
           <template v-slot:top-right>
             <q-input
@@ -91,11 +93,21 @@
 
         <q-card-section>
           <q-form @submit="savePUE" class="q-gutter-md">
+            <q-input
+              v-if="!editingPUE"
+              v-model.number="formData.pue_id"
+              label="PUE ID"
+              type="number"
+              outlined
+              :rules="[val => !!val || 'PUE ID is required']"
+              hint="Unique identifier for this equipment"
+            />
+
             <q-select
               v-model="formData.hub_id"
               :options="hubOptions"
-              option-value="id"
-              option-label="name"
+              option-value="hub_id"
+              option-label="what_three_word_location"
               emit-value
               map-options
               label="Hub"
@@ -115,30 +127,39 @@
               label="Description"
               type="textarea"
               outlined
-              rows="3"
+              rows="2"
             />
 
-            <q-input
-              v-model.number="formData.daily_rate"
-              label="Daily Rate"
-              type="number"
-              step="0.01"
+
+            <div class="row q-col-gutter-md">
+              <div class="col-6">
+                <q-input
+                  v-model.number="formData.power_rating_watts"
+                  label="Power Rating (W)"
+                  type="number"
+                  outlined
+                />
+              </div>
+              <div class="col-6">
+                <q-input
+                  v-model="formData.storage_location"
+                  label="Storage Location"
+                  outlined
+                />
+              </div>
+            </div>
+
+            <q-select
+              v-model="formData.usage_location"
+              :options="usageLocationOptions"
+              label="Usage Location"
               outlined
-              prefix="$"
-              :rules="[val => val >= 0 || 'Rate must be positive']"
             />
 
             <q-select
               v-model="formData.status"
               :options="statusOptions"
               label="Status"
-              outlined
-            />
-
-            <q-select
-              v-model="formData.usage_location"
-              :options="usageLocationOptions"
-              label="Usage Location"
               outlined
             />
 
@@ -159,12 +180,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { pueAPI, hubsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useQuasar } from 'quasar'
+import HubFilter from 'src/components/HubFilter.vue'
 
 const $q = useQuasar()
+const selectedHub = ref(null)
 const authStore = useAuthStore()
 
 const pueItems = ref([])
@@ -176,26 +199,49 @@ const editingPUE = ref(null)
 const saving = ref(false)
 
 const formData = ref({
+  pue_id: null,
   hub_id: null,
   name: '',
   description: '',
-  daily_rate: 0,
-  status: 'available',
-  usage_location: 'hub_only'
+  power_rating_watts: null,
+  usage_location: 'both',
+  storage_location: '',
+  status: 'available'
 })
 
 const statusOptions = ['available', 'rented', 'maintenance', 'retired']
 const usageLocationOptions = ['hub_only', 'battery_only', 'both']
 
-const columns = [
-  { name: 'id', label: 'ID', field: 'id', align: 'left', sortable: true },
-  { name: 'name', label: 'Name', field: 'name', align: 'left', sortable: true },
-  { name: 'description', label: 'Description', field: 'description', align: 'left' },
-  { name: 'daily_rate', label: 'Daily Rate', field: 'daily_rate', align: 'left', sortable: true, format: val => `$${val}` },
-  { name: 'status', label: 'Status', field: 'status', align: 'center', sortable: true },
-  { name: 'usage_location', label: 'Usage Location', field: 'usage_location', align: 'center' },
-  { name: 'actions', label: 'Actions', align: 'center' }
-]
+const columns = computed(() => {
+  const cols = [
+    { name: 'pue_id', label: 'ID', field: 'pue_id', align: 'left', sortable: true }
+  ]
+
+  // Add hub column for superadmins
+  if (authStore.isSuperAdmin) {
+    cols.push({
+      name: 'hub',
+      label: 'Hub',
+      field: row => {
+        const hub = hubOptions.value.find(h => h.hub_id === row.hub_id)
+        return hub ? hub.what_three_word_location : `Hub ${row.hub_id}`
+      },
+      align: 'left',
+      sortable: true
+    })
+  }
+
+  cols.push(
+    { name: 'name', label: 'Name', field: 'name', align: 'left', sortable: true },
+    { name: 'description', label: 'Description', field: 'description', align: 'left' },
+    { name: 'power_rating_watts', label: 'Power (W)', field: 'power_rating_watts', align: 'left' },
+    { name: 'status', label: 'Status', field: 'status', align: 'center', sortable: true },
+    { name: 'usage_location', label: 'Usage Location', field: 'usage_location', align: 'center' },
+    { name: 'actions', label: 'Actions', align: 'center' }
+  )
+
+  return cols
+})
 
 const getStatusColor = (status) => {
   const colors = {
@@ -210,15 +256,22 @@ const getStatusColor = (status) => {
 const loadPUE = async () => {
   loading.value = true
   try {
-    const hubsResponse = await hubsAPI.list()
-    const allPUE = []
+    if (selectedHub.value) {
+      // Load PUE for selected hub only
+      const pueResponse = await hubsAPI.getPUE(selectedHub.value)
+      pueItems.value = pueResponse.data
+    } else {
+      // Load all hubs to get all PUE
+      const hubsResponse = await hubsAPI.list()
+      const allPUE = []
 
-    for (const hub of hubsResponse.data) {
-      const pueResponse = await hubsAPI.getPUE(hub.id)
-      allPUE.push(...pueResponse.data)
+      for (const hub of hubsResponse.data) {
+        const pueResponse = await hubsAPI.getPUE(hub.hub_id)
+        allPUE.push(...pueResponse.data)
+      }
+
+      pueItems.value = allPUE
     }
-
-    pueItems.value = allPUE
   } catch (error) {
     $q.notify({
       type: 'negative',
@@ -228,6 +281,11 @@ const loadPUE = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const onHubChange = (hubId) => {
+  selectedHub.value = hubId
+  loadPUE()
 }
 
 const loadHubs = async () => {
@@ -249,7 +307,7 @@ const savePUE = async () => {
   saving.value = true
   try {
     if (editingPUE.value) {
-      await pueAPI.update(editingPUE.value.id, formData.value)
+      await pueAPI.update(editingPUE.value.pue_id, formData.value)
       $q.notify({
         type: 'positive',
         message: 'Equipment updated successfully',
@@ -285,7 +343,7 @@ const deletePUE = (pue) => {
     persistent: true
   }).onOk(async () => {
     try {
-      await pueAPI.delete(pue.id)
+      await pueAPI.delete(pue.pue_id)
       $q.notify({
         type: 'positive',
         message: 'Equipment deleted successfully',
@@ -304,12 +362,14 @@ const deletePUE = (pue) => {
 
 const resetForm = () => {
   formData.value = {
+    pue_id: null,
     hub_id: null,
     name: '',
     description: '',
-    daily_rate: 0,
-    status: 'available',
-    usage_location: 'hub_only'
+    power_rating_watts: null,
+    usage_location: 'both',
+    storage_location: '',
+    status: 'available'
   }
   editingPUE.value = null
 }

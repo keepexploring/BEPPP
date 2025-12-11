@@ -41,6 +41,11 @@ const routes = [
         component: () => import('pages/UsersPage.vue')
       },
       {
+        path: 'users/:id',
+        name: 'user-detail',
+        component: () => import('pages/UserDetailPage.vue')
+      },
+      {
         path: 'pue',
         name: 'pue',
         component: () => import('pages/PUEPage.vue')
@@ -60,6 +65,18 @@ const routes = [
         name: 'webhook-logs',
         meta: { requiresAdmin: true },
         component: () => import('pages/admin/WebhookLogsPage.vue')
+      },
+      {
+        path: 'settings',
+        name: 'settings',
+        meta: { requiresAdmin: true },
+        component: () => import('pages/SettingsPage.vue')
+      },
+      {
+        path: 'accounts',
+        name: 'accounts',
+        meta: { requiresAdmin: true },
+        component: () => import('pages/AccountsPage.vue')
       }
     ]
   },

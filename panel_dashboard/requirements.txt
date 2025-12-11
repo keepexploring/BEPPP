@@ -6,3 +6,6 @@ holoviews>=1.18.0
 bokeh>=3.3.0
 requests>=2.31.0
 plotly>=5.18.0
+jupyterlab>=4.0.0
+jupyter-panel-proxy>=0.2.0
+PyJWT>=2.8.0

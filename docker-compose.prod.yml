@@ -1,0 +1,200 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: battery-hub-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-beppp}
+      POSTGRES_USER: ${POSTGRES_USER:-beppp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-beppp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - battery-hub-network
+    restart: unless-stopped
+    # Security hardening
+    read_only: false  # Postgres needs write access
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+
+  # FastAPI Backend
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: battery-hub-api
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-beppp}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-beppp}
+      SECRET_KEY: ${SECRET_KEY}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      DEBUG: ${DEBUG:-False}
+      USER_TOKEN_EXPIRE_HOURS: ${USER_TOKEN_EXPIRE_HOURS:-24}
+      BATTERY_TOKEN_EXPIRE_HOURS: ${BATTERY_TOKEN_EXPIRE_HOURS:-8760}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      PANEL_URL: ${PANEL_URL:-http://localhost:5100}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:8000,http://localhost:5100}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./backups:/app/backups
+    networks:
+      - battery-hub-network
+    restart: unless-stopped
+    # Security hardening
+    read_only: false  # API needs write access for logs
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        sleep 5 &&
+        echo 'Initializing database tables...' &&
+        python -c 'from database import init_db; init_db()' &&
+        echo 'Running migrations...' &&
+        alembic upgrade head &&
+        echo 'Starting API server...' &&
+        uvicorn api.app.main:app --host 0.0.0.0 --port 8000 --workers 4
+      "
+
+  # Panel Analytics Dashboard
+  panel:
+    build:
+      context: .
+      dockerfile: Dockerfile.panel
+    container_name: battery-hub-panel
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-beppp}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-beppp}
+      SECRET_KEY: ${SECRET_KEY}
+    depends_on:
+      - postgres
+      - api
+    expose:
+      - "5100"
+    networks:
+      - battery-hub-network
+    restart: unless-stopped
+    # Security hardening
+    read_only: false  # Panel may need write access
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+
+  # Quasar Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - API_URL=${API_URL:-https://api.yourdomain.com}
+        - PANEL_URL=${PANEL_URL:-https://panel.yourdomain.com}
+    container_name: battery-hub-frontend
+    expose:
+      - "80"
+    depends_on:
+      - api
+      - panel
+    networks:
+      - battery-hub-network
+    restart: unless-stopped
+    # Security hardening
+    read_only: true  # Static files only
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+
+  # Cron Service for Scheduled Tasks
+  cron:
+    build:
+      context: .
+      dockerfile: Dockerfile.cron
+    container_name: battery-hub-cron
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-beppp}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-beppp}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - battery-hub-network
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: battery-hub-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      - api
+      - panel
+      - frontend
+    networks:
+      - battery-hub-network
+    restart: unless-stopped
+    # Security hardening
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  battery-hub-network:
+    driver: bridge

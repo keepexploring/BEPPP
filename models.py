@@ -142,6 +142,7 @@ class ProductiveUseEquipment(Base):
     usage_location = Column(Enum(PUEUsageLocation), default=PUEUsageLocation.BOTH)  # Where it can be used: hub_only, battery_only, both
     storage_location = Column(String(255), nullable=True)  # Physical storage location
     suggested_cost_per_day = Column(Float, nullable=True)  # Suggested daily rental cost
+    pue_type_id = Column(Integer, ForeignKey('pue_types.type_id', ondelete='SET NULL'), nullable=True)  # Optional type classification
     
     # Existing fields
     rental_cost = Column(Float)  # Actual rental cost (can differ from suggested)
@@ -155,6 +156,7 @@ class ProductiveUseEquipment(Base):
     
     # Relations
     hub = relationship("SolarHub", back_populates="pue_items")
+    pue_type = relationship("PUEType", back_populates="pue_items", foreign_keys=[pue_type_id])
     notes = relationship("Note", secondary=pue_notes, back_populates="pue_items")
     pue_rentals = relationship("PUERental", back_populates="pue")
     rental_items = relationship("RentalPUEItem", back_populates="pue")
@@ -221,9 +223,36 @@ class Rental(Base):
     # *** ENHANCED RENTAL FIELDS ***
     total_cost = Column(Float, nullable=True)  # Total cost including PUE items
     deposit_amount = Column(Float, nullable=True)  # Security deposit
+    deposit_returned = Column(Boolean, default=False)  # Whether deposit has been returned
+    deposit_returned_date = Column(DateTime, nullable=True)  # When deposit was returned
     is_active = Column(Boolean, default=True)  # Whether rental is currently active
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
+    # *** PAYMENT & BILLING FIELDS ***
+    payment_method = Column(String(50), nullable=True)  # 'upfront', 'on_return', 'deposit_only', 'partial'
+    payment_type = Column(String(50), nullable=True)  # 'cash', 'mobile_money', etc. - from PaymentType settings
+    payment_status = Column(String(50), nullable=True)  # 'paid', 'partial', 'deposit_only', 'unpaid', 'pending_kwh'
+    amount_paid = Column(Float, nullable=True, default=0)  # Amount already paid
+    amount_owed = Column(Float, nullable=True, default=0)  # Amount still owed
+    kwh_usage_start = Column(Float, nullable=True)  # kWh at rental start
+    kwh_usage_end = Column(Float, nullable=True)  # kWh at rental end
+    kwh_usage_total = Column(Float, nullable=True)  # Total kWh consumed during rental
+    standing_charge = Column(Float, nullable=True)  # Fixed fee per rental
+    kwh_rate = Column(Float, nullable=True)  # Rate per kWh if using kWh-based billing
+
+    # *** COST STRUCTURE TRACKING ***
+    cost_structure_id = Column(Integer, nullable=True)  # Which cost structure was used
+    cost_structure_snapshot = Column(Text, nullable=True)  # JSON snapshot of cost structure at time of rental
+    estimated_cost_before_vat = Column(Float, nullable=True)  # Estimated cost before VAT
+    estimated_vat = Column(Float, nullable=True)  # Estimated VAT amount
+    estimated_cost_total = Column(Float, nullable=True)  # Estimated total including VAT
+    final_cost_before_vat = Column(Float, nullable=True)  # Actual final cost before VAT (on return)
+    final_vat = Column(Float, nullable=True)  # Actual VAT amount (on return)
+    final_cost_total = Column(Float, nullable=True)  # Actual total including VAT (on return)
+
+    # *** SUBSCRIPTION TRACKING ***
+    subscription_id = Column(Integer, ForeignKey('user_subscriptions.subscription_id', ondelete='SET NULL'), nullable=True)
+
     # Backward compatibility - maps to battery_returned_date
     @property
     def date_returned(self):
@@ -238,6 +267,7 @@ class Rental(Base):
     user = relationship("User", back_populates="battery_rentals")
     notes = relationship("Note", secondary=rental_notes, back_populates="rentals")
     pue_items = relationship("RentalPUEItem", back_populates="rental")
+    subscription = relationship("UserSubscription", back_populates="rentals", foreign_keys="[Rental.subscription_id]")
 
 class RentalPUEItem(Base):
     """
@@ -311,3 +341,394 @@ class RentalAnalytics:
         self.avg_rental_duration_hours = avg_rental_duration_hours
         self.most_frequent_user_id = most_frequent_user_id
         self.total_revenue = total_revenue
+# ============================================================================
+# NEW MODELS FOR ACCOUNTS & PRICING SYSTEM
+# ============================================================================
+
+class PUEType(Base):
+    """PUE equipment types for categorization and pricing"""
+    __tablename__ = 'pue_types'
+    
+    type_id = Column(Integer, primary_key=True, autoincrement=True)
+    type_name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id', ondelete='CASCADE'), nullable=True)
+    created_by = Column(BigInteger, ForeignKey('user.user_id', ondelete='SET NULL'), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    
+    # Relationships
+    hub = relationship("SolarHub", foreign_keys=[hub_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    pue_items = relationship("ProductiveUseEquipment", back_populates="pue_type")
+
+
+class PricingConfig(Base):
+    """Flexible pricing configurations for batteries and PUE"""
+    __tablename__ = 'pricing_configs'
+
+    pricing_id = Column(Integer, primary_key=True, autoincrement=True)
+    hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id', ondelete='CASCADE'), nullable=True)
+    item_type = Column(String(50), nullable=False)  # 'battery_capacity', 'pue_item', 'pue_type', 'standing_charge'
+    item_reference = Column(String(100), nullable=False)  # e.g., "1000" for 1000Wh, or pue_id, or type_id
+    unit_type = Column(String(50), nullable=False)  # 'per_day', 'per_hour', 'per_kg', 'per_month', 'per_kwh', 'per_rental'
+    price = Column(Float, nullable=False)
+    currency = Column(String(3), server_default='USD', nullable=False)
+    is_active = Column(Boolean, server_default='true', nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    hub = relationship("SolarHub", foreign_keys=[hub_id])
+
+
+class DepositPreset(Base):
+    """Preset deposit amounts for different item types"""
+    __tablename__ = 'deposit_presets'
+
+    preset_id = Column(Integer, primary_key=True, autoincrement=True)
+    hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id', ondelete='CASCADE'), nullable=True)
+    item_type = Column(String(50), nullable=False)  # 'battery_capacity', 'pue_item', 'pue_type'
+    item_reference = Column(String(100), nullable=False)  # e.g., "1000" for 1000Wh, or pue_id, or type_id
+    deposit_amount = Column(Float, nullable=False)
+    currency = Column(String(3), server_default='USD', nullable=False)
+    is_active = Column(Boolean, server_default='true', nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    hub = relationship("SolarHub", foreign_keys=[hub_id])
+
+
+class PaymentType(Base):
+    """Payment type options (cash, mobile money, etc.)"""
+    __tablename__ = 'payment_types'
+
+    type_id = Column(Integer, primary_key=True, autoincrement=True)
+    hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id', ondelete='CASCADE'), nullable=True)
+    type_name = Column(String(50), nullable=False)
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, server_default='true', nullable=False)
+    sort_order = Column(Integer, server_default='0', nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    hub = relationship("SolarHub", foreign_keys=[hub_id])
+
+
+class CostStructure(Base):
+    """Named cost structure templates (e.g., 'Standard Battery Rental', 'Premium with kWh')"""
+    __tablename__ = 'cost_structures'
+
+    structure_id = Column(Integer, primary_key=True, autoincrement=True)
+    hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id', ondelete='CASCADE'), nullable=True)
+    name = Column(String(100), nullable=False)  # e.g., "Standard Battery Rental"
+    description = Column(Text, nullable=True)
+    item_type = Column(String(50), nullable=False)  # 'battery_capacity', 'pue_item', 'pue_type'
+    item_reference = Column(String(100), nullable=False)  # e.g., "1000" for 1000Wh, or pue_id
+    deposit_amount = Column(Float, server_default='0', nullable=False)  # Required deposit for this cost structure
+    is_active = Column(Boolean, server_default='true', nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    hub = relationship("SolarHub", foreign_keys=[hub_id])
+    components = relationship("CostComponent", back_populates="structure", cascade="all, delete-orphan")
+    duration_options = relationship("CostStructureDurationOption", back_populates="structure", cascade="all, delete-orphan")
+
+
+class CostComponent(Base):
+    """Individual cost components within a cost structure"""
+    __tablename__ = 'cost_components'
+
+    component_id = Column(Integer, primary_key=True, autoincrement=True)
+    structure_id = Column(Integer, ForeignKey('cost_structures.structure_id', ondelete='CASCADE'), nullable=False)
+    component_name = Column(String(100), nullable=False)  # e.g., "Daily Rate", "kWh Usage", "Admin Fee"
+    unit_type = Column(String(50), nullable=False)  # 'per_day', 'per_hour', 'per_kwh', 'per_kg', 'fixed'
+    rate = Column(Float, nullable=False)  # Rate per unit
+    is_calculated_on_return = Column(Boolean, default=False)  # True for kWh (calculated on actual usage)
+    sort_order = Column(Integer, server_default='0', nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    structure = relationship("CostStructure", back_populates="components")
+
+
+class CostStructureDurationOption(Base):
+    """Duration input options for a specific cost structure"""
+    __tablename__ = 'cost_structure_duration_options'
+
+    option_id = Column(Integer, primary_key=True, autoincrement=True)
+    structure_id = Column(Integer, ForeignKey('cost_structures.structure_id', ondelete='CASCADE'), nullable=False)
+    input_type = Column(String(50), nullable=False)  # 'custom', 'dropdown'
+    label = Column(String(100), nullable=False)  # e.g., "Rental Duration", "Select Period"
+
+    # For custom input type
+    default_value = Column(Integer, nullable=True)  # Default value for custom inputs
+    min_value = Column(Integer, nullable=True)  # Minimum value for custom inputs (e.g., 1)
+    max_value = Column(Integer, nullable=True)  # Maximum value for custom inputs (e.g., 90)
+    custom_unit = Column(String(20), nullable=True)  # 'days', 'weeks', 'months' - for custom input
+
+    # For dropdown type - JSON array of objects: [{"value": 1, "unit": "days", "label": "1 Day"}, ...]
+    dropdown_options = Column(Text, nullable=True)
+
+    sort_order = Column(Integer, server_default='0', nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    structure = relationship("CostStructure", back_populates="duration_options")
+
+
+class RentalDurationPreset(Base):
+    """Configurable rental duration presets"""
+    __tablename__ = 'rental_duration_presets'
+
+    preset_id = Column(Integer, primary_key=True, autoincrement=True)
+    hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id', ondelete='CASCADE'), nullable=True)
+    label = Column(String(50), nullable=False)
+    duration_value = Column(Integer, nullable=False)
+    duration_unit = Column(String(20), nullable=False)  # 'hours', 'days', 'weeks'
+    sort_order = Column(Integer, server_default='0', nullable=False)
+    is_active = Column(Boolean, server_default='true', nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    hub = relationship("SolarHub", foreign_keys=[hub_id])
+
+
+class SubscriptionPackage(Base):
+    """Subscription packages for recurring battery/PUE rentals"""
+    __tablename__ = 'subscription_packages'
+
+    package_id = Column(Integer, primary_key=True, autoincrement=True)
+    hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id', ondelete='CASCADE'), nullable=True)
+    package_name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    billing_period = Column(String(20), nullable=False)  # 'daily', 'weekly', 'monthly', 'yearly'
+    price = Column(Float, nullable=False)
+    currency = Column(String(3), server_default='USD', nullable=False)
+    max_concurrent_batteries = Column(Integer, nullable=True)  # Max batteries at once (null = unlimited)
+    max_concurrent_pue = Column(Integer, nullable=True)  # Max PUE items at once (null = unlimited)
+    included_kwh = Column(Float, nullable=True)  # Included kWh per billing period (null = unlimited)
+    overage_rate_kwh = Column(Float, nullable=True)  # Rate per kWh over included amount
+    auto_renew = Column(Boolean, server_default='true', nullable=False)
+    is_active = Column(Boolean, server_default='true', nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    hub = relationship("SolarHub", foreign_keys=[hub_id])
+    items = relationship("SubscriptionPackageItem", back_populates="package", cascade="all, delete-orphan")
+    user_subscriptions = relationship("UserSubscription", back_populates="package")
+
+
+class SubscriptionPackageItem(Base):
+    """Items included in a subscription package"""
+    __tablename__ = 'subscription_package_items'
+
+    item_id = Column(Integer, primary_key=True, autoincrement=True)
+    package_id = Column(Integer, ForeignKey('subscription_packages.package_id', ondelete='CASCADE'), nullable=False)
+    item_type = Column(String(50), nullable=False)  # 'battery', 'battery_capacity', 'pue', 'pue_type', 'pue_item'
+    item_reference = Column(String(100), nullable=False)  # 'all' or specific ID
+    quantity_limit = Column(Integer, nullable=True)  # How many of this type (null = unlimited)
+    sort_order = Column(Integer, server_default='0', nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    package = relationship("SubscriptionPackage", back_populates="items")
+
+
+class UserSubscription(Base):
+    """Active subscriptions for users"""
+    __tablename__ = 'user_subscriptions'
+
+    subscription_id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey('user.user_id', ondelete='CASCADE'), nullable=False)
+    package_id = Column(Integer, ForeignKey('subscription_packages.package_id', ondelete='RESTRICT'), nullable=False)
+    start_date = Column(DateTime(timezone=True), nullable=False)
+    end_date = Column(DateTime(timezone=True), nullable=True)  # null = active indefinitely
+    next_billing_date = Column(DateTime(timezone=True), nullable=True)
+    status = Column(String(20), nullable=False)  # 'active', 'paused', 'cancelled', 'expired'
+    auto_renew = Column(Boolean, server_default='true', nullable=False)
+    kwh_used_current_period = Column(Float, server_default='0', nullable=False)
+    period_start_date = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id])
+    package = relationship("SubscriptionPackage", back_populates="user_subscriptions")
+    rentals = relationship("Rental", back_populates="subscription")
+
+
+class UserAccount(Base):
+    """Financial account for each user"""
+    __tablename__ = 'user_accounts'
+    
+    account_id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey('user.user_id', ondelete='CASCADE'), nullable=False, unique=True)
+    balance = Column(Float, server_default='0.00', nullable=False)
+    total_spent = Column(Float, server_default='0.00', nullable=False)
+    total_owed = Column(Float, server_default='0.00', nullable=False)
+    currency = Column(String(3), server_default='USD', nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id], backref="account")
+    transactions = relationship("AccountTransaction", back_populates="account", cascade="all, delete-orphan")
+
+
+class AccountTransaction(Base):
+    """All financial transactions"""
+    __tablename__ = 'account_transactions'
+
+    transaction_id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(Integer, ForeignKey('user_accounts.account_id', ondelete='CASCADE'), nullable=False)
+    rental_id = Column(BigInteger, ForeignKey('rental.rentral_id', ondelete='SET NULL'), nullable=True)
+    transaction_type = Column(String(50), nullable=False)  # 'rental_charge', 'payment', 'credit_adjustment', 'debt_settlement'
+    amount = Column(Float, nullable=False)
+    balance_after = Column(Float, nullable=False)
+    description = Column(Text, nullable=True)
+
+    # Payment tracking fields
+    payment_type = Column(String(50), nullable=True)  # 'Cash', 'Mobile Money', 'Bank Transfer', 'Card'
+    payment_method = Column(String(50), nullable=True)  # 'upfront', 'on_return', 'partial', 'deposit_only'
+
+    created_by = Column(BigInteger, ForeignKey('user.user_id', ondelete='SET NULL'), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    account = relationship("UserAccount", back_populates="transactions")
+    rental = relationship("Rental", foreign_keys=[rental_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    ledger_entries = relationship("LedgerEntry", back_populates="transaction")
+
+
+# Enhanced Transaction Type Enum
+class TransactionType:
+    """Specific transaction types for better tracking"""
+    RENTAL_CHARGE = 'rental_charge'           # Charge for rental service
+    DEPOSIT_COLLECTED = 'deposit_collected'   # Security deposit received
+    DEPOSIT_REFUNDED = 'deposit_refunded'     # Deposit returned to customer
+    PAYMENT_RECEIVED = 'payment_received'     # Payment for outstanding balance
+    CREDIT_ADDED = 'credit_added'            # Admin adds credit to account
+    LATE_FEE = 'late_fee'                    # Late return penalty
+    SUBSCRIPTION_FEE = 'subscription_fee'     # Monthly subscription charge
+    REFUND_ISSUED = 'refund_issued'          # Refund to customer
+    ADJUSTMENT_DEBIT = 'adjustment_debit'     # Correction (decrease balance)
+    ADJUSTMENT_CREDIT = 'adjustment_credit'   # Correction (increase balance)
+
+    # Legacy support
+    PAYMENT = 'payment'
+    CREDIT = 'credit'
+    CHARGE = 'charge'
+    REFUND = 'refund'
+
+
+class AccountType:
+    """Chart of Accounts - Account Types"""
+    # Assets (what the business owns)
+    CASH = 'cash'
+    ACCOUNTS_RECEIVABLE = 'accounts_receivable'
+    CUSTOMER_DEPOSITS = 'customer_deposits'
+
+    # Liabilities (what the business owes)
+    CUSTOMER_CREDIT_BALANCE = 'customer_credit_balance'
+    DEPOSITS_PAYABLE = 'deposits_payable'
+
+    # Revenue (income)
+    RENTAL_REVENUE = 'rental_revenue'
+    LATE_FEE_REVENUE = 'late_fee_revenue'
+    SUBSCRIPTION_REVENUE = 'subscription_revenue'
+
+    # Expenses (costs)
+    REFUNDS_EXPENSE = 'refunds_expense'
+
+
+class LedgerEntry(Base):
+    """Double-entry ledger for proper accounting"""
+    __tablename__ = 'ledger_entries'
+
+    entry_id = Column(Integer, primary_key=True, autoincrement=True)
+    transaction_id = Column(Integer, ForeignKey('account_transactions.transaction_id', ondelete='CASCADE'), nullable=False)
+
+    # Account classification
+    account_type = Column(String(50), nullable=False)  # 'asset', 'liability', 'revenue', 'expense'
+    account_name = Column(String(100), nullable=False)  # Specific account (e.g., 'cash', 'rental_revenue')
+
+    # Double-entry amounts
+    debit = Column(Float, nullable=True)   # Increase in assets/expenses, decrease in liabilities/revenue
+    credit = Column(Float, nullable=True)  # Decrease in assets/expenses, increase in liabilities/revenue
+
+    # Tracking
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    transaction = relationship("AccountTransaction", back_populates="ledger_entries")
+
+
+class AccountReconciliation(Base):
+    """Track account reconciliation history"""
+    __tablename__ = 'account_reconciliations'
+
+    reconciliation_id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(Integer, ForeignKey('user_accounts.account_id', ondelete='CASCADE'), nullable=False)
+
+    # Reconciliation details
+    expected_balance = Column(Float, nullable=False)   # Calculated from transactions
+    actual_balance = Column(Float, nullable=False)     # What's in the account record
+    difference = Column(Float, nullable=False)         # Discrepancy
+
+    # Resolution
+    status = Column(String(50), default='pending', nullable=False)  # 'pending', 'resolved', 'ignored'
+    resolution_notes = Column(Text, nullable=True)
+    resolved_by = Column(BigInteger, ForeignKey('user.user_id', ondelete='SET NULL'), nullable=True)
+
+    # Timestamps
+    reconciliation_date = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    account = relationship("UserAccount")
+    resolver = relationship("User", foreign_keys=[resolved_by])
+
+
+class HubSettings(Base):
+    """Hub-specific settings"""
+    __tablename__ = 'hub_settings'
+
+    setting_id = Column(Integer, primary_key=True, autoincrement=True)
+    hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id', ondelete='CASCADE'), nullable=True, unique=True)
+    debt_notification_threshold = Column(Float, server_default='-100.00', nullable=False)
+    default_currency = Column(String(3), server_default='USD', nullable=False)
+    overdue_notification_hours = Column(Integer, server_default='24', nullable=False)  # Hours after due time to send notification
+    vat_percentage = Column(Float, server_default='0.00', nullable=False)  # VAT/Tax percentage (e.g., 15.0 for 15%)
+    timezone = Column(String(50), server_default='UTC', nullable=False)  # Timezone (e.g., 'Africa/Nairobi', 'Europe/London')
+    other_settings = Column(Text, nullable=True)  # JSON string for flexibility
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    hub = relationship("SolarHub", foreign_keys=[hub_id])
+
+
+class Notification(Base):
+    """System notifications for users"""
+    __tablename__ = 'notifications'
+
+    notification_id = Column(Integer, primary_key=True, autoincrement=True)
+    hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(BigInteger, nullable=True)  # Null for hub-wide notifications
+    notification_type = Column(String(50), nullable=False)  # 'overdue_rental', 'low_battery', 'payment_overdue', etc.
+    title = Column(String(200), nullable=False)
+    message = Column(Text, nullable=False)
+    severity = Column(String(20), nullable=False)  # 'info', 'warning', 'error', 'success'
+    is_read = Column(Boolean, server_default='false', nullable=False)
+    link_type = Column(String(50), nullable=True)  # 'rental', 'battery', 'user', 'account'
+    link_id = Column(String(100), nullable=True)  # ID of the related entity
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    hub = relationship("SolarHub", foreign_keys=[hub_id])

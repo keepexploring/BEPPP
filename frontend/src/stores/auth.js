@@ -21,14 +21,14 @@ export const useAuthStore = defineStore('auth', {
     async login(username, password) {
       try {
         const response = await authAPI.login(username, password)
-        const { access_token, user, role } = response.data
+        const { access_token, user_id, role, hub_id } = response.data
 
         this.token = access_token
-        this.user = user
+        this.user = { username, user_id, hub_id }
         this.role = role
 
         LocalStorage.set('token', access_token)
-        LocalStorage.set('user', user)
+        LocalStorage.set('user', this.user)
         LocalStorage.set('role', role)
 
         return { success: true }

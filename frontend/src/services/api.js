@@ -36,9 +36,12 @@ api.interceptors.response.use(
         position: 'top'
       })
     } else if (error.response?.data?.detail) {
+      // Ensure detail is a string, not an object
+      const detail = error.response.data.detail
+      const message = typeof detail === 'string' ? detail : JSON.stringify(detail)
       Notify.create({
         type: 'negative',
-        message: error.response.data.detail,
+        message: message,
         position: 'top'
       })
     }
@@ -49,7 +52,7 @@ api.interceptors.response.use(
 // Authentication
 export const authAPI = {
   login: (username, password) =>
-    api.post('/auth/token', new URLSearchParams({ username, password })),
+    api.post('/auth/token', { username, password }),
   batteryLogin: (battery_id, secret) =>
     api.post('/auth/battery-login', { battery_id, secret }),
   batteryRefresh: (refreshToken) =>
@@ -91,8 +94,12 @@ export const batteriesAPI = {
   create: (data) => api.post('/batteries/', data),
   update: (batteryId, data) => api.put(`/batteries/${batteryId}`, data),
   delete: (batteryId) => api.delete(`/batteries/${batteryId}`),
-  setBatterySecret: (batteryId, secret) =>
-    api.post(`/admin/battery-secret/${batteryId}`, { secret })
+  setBatterySecret: (batteryId, newSecret) =>
+    api.post(`/admin/battery-secret/${batteryId}`, { new_secret: newSecret }),
+  getNotes: (batteryId) => api.get(`/batteries/${batteryId}/notes`),
+  createNote: (batteryId, data) => api.post(`/batteries/${batteryId}/notes`, data),
+  getErrors: (batteryId, timePeriod = 'last_week', limit = 50) =>
+    api.get(`/batteries/${batteryId}/errors`, { params: { time_period: timePeriod, limit } })
 }
 
 // PUE (Productive Use Equipment)
@@ -105,7 +112,9 @@ export const pueAPI = {
 
 // Rentals
 export const rentalsAPI = {
+  list: (params) => api.get('/rentals/', { params }),
   get: (rentalId) => api.get(`/rentals/${rentalId}`),
+  getOverdueUpcoming: () => api.get('/rentals/overdue-upcoming'),
   create: (data) => api.post('/rentals/', data),
   update: (rentalId, data) => api.put(`/rentals/${rentalId}`, data),
   delete: (rentalId) => api.delete(`/rentals/${rentalId}`),
@@ -114,7 +123,9 @@ export const rentalsAPI = {
   addPUE: (rentalId, pueId) =>
     api.post(`/rentals/${rentalId}/add-pue`, { pue_id: pueId }),
   returnPUE: (rentalId, pueId, data) =>
-    api.put(`/rentals/${rentalId}/pue-items/${pueId}/return`, data)
+    api.put(`/rentals/${rentalId}/pue-items/${pueId}/return`, data),
+  calculateReturnCost: (rentalId, params) =>
+    api.get(`/rentals/${rentalId}/calculate-return-cost`, { params })
 }
 
 // Data
@@ -152,6 +163,126 @@ export const adminAPI = {
 // Health
 export const healthAPI = {
   check: () => api.get('/health')
+}
+
+// Settings
+export const settingsAPI = {
+  // Duration Presets
+  getDurationPresets: (hubId) =>
+    api.get('/settings/rental-durations', { params: { hub_id: hubId } }),
+  createDurationPreset: (data) =>
+    api.post('/settings/rental-durations', null, { params: data }),
+  updateDurationPreset: (presetId, data) =>
+    api.put(`/settings/rental-durations/${presetId}`, null, { params: data }),
+  deleteDurationPreset: (presetId) =>
+    api.delete(`/settings/rental-durations/${presetId}`),
+
+  // PUE Types
+  getPUETypes: (hubId) =>
+    api.get('/settings/pue-types', { params: { hub_id: hubId } }),
+  createPUEType: (data) =>
+    api.post('/settings/pue-types', null, { params: data }),
+  updatePUEType: (typeId, data) =>
+    api.put(`/settings/pue-types/${typeId}`, null, { params: data }),
+  deletePUEType: (typeId) =>
+    api.delete(`/settings/pue-types/${typeId}`),
+
+  // Pricing
+  getPricingConfigs: (params) =>
+    api.get('/settings/pricing', { params }),
+  createPricingConfig: (data) =>
+    api.post('/settings/pricing', null, { params: data }),
+  updatePricingConfig: (pricingId, data) =>
+    api.put(`/settings/pricing/${pricingId}`, null, { params: data }),
+  deletePricingConfig: (pricingId) =>
+    api.delete(`/settings/pricing/${pricingId}`),
+
+  // Deposit Presets
+  getDepositPresets: (params) =>
+    api.get('/settings/deposit-presets', { params }),
+  createDepositPreset: (data) =>
+    api.post('/settings/deposit-presets', null, { params: data }),
+  deleteDepositPreset: (presetId) =>
+    api.delete(`/settings/deposit-presets/${presetId}`),
+
+  // Payment Types
+  getPaymentTypes: (params) =>
+    api.get('/settings/payment-types', { params }),
+  createPaymentType: (data) =>
+    api.post('/settings/payment-types', null, { params: data }),
+  deletePaymentType: (typeId) =>
+    api.delete(`/settings/payment-types/${typeId}`),
+
+  // Hub Settings
+  getHubSettings: (hubId) =>
+    api.get(`/settings/hub/${hubId}`),
+  updateHubSettings: (hubId, data) =>
+    api.put(`/settings/hub/${hubId}`, null, { params: data }),
+
+  // Cost Structures
+  getCostStructures: (params) =>
+    api.get('/settings/cost-structures', { params }),
+  createCostStructure: (data) =>
+    api.post('/settings/cost-structures', null, { params: data }),
+  updateCostStructure: (structureId, data) =>
+    api.put(`/settings/cost-structures/${structureId}`, null, { params: data }),
+  deleteCostStructure: (structureId) =>
+    api.delete(`/settings/cost-structures/${structureId}`),
+  estimateCost: (structureId, params) =>
+    api.post(`/settings/cost-structures/${structureId}/estimate`, null, { params }),
+
+  // Subscription Packages
+  getSubscriptionPackages: (hubId, includeInactive = false) =>
+    api.get('/settings/subscription-packages', { params: { hub_id: hubId, include_inactive: includeInactive } }),
+  createSubscriptionPackage: (data) =>
+    api.post('/settings/subscription-packages', null, { params: data }),
+  updateSubscriptionPackage: (packageId, data) =>
+    api.put(`/settings/subscription-packages/${packageId}`, null, { params: data }),
+  deleteSubscriptionPackage: (packageId) =>
+    api.delete(`/settings/subscription-packages/${packageId}`)
+}
+
+// User Subscriptions
+export const subscriptionsAPI = {
+  getUserSubscriptions: (userId) =>
+    api.get(`/users/${userId}/subscriptions`),
+  assignSubscription: (userId, data) =>
+    api.post(`/users/${userId}/subscriptions`, null, { params: data }),
+  updateUserSubscription: (userId, subscriptionId, data) =>
+    api.put(`/users/${userId}/subscriptions/${subscriptionId}`, data),
+  cancelUserSubscription: (userId, subscriptionId) =>
+    api.delete(`/users/${userId}/subscriptions/${subscriptionId}`)
+}
+
+// Accounts
+export const accountsAPI = {
+  // User Accounts
+  getUserAccount: (userId) =>
+    api.get(`/accounts/user/${userId}`),
+  createTransaction: (userId, data) =>
+    api.post(`/accounts/user/${userId}/transaction`, null, { params: data }),
+  getUserTransactions: (userId, params) =>
+    api.get(`/accounts/user/${userId}/transactions`, { params }),
+
+  // Hub Accounts
+  getHubSummary: (hubId, params) =>
+    api.get(`/accounts/hub/${hubId}/summary`, { params }),
+  getUsersInDebt: (params) =>
+    api.get('/accounts/users/in-debt', { params })
+}
+
+// Notifications
+export const notificationsAPI = {
+  getNotifications: (params) =>
+    api.get('/notifications', { params }),
+  create: (data) =>
+    api.post('/notifications', data),
+  triggerNotificationCheck: (params) =>
+    api.post('/notifications/check', null, { params }),
+  markAsRead: (notificationId) =>
+    api.put(`/notifications/${notificationId}/read`),
+  markAllAsRead: (params) =>
+    api.put('/notifications/mark-all-read', null, { params })
 }
 
 export default api

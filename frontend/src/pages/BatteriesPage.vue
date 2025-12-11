@@ -4,7 +4,8 @@
       <div class="col">
         <div class="text-h4">Batteries</div>
       </div>
-      <div class="col-auto">
+      <div class="col-auto row items-center q-gutter-sm">
+        <HubFilter v-model="selectedHub" @change="onHubChange" />
         <q-btn
           v-if="authStore.isAdmin"
           label="Add Battery"
@@ -20,9 +21,12 @@
         <q-table
           :rows="batteries"
           :columns="columns"
-          row-key="id"
+          row-key="battery_id"
           :loading="loading"
           :filter="filter"
+          @row-click="(_evt, row) => $router.push({ name: 'battery-detail', params: { id: row.battery_id } })"
+          class="cursor-pointer"
+          :no-data-label="selectedHub ? 'No batteries found for this hub - add one to get started!' : 'No batteries available yet - add your first battery!'"
         >
           <template v-slot:top-right>
             <q-input
@@ -55,7 +59,7 @@
                 dense
                 icon="visibility"
                 color="primary"
-                :to="{ name: 'battery-detail', params: { id: props.row.id } }"
+                :to="{ name: 'battery-detail', params: { id: props.row.battery_id } }"
               />
               <q-btn
                 v-if="authStore.isAdmin"
@@ -90,11 +94,21 @@
 
         <q-card-section>
           <q-form @submit="saveBattery" class="q-gutter-md">
+            <q-input
+              v-if="!editingBattery"
+              v-model.number="formData.battery_id"
+              label="Battery ID"
+              type="number"
+              outlined
+              :rules="[val => !!val || 'Battery ID is required']"
+              hint="Unique identifier for this battery"
+            />
+
             <q-select
               v-model="formData.hub_id"
               :options="hubOptions"
-              option-value="id"
-              option-label="name"
+              option-value="hub_id"
+              option-label="what_three_word_location"
               emit-value
               map-options
               label="Hub"
@@ -103,18 +117,11 @@
             />
 
             <q-input
-              v-model="formData.serial_number"
-              label="Serial Number"
-              outlined
-              :rules="[val => !!val || 'Serial number is required']"
-            />
-
-            <q-input
-              v-model.number="formData.capacity"
-              label="Capacity (Wh)"
+              v-model.number="formData.battery_capacity_wh"
+              label="Battery Capacity (Wh)"
               type="number"
               outlined
-              :rules="[val => !!val || 'Capacity is required']"
+              hint="Battery capacity in watt-hours"
             />
 
             <q-select
@@ -124,15 +131,9 @@
               outlined
             />
 
-            <q-input
-              v-model="formData.model"
-              label="Model"
-              outlined
-            />
-
             <div v-if="authStore.isSuperAdmin && !editingBattery" class="q-gutter-sm">
               <q-input
-                v-model="batterySecret"
+                v-model="formData.battery_secret"
                 label="Battery Secret (for API access)"
                 type="password"
                 outlined
@@ -157,13 +158,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { batteriesAPI, hubsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useQuasar } from 'quasar'
+import HubFilter from 'src/components/HubFilter.vue'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
+const selectedHub = ref(null)
 
 const batteries = ref([])
 const hubOptions = ref([])
@@ -172,26 +175,44 @@ const filter = ref('')
 const showCreateDialog = ref(false)
 const editingBattery = ref(null)
 const saving = ref(false)
-const batterySecret = ref('')
 
 const formData = ref({
+  battery_id: null,
   hub_id: null,
-  serial_number: '',
-  capacity: null,
+  battery_capacity_wh: null,
   status: 'available',
-  model: ''
+  battery_secret: ''
 })
 
 const statusOptions = ['available', 'rented', 'maintenance', 'retired']
 
-const columns = [
-  { name: 'id', label: 'ID', field: 'id', align: 'left', sortable: true },
-  { name: 'serial_number', label: 'Serial Number', field: 'serial_number', align: 'left', sortable: true },
-  { name: 'capacity', label: 'Capacity (Wh)', field: 'capacity', align: 'left', sortable: true },
-  { name: 'status', label: 'Status', field: 'status', align: 'center', sortable: true },
-  { name: 'model', label: 'Model', field: 'model', align: 'left' },
-  { name: 'actions', label: 'Actions', align: 'center' }
-]
+const columns = computed(() => {
+  const cols = [
+    { name: 'battery_id', label: 'ID', field: 'battery_id', align: 'left', sortable: true }
+  ]
+
+  // Add hub column for superadmins
+  if (authStore.isSuperAdmin) {
+    cols.push({
+      name: 'hub',
+      label: 'Hub',
+      field: row => {
+        const hub = hubOptions.value.find(h => h.hub_id === row.hub_id)
+        return hub ? hub.what_three_word_location : `Hub ${row.hub_id}`
+      },
+      align: 'left',
+      sortable: true
+    })
+  }
+
+  cols.push(
+    { name: 'battery_capacity_wh', label: 'Capacity (Wh)', field: 'battery_capacity_wh', align: 'left', sortable: true },
+    { name: 'status', label: 'Status', field: 'status', align: 'center', sortable: true },
+    { name: 'actions', label: 'Actions', align: 'center' }
+  )
+
+  return cols
+})
 
 const getStatusColor = (status) => {
   const colors = {
@@ -206,16 +227,22 @@ const getStatusColor = (status) => {
 const loadBatteries = async () => {
   loading.value = true
   try {
-    // Load all hubs to get all batteries
-    const hubsResponse = await hubsAPI.list()
-    const allBatteries = []
+    if (selectedHub.value) {
+      // Load batteries for selected hub only
+      const batteriesResponse = await hubsAPI.getBatteries(selectedHub.value)
+      batteries.value = batteriesResponse.data
+    } else {
+      // Load all hubs to get all batteries
+      const hubsResponse = await hubsAPI.list()
+      const allBatteries = []
 
-    for (const hub of hubsResponse.data) {
-      const batteriesResponse = await hubsAPI.getBatteries(hub.id)
-      allBatteries.push(...batteriesResponse.data)
+      for (const hub of hubsResponse.data) {
+        const batteriesResponse = await hubsAPI.getBatteries(hub.hub_id)
+        allBatteries.push(...batteriesResponse.data)
+      }
+
+      batteries.value = allBatteries
     }
-
-    batteries.value = allBatteries
   } catch (error) {
     $q.notify({
       type: 'negative',
@@ -225,6 +252,11 @@ const loadBatteries = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const onHubChange = (hubId) => {
+  selectedHub.value = hubId
+  loadBatteries()
 }
 
 const loadHubs = async () => {
@@ -246,20 +278,14 @@ const saveBattery = async () => {
   saving.value = true
   try {
     if (editingBattery.value) {
-      await batteriesAPI.update(editingBattery.value.id, formData.value)
+      await batteriesAPI.update(editingBattery.value.battery_id, formData.value)
       $q.notify({
         type: 'positive',
         message: 'Battery updated successfully',
         position: 'top'
       })
     } else {
-      const response = await batteriesAPI.create(formData.value)
-
-      // Set battery secret if provided
-      if (batterySecret.value && authStore.isSuperAdmin) {
-        await batteriesAPI.setBatterySecret(response.data.id, batterySecret.value)
-      }
-
+      await batteriesAPI.create(formData.value)
       $q.notify({
         type: 'positive',
         message: 'Battery created successfully',
@@ -283,12 +309,12 @@ const saveBattery = async () => {
 const deleteBattery = (battery) => {
   $q.dialog({
     title: 'Confirm Delete',
-    message: `Are you sure you want to delete battery "${battery.serial_number}"?`,
+    message: `Are you sure you want to delete battery ${battery.battery_id}?`,
     cancel: true,
     persistent: true
   }).onOk(async () => {
     try {
-      await batteriesAPI.delete(battery.id)
+      await batteriesAPI.delete(battery.battery_id)
       $q.notify({
         type: 'positive',
         message: 'Battery deleted successfully',
@@ -307,13 +333,12 @@ const deleteBattery = (battery) => {
 
 const resetForm = () => {
   formData.value = {
+    battery_id: null,
     hub_id: null,
-    serial_number: '',
-    capacity: null,
+    battery_capacity_wh: null,
     status: 'available',
-    model: ''
+    battery_secret: ''
   }
-  batterySecret.value = ''
   editingBattery.value = null
 }
 

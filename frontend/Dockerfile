@@ -1,7 +1,15 @@
 # Multi-stage build for Quasar frontend
 
 # Stage 1: Build
-FROM node:18-alpine as build
+FROM node:20-alpine as build
+
+# Build arguments
+ARG API_URL=http://localhost:8000
+ARG PANEL_URL=http://localhost:5100
+
+# Set as environment variables for build process
+ENV API_URL=${API_URL}
+ENV PANEL_URL=${PANEL_URL}
 
 WORKDIR /app
 

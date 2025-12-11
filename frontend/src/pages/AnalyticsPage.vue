@@ -8,8 +8,8 @@
           <q-select
             v-model="selectedHub"
             :options="hubOptions"
-            option-value="id"
-            option-label="name"
+            option-value="hub_id"
+            option-label="what_three_word_location"
             emit-value
             map-options
             label="Select Hub"
@@ -147,12 +147,21 @@ const panelUrl = computed(() => {
     return null
   }
 
-  // Build Panel URL with query parameters
+  // Check if user is authenticated
+  if (!authStore.token) {
+    $q.notify({
+      type: 'negative',
+      message: 'Please log in to access the analytics dashboard',
+      position: 'top'
+    })
+    return null
+  }
+
+  // Build Panel URL with JWT token for authentication
   const params = new URLSearchParams()
 
-  if (authStore.token) {
-    params.append('token', authStore.token)
-  }
+  // Pass the JWT token for authentication
+  params.append('token', authStore.token)
 
   if (selectedHub.value) {
     params.append('hub_id', selectedHub.value)
@@ -160,7 +169,7 @@ const panelUrl = computed(() => {
 
   params.append('time_period', timePeriod.value)
 
-  return `${panelBaseUrl}/battery_analytics?${params.toString()}`
+  return `${panelBaseUrl}/battery_analytics_v3?${params.toString()}`
 })
 
 const loadHubs = async () => {
@@ -169,7 +178,7 @@ const loadHubs = async () => {
     hubOptions.value = response.data
 
     if (hubOptions.value.length > 0) {
-      selectedHub.value = hubOptions.value[0].id
+      selectedHub.value = hubOptions.value[0].hub_id
     }
   } catch (error) {
     console.error('Failed to load hubs:', error)
@@ -217,10 +226,11 @@ onMounted(() => {
 .panel-iframe {
   width: 100%;
   height: 100%;
-  min-height: 600px;
+  min-height: 1200px;
 }
 
 .full-height {
   height: 100%;
+  min-height: 1200px;
 }
 </style>

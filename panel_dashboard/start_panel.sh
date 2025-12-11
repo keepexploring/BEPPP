@@ -1,3 +1,4 @@
+
 #!/bin/bash
 
 # Start Panel server for Battery Analytics Dashboard
@@ -13,13 +14,15 @@ if [ -d "../venv" ]; then
     source ../venv/bin/activate
 fi
 
-# Start Panel server
+# Start Panel server with authentication
 echo "Starting Panel server on http://${HOST}:${PORT}"
 echo "Allowed WebSocket origin: ${ALLOWED_ORIGIN}"
+echo "Authentication: JWT-based (via application code)"
 
-panel serve battery_analytics.py \
+panel serve battery_analytics_v3.py \
     --port ${PORT} \
     --address ${HOST} \
     --allow-websocket-origin="${ALLOWED_ORIGIN}" \
     --use-xheaders \
+    --cookie-secret="${SECRET_KEY:-panel-cookie-secret-change-in-production}" \
     --show

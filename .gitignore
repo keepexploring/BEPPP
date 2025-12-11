@@ -1,12 +1,68 @@
+# IDE and Development
 .qodo
-.env
-.venv/
+.vscode/
+.idea/
 .development_notes
-prisma-heroku/
+
+# Environment and Secrets
+.env
+.env.local
+.env.production
+CREDENTIALS.txt
+*.pem
+*.key
+*.crt
+
+# Python
+.venv/
+venv/
+env/
 *.pyc
 __pycache__/
-frontend_backup/
-frontend_broken_backup/
+*.egg-info/
+.pytest_cache/
+*.coverage
+
+# Node/Frontend
 frontend/node_modules/
 frontend/dist/
 frontend/.quasar/
+frontend_backup/
+frontend_broken_backup/
+node_modules/
+
+# Database
+*.db
+*.sqlite
+*.sql.backup
+
+# Logs
+logs/
+*.log
+nginx/logs/*.log
+
+# Backups
+backups/
+*.backup
+*.bak
+
+# Docker
+.docker/
+
+# SSL Certificates (except example configs)
+nginx/ssl/*.pem
+nginx/ssl/*.key
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+
+# Legacy/Archive
+prisma-heroku/

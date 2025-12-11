@@ -25,6 +25,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from database import get_db, init_db
 from models import *
 from sqlalchemy import Table
+from api.app.utils.rental_id_generator import generate_rental_id
 
 # Import configuration with safe defaults
 try:
@@ -312,7 +313,7 @@ class RentalCreateUserFriendly(BaseModel):
     rental_notes: Optional[str] = None
 
 class RentalCreate(BaseModel):
-    rentral_id: int
+    rentral_id: Optional[int] = None
     battery_id: int
     user_id: int
     timestamp_taken: datetime
@@ -396,6 +397,16 @@ class RentalReturnRequest(BaseModel):
     battery_condition: Optional[str] = Field(None, description="Condition of returned battery")
     battery_notes: Optional[str] = Field(None, description="Notes about battery return")
     return_notes: Optional[str] = Field(None, description="General return notes")
+    actual_return_date: Optional[datetime] = Field(None, description="Actual return date (defaults to now)")
+
+    # Usage data for final cost calculation
+    kwh_usage_end: Optional[float] = Field(None, description="kWh reading at return (for kWh-based billing)")
+
+    # Payment on return
+    payment_amount: Optional[float] = Field(None, description="Payment amount if collecting payment on return")
+    payment_type: Optional[str] = Field(None, description="Payment type: Cash, Mobile Money, Bank Transfer, Card")
+    payment_method: Optional[str] = Field(None, description="Payment method: upfront, on_return, partial, deposit_only")
+    payment_notes: Optional[str] = Field(None, description="Notes about the payment")
 
 class AddPUEToRentalRequest(BaseModel):
     """Request model for adding PUE items to an existing rental"""
@@ -497,17 +508,21 @@ A comprehensive API for managing solar hubs, batteries, productive use equipment
     ],
 )
 
+# CORS Configuration - Allow frontend and panel to access API
+# In production, set CORS_ORIGINS env var to your domains (comma-separated)
+cors_origins_str = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:3000,http://localhost:8000,http://localhost:5100,http://localhost:9000"
+)
+cors_origins = [origin.strip() for origin in cors_origins_str.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://data.beppp.cloud",
-        "http://localhost:3000",
-        "http://localhost:8000",
-        "http://localhost:9000"
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    max_age=600,  # Cache preflight requests for 10 minutes
 )
 
 security = HTTPBearer()
@@ -707,7 +722,52 @@ def verify_battery_or_superadmin_token(credentials: HTTPAuthorizationCredentials
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
+def validate_password_policy(password: str) -> None:
+    """
+    Enforce password policy requirements.
+    Raises HTTPException if password doesn't meet requirements.
+
+    Requirements:
+    - Minimum 8 characters
+    - At least one uppercase letter
+    - At least one lowercase letter
+    - At least one digit
+    - At least one special character
+    """
+    if len(password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 8 characters long"
+        )
+
+    if not any(c.isupper() for c in password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must contain at least one uppercase letter"
+        )
+
+    if not any(c.islower() for c in password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must contain at least one lowercase letter"
+        )
+
+    if not any(c.isdigit() for c in password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must contain at least one digit"
+        )
+
+    special_chars = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+    if not any(c in special_chars for c in password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must contain at least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)"
+        )
+
 def hash_password(password: str) -> str:
+    # Validate password before hashing
+    validate_password_policy(password)
     return pwd_context.hash(password)
 
 def get_current_user(token_data: dict = Depends(verify_token), db: Session = Depends(get_db)):
@@ -732,6 +792,127 @@ def user_has_hub_access(current_user: dict, hub_id: int) -> bool:
     else:
         # ADMIN, USER roles are restricted to their own hub
         return current_user.get('hub_id') == hub_id
+
+# ============================================================================
+# BATTERY ERROR PROCESSING AND SMART NOTIFICATIONS
+# ============================================================================
+
+# Error code mapping for battery diagnostics
+BATTERY_ERROR_CODES = {
+    'R': {'name': 'rtcError', 'description': 'Real-time clock error', 'severity': 'warning'},
+    'C': {'name': 'powerSensorChargeError', 'description': 'Power sensor charge error', 'severity': 'error'},
+    'U': {'name': 'powerSensorUsbError', 'description': 'Power sensor USB error', 'severity': 'warning'},
+    'T': {'name': 'tempSensorError', 'description': 'Temperature sensor error', 'severity': 'warning'},
+    'B': {'name': 'batteryMonitorError', 'description': 'Battery monitor error', 'severity': 'error'},
+    'G': {'name': 'gpsError', 'description': 'GPS error', 'severity': 'warning'},
+    'S': {'name': 'sdError', 'description': 'SD card error', 'severity': 'warning'},
+    'L': {'name': 'lteError', 'description': 'LTE connection error', 'severity': 'error'},
+    'D': {'name': 'displayError', 'description': 'Display error', 'severity': 'info'},
+}
+
+def decode_error_string(error_string: str) -> list[dict]:
+    """
+    Decode battery error string into list of errors
+
+    Args:
+        error_string: String containing error codes (e.g., "TG", "RCB")
+
+    Returns:
+        List of error dictionaries with code, name, description, and severity
+        Unknown codes are still included with a generic description
+    """
+    errors = []
+    for char in error_string.strip().upper():
+        if char in BATTERY_ERROR_CODES:
+            error_info = BATTERY_ERROR_CODES[char].copy()
+            error_info['code'] = char
+            errors.append(error_info)
+        else:
+            # Handle unknown error codes - still record them
+            errors.append({
+                'code': char,
+                'name': f'unknownError_{char}',
+                'description': f'Unknown error code: {char}',
+                'severity': 'warning'
+            })
+    return errors
+
+def process_battery_errors(db: Session, battery_id: int, error_string: str, hub_id: int):
+    """
+    Process battery error codes and create smart notifications
+
+    Features:
+    - Decodes error string into human-readable errors
+    - Creates notifications for NEW errors only (no flooding)
+    - Tracks which errors have active notifications
+    - Only creates new notification if old one was dismissed and error persists
+
+    Args:
+        db: Database session
+        battery_id: Battery ID
+        error_string: Error codes string (e.g., "TG", "RCB")
+        hub_id: Hub ID for the notification
+    """
+    from models import Notification, BEPPPBattery
+
+    # Decode error string
+    errors = decode_error_string(error_string)
+
+    if not errors:
+        return  # No errors, nothing to do
+
+    # Get battery name for notification message
+    battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_id).first()
+    battery_name = (battery.short_id if battery and battery.short_id else f"Battery #{battery_id}")
+
+    # For each error, check if we already have an active notification
+    for error in errors:
+        error_code = error['code']
+        error_name = error['name']
+        error_desc = error['description']
+        severity = error['severity']
+
+        # Check for existing UNREAD notification with this exact error for this battery
+        # This prevents flooding - we only have one notification per error type per battery
+        notification_type = f"battery_error_{error_code}"
+
+        existing_notification = db.query(Notification).filter(
+            Notification.hub_id == hub_id,
+            Notification.link_type == 'battery',
+            Notification.link_id == str(battery_id),
+            Notification.notification_type == notification_type,
+            Notification.is_read == False  # Only unread notifications matter
+        ).first()
+
+        if existing_notification:
+            # We already have an active notification for this error
+            # Don't create a new one (prevents flooding)
+            continue
+
+        # No active notification exists - create a new one
+        # This will show even if a previous notification was dismissed
+        # (allowing users to be re-notified if they dismissed it but problem persists)
+
+        notification = Notification(
+            hub_id=hub_id,
+            user_id=None,  # Hub-wide notification
+            notification_type=notification_type,
+            title=f"{battery_name}: {error_desc}",
+            message=f"Error code '{error_code}' detected on {battery_name}. {error_desc}. Please check the battery error log for more details.",
+            severity=severity,
+            is_read=False,
+            link_type='battery',
+            link_id=str(battery_id)
+        )
+
+        db.add(notification)
+
+    # Commit all new notifications
+    try:
+        db.commit()
+    except Exception as e:
+        print(f"Failed to create error notifications: {e}")
+        db.rollback()
 
 # ============================================================================
 # WEBHOOK HANDLERS
@@ -871,7 +1052,16 @@ async def handle_direct_format(battery_data: dict, db: Session, current_user: di
                 data_id=live_data.id,
                 status="success"
             )
-        
+
+        # Process error codes and create smart notifications if needed
+        if live_data.err and live_data.err.strip():
+            process_battery_errors(
+                db=db,
+                battery_id=battery_id,
+                error_string=live_data.err,
+                hub_id=battery.hub_id
+            )
+
     except Exception as e:
         log_webhook_event(
             event_type="database_save_failed",
@@ -1828,21 +2018,25 @@ async def list_hubs(
 
 @app.post("/admin/user-hub-access/{user_id}/{hub_id}",
     tags=["Users"],
-    summary="Grant Hub Access to DATA_ADMIN",
+    summary="Grant Hub Access to User",
     description="""
-    ## Grant Hub Access to DATA_ADMIN User
+    ## Grant Hub Access to User
 
-    Grant a DATA_ADMIN user access to a specific hub.
-    
+    Grant a user access to a specific hub. This changes the user's primary hub_id.
+
     ### Permissions:
-    - **SUPERADMIN**: Can grant hub access to any DATA_ADMIN user
-    
+    - **SUPERADMIN**: Can change hub access for any user
+
     ### Parameters:
-    - **user_id**: ID of the DATA_ADMIN user
+    - **user_id**: ID of the user
     - **hub_id**: ID of the hub to grant access to
-    
+
     ### Returns:
     - Success confirmation
+
+    ### Note:
+    For DATA_ADMIN users, this grants additional hub access without changing their primary hub.
+    For other users, this changes their primary hub assignment.
     """,
     response_description="Access grant confirmation")
 async def grant_hub_access(
@@ -1851,50 +2045,58 @@ async def grant_hub_access(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """Grant hub access to a DATA_ADMIN user (superadmin only)"""
+    """Grant hub access to a user (superadmin only)"""
     if current_user.get('role') != UserRole.SUPERADMIN:
         raise HTTPException(status_code=403, detail="Superadmin access required")
-    
-    # Check if user exists and is DATA_ADMIN
+
+    # Check if user exists
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    if user.user_access_level != UserRole.DATA_ADMIN:
-        raise HTTPException(status_code=400, detail="User must be DATA_ADMIN to grant hub access")
-    
+
     # Check if hub exists
     hub = db.query(SolarHub).filter(SolarHub.hub_id == hub_id).first()
     if not hub:
         raise HTTPException(status_code=404, detail="Hub not found")
-    
-    # Check if access already exists
-    if hub in user.accessible_hubs:
-        raise HTTPException(status_code=400, detail="User already has access to this hub")
-    
-    # Grant access
-    user.accessible_hubs.append(hub)
-    db.commit()
-    
-    return {"message": f"Hub access granted to user {user_id} for hub {hub_id}"}
+
+    # For DATA_ADMIN users, add to accessible_hubs for multi-hub access
+    if user.user_access_level == UserRole.DATA_ADMIN:
+        # Check if access already exists
+        if hub in user.accessible_hubs:
+            raise HTTPException(status_code=400, detail="User already has access to this hub")
+
+        # Grant additional hub access
+        user.accessible_hubs.append(hub)
+        db.commit()
+        return {"message": f"Additional hub access granted to DATA_ADMIN user {user_id} for hub {hub_id}"}
+    else:
+        # For other users, change their primary hub assignment
+        user.hub_id = hub_id
+        db.commit()
+        return {"message": f"User {user_id} hub changed to {hub_id}"}
 
 @app.delete("/admin/user-hub-access/{user_id}/{hub_id}",
     tags=["Users"],
-    summary="Revoke Hub Access from DATA_ADMIN",
+    summary="Revoke Hub Access from User",
     description="""
-    ## Revoke Hub Access from DATA_ADMIN User
+    ## Revoke Hub Access from User
 
     Revoke a DATA_ADMIN user's access to a specific hub.
-    
+    This only applies to DATA_ADMIN users with multi-hub access.
+
     ### Permissions:
     - **SUPERADMIN**: Can revoke hub access from any DATA_ADMIN user
-    
+
     ### Parameters:
     - **user_id**: ID of the DATA_ADMIN user
     - **hub_id**: ID of the hub to revoke access from
-    
+
     ### Returns:
     - Success confirmation
+
+    ### Note:
+    This endpoint only works for DATA_ADMIN users who have multiple hub access.
+    For other users, use the grant endpoint to change their primary hub.
     """,
     response_description="Access revoke confirmation")
 async def revoke_hub_access(
@@ -1906,28 +2108,29 @@ async def revoke_hub_access(
     """Revoke hub access from a DATA_ADMIN user (superadmin only)"""
     if current_user.get('role') != UserRole.SUPERADMIN:
         raise HTTPException(status_code=403, detail="Superadmin access required")
-    
-    # Check if user exists and is DATA_ADMIN
+
+    # Check if user exists
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
+    # Only DATA_ADMIN users can have multi-hub access revoked
     if user.user_access_level != UserRole.DATA_ADMIN:
-        raise HTTPException(status_code=400, detail="User must be DATA_ADMIN to revoke hub access")
-    
+        raise HTTPException(status_code=400, detail="Only DATA_ADMIN users have multi-hub access that can be revoked")
+
     # Check if hub exists
     hub = db.query(SolarHub).filter(SolarHub.hub_id == hub_id).first()
     if not hub:
         raise HTTPException(status_code=404, detail="Hub not found")
-    
+
     # Check if access exists
     if hub not in user.accessible_hubs:
         raise HTTPException(status_code=400, detail="User does not have access to this hub")
-    
+
     # Revoke access
     user.accessible_hubs.remove(hub)
     db.commit()
-    
+
     return {"message": f"Hub access revoked from user {user_id} for hub {hub_id}"}
 
 # ============================================================================
@@ -2296,6 +2499,191 @@ async def get_battery_by_short_id(
     return battery
 
 # ============================================================================
+# BATTERY NOTES ENDPOINTS
+# ============================================================================
+
+@app.get("/batteries/{battery_id}/notes", tags=["Batteries"])
+async def get_battery_notes(
+    battery_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all notes for a battery"""
+    # Check battery exists and user has access
+    battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_id).first()
+    if not battery:
+        raise HTTPException(status_code=404, detail="Battery not found")
+
+    # Check access
+    if current_user.get('role') not in [UserRole.SUPERADMIN, UserRole.DATA_ADMIN]:
+        if battery.hub_id != current_user.get('hub_id'):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    # Get notes - they are linked via the battery_notes junction table
+    notes = battery.notes
+
+    return {
+        "battery_id": battery_id,
+        "notes": [
+            {
+                "id": note.id,
+                "content": note.content,
+                "created_at": note.created_at.isoformat() if note.created_at else None,
+                "created_by": note.created_by,
+                "creator": {
+                    "user_id": note.creator.user_id if note.creator else None,
+                    "username": note.creator.username if note.creator else None,
+                    "Name": note.creator.Name if note.creator else None
+                } if note.creator else None
+            }
+            for note in notes
+        ]
+    }
+
+
+@app.get("/batteries/{battery_id}/errors", tags=["Batteries"])
+async def get_battery_errors(
+    battery_id: int,
+    limit: int = 50,
+    time_period: str = "last_week",
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get error history for a battery
+
+    Returns all live data records that contain error codes for the specified battery.
+    Errors are decoded into human-readable format with severity levels.
+
+    Args:
+        battery_id: Battery ID
+        limit: Maximum number of error records to return (default: 50)
+        time_period: Time range - last_24_hours, last_week, last_month, last_year (default: last_week)
+
+    Returns:
+        Error history with decoded error information and metrics at time of error
+    """
+    # Check battery exists and user has access
+    battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_id).first()
+    if not battery:
+        raise HTTPException(status_code=404, detail="Battery not found")
+
+    # Check access
+    if current_user.get('role') not in [UserRole.SUPERADMIN, UserRole.DATA_ADMIN]:
+        if battery.hub_id != current_user.get('hub_id'):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    # Calculate time range
+    start_time, end_time = calculate_time_period(time_period)
+
+    # Query live data with errors
+    error_records = db.query(LiveData).filter(
+        LiveData.battery_id == battery_id,
+        LiveData.err.isnot(None),
+        LiveData.err != '',
+        LiveData.timestamp >= start_time,
+        LiveData.timestamp <= end_time
+    ).order_by(LiveData.timestamp.desc()).limit(limit).all()
+
+    # Format response
+    errors = []
+    for record in error_records:
+        decoded = decode_error_string(record.err) if record.err else []
+        errors.append({
+            "id": record.id,
+            "timestamp": record.timestamp.isoformat() if record.timestamp else None,
+            "error_codes": record.err,
+            "decoded_errors": decoded,
+            "other_metrics": {
+                "soc": record.state_of_charge,
+                "voltage": record.voltage,
+                "current": record.current_amps,
+                "temperature": record.temp_battery,
+                "power": record.power_watts,
+                "latitude": record.latitude,
+                "longitude": record.longitude
+            }
+        })
+
+    return {
+        "battery_id": battery_id,
+        "battery_name": battery.short_id or f"Battery #{battery_id}",
+        "errors": errors,
+        "total_errors": len(errors),
+        "time_period": time_period,
+        "time_range": {
+            "start": start_time.isoformat(),
+            "end": end_time.isoformat()
+        }
+    }
+
+
+@app.post("/batteries/{battery_id}/notes", tags=["Batteries"])
+async def create_battery_note(
+    battery_id: int,
+    note_data: dict,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create a note for a battery.
+
+    Required fields:
+    - content: str (note text)
+
+    Optional fields:
+    - condition: str (battery condition: 'excellent', 'good', 'fair', 'poor', 'needs_repair')
+    """
+    # Check permissions
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    # Check battery exists and user has access
+    battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_id).first()
+    if not battery:
+        raise HTTPException(status_code=404, detail="Battery not found")
+
+    # Check access
+    if current_user.get('role') != UserRole.SUPERADMIN:
+        if battery.hub_id != current_user.get('hub_id'):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    # Validate required fields
+    if not note_data.get('content'):
+        raise HTTPException(status_code=400, detail="Note content is required")
+
+    try:
+        # Create note
+        new_note = Note(
+            content=note_data['content'],
+            created_by=current_user.get('sub')
+        )
+        db.add(new_note)
+        db.flush()  # Get the note ID
+
+        # Link note to battery
+        battery.notes.append(new_note)
+
+        # Update battery condition if provided
+        if note_data.get('condition'):
+            # Store condition in a custom way since it's not in the model
+            # You might want to add a 'condition' column to BEPPPBattery model
+            pass
+
+        db.commit()
+        db.refresh(new_note)
+
+        return {
+            "note_id": new_note.id,
+            "battery_id": battery_id,
+            "message": "Note created successfully"
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create note: {str(e)}")
+
+
+# ============================================================================
 # PUE ENDPOINTS
 # ============================================================================
 
@@ -2508,6 +2896,116 @@ async def list_hub_available_pue_items(
 # RENTAL ENDPOINTS
 # ============================================================================
 
+@app.get("/rentals/",
+    tags=["Rentals"],
+    summary="List All Rentals",
+    description="""
+    ## Get All Rentals
+
+    Retrieves all rentals with filtering by status.
+
+    ### Permissions:
+    - **SUPERADMIN/DATA_ADMIN**: Can see all rentals across all hubs
+    - **ADMIN/USER**: Can only see rentals from their assigned hub
+
+    ### Query Parameters:
+    - **status**: Filter by rental status (active, returned, all)
+
+    ### Returns:
+    - List of rentals with user, battery, and hub information
+    """,
+    response_description="List of rentals")
+async def list_rentals(
+    status: str = "all",
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all rentals with optional status filtering"""
+    try:
+        # Base query
+        query = db.query(Rental)
+
+        # Filter by status
+        if status == "active":
+            query = query.filter(
+                Rental.is_active == True,
+                Rental.battery_returned_date.is_(None)
+            )
+        elif status == "returned":
+            query = query.filter(
+                Rental.battery_returned_date.isnot(None)
+            )
+        elif status == "overdue":
+            # Filter for overdue rentals: active rentals past their due date
+            query = query.filter(
+                Rental.is_active == True,
+                Rental.battery_returned_date.is_(None),
+                Rental.due_back < datetime.now(timezone.utc)
+            )
+
+        # For non-superadmins, filter by their hub
+        if current_user.get('role') not in [UserRole.SUPERADMIN, UserRole.DATA_ADMIN]:
+            user_hub_id = current_user.get('hub_id')
+            if user_hub_id:
+                # Get batteries in user's hub
+                battery_ids = db.query(BEPPPBattery.battery_id).filter(
+                    BEPPPBattery.hub_id == user_hub_id
+                ).all()
+                battery_ids = [b[0] for b in battery_ids]
+                query = query.filter(Rental.battery_id.in_(battery_ids))
+
+        rentals = query.order_by(Rental.timestamp_taken.desc()).all()
+
+        # Enrich rental data with user and battery information
+        result = []
+        for rental in rentals:
+            battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == rental.battery_id).first()
+            user = db.query(User).filter(User.user_id == rental.user_id).first()
+            hub = db.query(SolarHub).filter(SolarHub.hub_id == battery.hub_id).first() if battery else None
+
+            # Determine status
+            rental_status = "returned" if rental.battery_returned_date else "active"
+            if rental_status == "active" and rental.due_back:
+                due_back = rental.due_back
+                if due_back.tzinfo is None:
+                    due_back = due_back.replace(tzinfo=timezone.utc)
+                if due_back < datetime.now(timezone.utc):
+                    rental_status = "overdue"
+
+            result.append({
+                "rentral_id": rental.rentral_id,
+                "battery_id": rental.battery_id,
+                "user_id": rental.user_id,
+                "timestamp_taken": rental.timestamp_taken.isoformat() if rental.timestamp_taken else None,
+                "due_back": rental.due_back.isoformat() if rental.due_back else None,
+                "battery_returned_date": rental.battery_returned_date.isoformat() if rental.battery_returned_date else None,
+                "total_cost": float(rental.total_cost) if rental.total_cost else 0.0,
+                "deposit_amount": float(rental.deposit_amount) if rental.deposit_amount else 0.0,
+                "status": rental_status,
+                "is_active": rental.is_active,
+                "user": {
+                    "user_id": user.user_id,
+                    "username": user.username if hasattr(user, 'username') else None,
+                    "Name": user.Name if hasattr(user, 'Name') else None,
+                    "mobile_number": user.mobile_number if hasattr(user, 'mobile_number') else None
+                } if user else None,
+                "battery": {
+                    "battery_id": battery.battery_id,
+                    "short_id": battery.short_id,
+                    "status": battery.status,
+                    "battery_capacity_wh": battery.battery_capacity_wh
+                } if battery else None,
+                "hub": {
+                    "hub_id": hub.hub_id,
+                    "what_three_word_location": hub.what_three_word_location
+                } if hub else None
+            })
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list rentals: {str(e)}")
+
 @app.post("/rentals/",
     tags=["Rentals"],
     summary="Create Battery Rental",
@@ -2666,12 +3164,108 @@ async def create_rental(
             rental_data = rental.dict(exclude={'pue_item_ids'})
         else:
             rental_data = {k: v for k, v in rental.__dict__.items() if k != 'pue_item_ids'}
+
+        # Generate unique rental ID (will be used in rentral_id)
+        rental_unique_id = generate_rental_id(db)
+        # Note: rental_unique_id is just for transaction descriptions,
+        # the actual ID is auto-generated as rentral_id
+
+        # Remove auto-generated fields that shouldn't be set during creation
+        rental_data.pop('rentral_id', None)
+        rental_data.pop('rental_unique_id', None)
+
+        # Handle payment fields
+        payment_status = rental_data.get('payment_status', 'unpaid')
+        amount_paid = rental_data.get('amount_paid', 0)
+        total_cost = rental_data.get('total_cost', 0)
+
+        rental_data['payment_status'] = payment_status
+        rental_data['amount_paid'] = amount_paid
+        rental_data['amount_owed'] = max(0, total_cost - amount_paid)
+
+        # Create cost breakdown if battery_cost or pue_cost provided
+        battery_cost = rental_data.get('battery_cost', 0)
+        pue_cost = rental_data.get('pue_cost', 0)
+        if battery_cost or pue_cost:
+            rental_data['total_cost_breakdown'] = {
+                'battery_cost': battery_cost,
+                'pue_cost': pue_cost,
+                'total': battery_cost + pue_cost
+            }
+
+        # Debug: Check all keys in rental_data before creating Rental
+        print(f"DEBUG: rental_data keys before Rental creation: {list(rental_data.keys())}")
+        print(f"DEBUG: rentral_id in rental_data: {'rentral_id' in rental_data}")
+        if 'rentral_id' in rental_data:
+            print(f"DEBUG: rentral_id value: {rental_data['rentral_id']} (type: {type(rental_data['rentral_id'])})")
+
         db_rental = Rental(**rental_data)
         db.add(db_rental)
         db.flush()
-        
-        # Update battery status to in_use
-        battery.status = "in_use"
+
+        # Debug: Log the rental ID after flush
+        print(f"DEBUG: After flush, db_rental.rentral_id = {db_rental.rentral_id} (type: {type(db_rental.rentral_id)})")
+
+        # If rentral_id is not set, use a generated numeric ID
+        if db_rental.rentral_id is None:
+            db_rental.rentral_id = int(datetime.now().timestamp() * 1000) % 1000000000
+            db.flush()
+            print(f"DEBUG: Set rentral_id to {db_rental.rentral_id}")
+
+        # Update battery status to rented
+        battery.status = "rented"
+
+        # Create or update user account and record transaction
+        user_account = db.query(UserAccount).filter(UserAccount.user_id == user.user_id).first()
+        if not user_account:
+            # Auto-create user account
+            user_account = UserAccount(
+                user_id=user.user_id,
+                balance=0,
+                total_spent=0,
+                total_owed=0
+            )
+            db.add(user_account)
+            db.flush()
+
+        # Record rental charge transaction
+        if total_cost > 0:
+            # Update account balances first to calculate balance_after
+            user_account.balance -= total_cost  # Debit (negative balance = debt)
+            user_account.total_spent += total_cost
+            user_account.total_owed += rental_data['amount_owed']
+
+            charge_transaction = AccountTransaction(
+                account_id=user_account.account_id,
+                rental_id=db_rental.rentral_id,
+                transaction_type='rental_charge',
+                amount=-total_cost,  # Negative for charges (debit)
+                balance_after=user_account.balance,
+                description=f'Rental charge for {rental_unique_id}',
+                payment_method=rental_data.get('payment_method'),
+                payment_type=rental_data.get('payment_type'),
+                created_by=current_user.get('user_id') if hasattr(current_user, 'get') else None
+            )
+            db.add(charge_transaction)
+
+        # Record payment transaction if paid upfront
+        if amount_paid > 0:
+            # Credit the payment
+            user_account.balance += amount_paid
+            user_account.total_owed = max(0, user_account.total_owed - amount_paid)
+
+            payment_transaction = AccountTransaction(
+                account_id=user_account.account_id,
+                rental_id=db_rental.rentral_id,
+                transaction_type='payment',
+                amount=amount_paid,  # Positive for payments (credit)
+                balance_after=user_account.balance,
+                description=f'Payment for rental {rental_unique_id}',
+                payment_method=rental_data.get('payment_method'),
+                payment_type=rental_data.get('payment_type'),
+                created_by=current_user.get('user_id') if hasattr(current_user, 'get') else None
+            )
+            db.add(payment_transaction)
         
         for pue_item in pue_items:
             rental_pue_item = RentalPUEItem(
@@ -2693,6 +3287,95 @@ async def create_rental(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=400, detail=f"Rental creation failed: {str(e)}")
+
+@app.get("/rentals/overdue-upcoming",
+    tags=["Rentals"],
+    summary="Get Overdue and Upcoming Rentals",
+    description="Get rentals that are overdue or due soon (within 3 days)")
+async def get_overdue_upcoming_rentals(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get rentals that are overdue or due within 3 days"""
+    try:
+        now = datetime.now(timezone.utc)
+        upcoming_threshold = now + timedelta(days=3)
+
+        # Get active rentals
+        rentals_query = db.query(Rental).filter(
+            Rental.is_active == True,
+            Rental.battery_returned_date.is_(None)
+        )
+
+        # For non-superadmins, filter by their hub
+        if current_user.get('role') not in [UserRole.SUPERADMIN, UserRole.DATA_ADMIN]:
+            user_hub_id = current_user.get('hub_id')
+            if user_hub_id:
+                # Get batteries in user's hub
+                battery_ids = db.query(BEPPPBattery.battery_id).filter(
+                    BEPPPBattery.hub_id == user_hub_id
+                ).all()
+                battery_ids = [b[0] for b in battery_ids]
+                rentals_query = rentals_query.filter(Rental.battery_id.in_(battery_ids))
+
+        rentals = rentals_query.all()
+
+        overdue = []
+        upcoming = []
+
+        for rental in rentals:
+            if rental.due_back:
+                # Make due_back timezone-aware for comparison
+                due_back = rental.due_back
+                if due_back.tzinfo is None:
+                    due_back = due_back.replace(tzinfo=timezone.utc)
+
+                # Get battery and user info
+                battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == rental.battery_id).first()
+                user = db.query(User).filter(User.user_id == rental.user_id).first()
+                hub = db.query(SolarHub).filter(SolarHub.hub_id == battery.hub_id).first() if battery else None
+
+                days_diff = (due_back - now).days
+                hours_diff = (due_back - now).total_seconds() / 3600
+
+                rental_info = {
+                    "rentral_id": rental.rentral_id,
+                    "battery_id": rental.battery_id,
+                    "user_id": rental.user_id,
+                    "user_name": user.Name if user else "Unknown",
+                    "username": user.username if user else "Unknown",
+                    "mobile_number": user.mobile_number if user else None,
+                    "address": user.address if user else None,
+                    "hub_id": battery.hub_id if battery else None,
+                    "hub_name": hub.what_three_word_location if hub else "Unknown",
+                    "due_back": rental.due_back.isoformat(),
+                    "timestamp_taken": rental.timestamp_taken.isoformat() if rental.timestamp_taken else None,
+                    "days_overdue": abs(days_diff) if days_diff < 0 else 0,
+                    "hours_overdue": abs(hours_diff) if hours_diff < 0 else 0,
+                    "days_until_due": days_diff if days_diff > 0 else 0,
+                    "status": "overdue" if due_back < now else "upcoming",
+                    "total_cost": rental.total_cost,
+                    "deposit_amount": rental.deposit_amount
+                }
+
+                if due_back < now:
+                    overdue.append(rental_info)
+                elif due_back <= upcoming_threshold:
+                    upcoming.append(rental_info)
+
+        # Sort by urgency
+        overdue.sort(key=lambda x: x['days_overdue'], reverse=True)
+        upcoming.sort(key=lambda x: x['days_until_due'])
+
+        return {
+            "overdue": overdue,
+            "upcoming": upcoming,
+            "total_overdue": len(overdue),
+            "total_upcoming": len(upcoming)
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting overdue/upcoming rentals: {str(e)}")
 
 @app.get("/rentals/{rental_id}")
 async def get_rental_with_pue(
@@ -2733,12 +3416,27 @@ async def get_rental_with_pue(
     returned_pue_items = len([item for item in pue_items if item.returned_date])
     battery_returned = bool(rental.date_returned or rental.battery_returned_date)
     rental_complete = battery_returned and (returned_pue_items == total_pue_items)
-    
+
+    # Get battery and user details
+    battery = rental.battery
+    user = rental.user if current_user.get('role') != UserRole.DATA_ADMIN else None
+
     rental_dict = {
         "rental": rental,
         "pue_items": pue_items,
-        "battery": rental.battery,
-        "user": rental.user if current_user.get('role') != UserRole.DATA_ADMIN else None,
+        "battery": {
+            "battery_id": battery.battery_id,
+            "short_id": battery.short_id,
+            "battery_capacity_wh": battery.battery_capacity_wh,
+            "status": battery.status
+        } if battery else None,
+        "user": {
+            "user_id": user.user_id,
+            "Name": user.Name,
+            "username": user.username,
+            "mobile_number": user.mobile_number,
+            "email": user.email if hasattr(user, 'email') else None
+        } if user else None,
         "summary": {
             "total_pue_items": total_pue_items,
             "returned_pue_items": returned_pue_items,
@@ -2746,7 +3444,7 @@ async def get_rental_with_pue(
             "rental_complete": rental_complete
         }
     }
-    
+
     return rental_dict
 
 @app.put("/rentals/{rental_id}")
@@ -3077,13 +3775,59 @@ async def return_rental(
         # Add general return notes
         if return_request.return_notes:
             rental.battery_return_notes = (rental.battery_return_notes or "") + f"\n{return_request.return_notes}"
-        
+
+        # Handle payment on return
+        if return_request.payment_amount and return_request.payment_amount > 0:
+            user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+            if not user_account:
+                # Create user account if it doesn't exist
+                user_account = UserAccount(
+                    user_id=rental.user_id,
+                    balance=0,
+                    total_spent=0,
+                    total_owed=0
+                )
+                db.add(user_account)
+                db.flush()
+
+            # Record payment transaction
+            payment_transaction = AccountTransaction(
+                user_id=rental.user_id,
+                transaction_type='payment',
+                amount=return_request.payment_amount,
+                description=return_request.payment_notes or f'Payment on return of rental {rental.rentral_id}',
+                related_rental_id=rental.rentral_id
+            )
+            db.add(payment_transaction)
+
+            # Update rental payment status
+            rental.amount_paid = (rental.amount_paid or 0) + return_request.payment_amount
+            rental.amount_owed = max(0, (rental.total_cost or 0) - rental.amount_paid)
+
+            if rental.amount_owed == 0:
+                rental.payment_status = 'paid'
+            elif rental.amount_paid > 0:
+                rental.payment_status = 'partial'
+
+            # Update user account balance
+            user_account.balance += return_request.payment_amount
+            user_account.total_owed = max(0, user_account.total_owed - return_request.payment_amount)
+
+            return_summary["payment_recorded"] = {
+                "amount": return_request.payment_amount,
+                "new_balance": rental.amount_owed
+            }
+
         # Update rental status if everything is returned
-        if (return_request.return_battery and 
+        if (return_request.return_battery and
             not return_summary["still_rented"]["pue_items"]):
             rental.is_active = False
             rental.status = "completed"
-        
+
+        # Use actual_return_date if provided, otherwise use current time
+        if return_request.actual_return_date and return_request.return_battery:
+            rental.battery_returned_date = return_request.actual_return_date
+
         db.commit()
         
         return {
@@ -3099,6 +3843,284 @@ async def return_rental(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/rentals/{rental_id}/calculate-return-cost",
+    tags=["Rentals"],
+    summary="Calculate Final Cost at Return",
+    description="Calculate the final cost for a rental based on actual usage (days, kWh, etc.)")
+async def calculate_return_cost(
+    rental_id: int,
+    actual_return_date: Optional[str] = Query(None, description="Actual return date (ISO format)"),
+    kwh_usage: Optional[float] = Query(None, description="Actual kWh used"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Calculate final cost for a rental at return time based on:
+    - Actual duration (rental start to return date)
+    - Actual kWh usage (if provided)
+    - Cost structure components (per_day, per_hour, per_kwh, fixed, etc.)
+    - Early return credits or late return penalties
+
+    Returns breakdown of all cost components and final total.
+    """
+    rental = db.query(Rental).filter(Rental.rentral_id == rental_id).first()
+    if not rental:
+        raise HTTPException(status_code=404, detail="Rental not found")
+
+    # Authorization check
+    if current_user.get('role') == UserRole.USER:
+        battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == rental.battery_id).first()
+        if not battery or battery.hub_id != current_user.get('hub_id'):
+            raise HTTPException(status_code=403, detail="Access denied")
+    elif current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot access rental details")
+
+    # Parse actual return date or use now
+    if actual_return_date:
+        try:
+            return_date = datetime.fromisoformat(actual_return_date.replace('Z', '+00:00'))
+        except:
+            return_date = datetime.now(timezone.utc)
+    else:
+        return_date = datetime.now(timezone.utc)
+
+    # Calculate actual duration
+    start_date = rental.timestamp_taken
+    if isinstance(start_date, str):
+        start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+    elif start_date and not start_date.tzinfo:
+        # If start_date is naive (no timezone), assume UTC
+        start_date = start_date.replace(tzinfo=timezone.utc)
+
+    duration_delta = return_date - start_date
+    actual_hours = duration_delta.total_seconds() / 3600
+    actual_days = duration_delta.total_seconds() / 86400
+    actual_weeks = actual_days / 7
+    actual_months = actual_days / 30  # Approximate
+
+    # Get cost structure and calculate costs
+    cost_breakdown = []
+    subtotal = 0
+    has_cost_structure = False
+
+    if rental.cost_structure_id:
+        cost_structure = db.query(CostStructure).filter(
+            CostStructure.structure_id == rental.cost_structure_id
+        ).first()
+
+        if cost_structure:
+            has_cost_structure = True
+            components = db.query(CostComponent).filter(
+                CostComponent.structure_id == cost_structure.structure_id
+            ).all()
+
+            for component in components:
+                component_cost = 0
+                quantity = 0
+
+                if component.unit_type == 'per_hour':
+                    quantity = actual_hours
+                    component_cost = component.rate * actual_hours
+                elif component.unit_type == 'per_day':
+                    quantity = actual_days
+                    component_cost = component.rate * actual_days
+                elif component.unit_type == 'per_week':
+                    quantity = actual_weeks
+                    component_cost = component.rate * actual_weeks
+                elif component.unit_type == 'per_month':
+                    quantity = actual_months
+                    component_cost = component.rate * actual_months
+                elif component.unit_type == 'per_kwh':
+                    # Calculate kWh usage from multiple sources
+                    kwh_used = None
+
+                    if kwh_usage is not None:
+                        # Use provided kWh usage
+                        kwh_used = kwh_usage
+                    elif getattr(rental, 'kwh_usage_start', None) and getattr(rental, 'kwh_usage_end', None):
+                        # Use stored rental kWh readings
+                        kwh_used = rental.kwh_usage_end - rental.kwh_usage_start
+                    else:
+                        # Automatically fetch latest kWh from battery's live data
+                        latest_data = db.query(LiveData).filter(
+                            LiveData.battery_id == rental.battery_id
+                        ).order_by(LiveData.timestamp.desc()).first()
+
+                        if latest_data and latest_data.amp_hours_consumed:
+                            # Use amp_hours_consumed as kWh estimate
+                            # Convert Ah to kWh: Ah * V / 1000
+                            voltage = latest_data.voltage or 48  # Default to 48V if not available
+                            kwh_used = (latest_data.amp_hours_consumed * voltage) / 1000
+                        elif getattr(rental, 'kwh_usage_start', None):
+                            # If we have start reading, try to get current reading
+                            if latest_data:
+                                # Estimate based on SOC change if available
+                                pass  # Could add SOC-based estimation here
+
+                    if kwh_used is not None and kwh_used > 0:
+                        quantity = kwh_used
+                        component_cost = component.rate * kwh_used
+                elif component.unit_type == 'fixed':
+                    quantity = 1
+                    component_cost = component.rate
+
+                cost_breakdown.append({
+                    "component_name": component.component_name,
+                    "unit_type": component.unit_type,
+                    "rate": float(component.rate),
+                    "quantity": round(quantity, 2),
+                    "amount": round(component_cost, 2)
+                })
+
+                subtotal += component_cost
+
+    # If no cost structure, use rental's total cost as fallback
+    if not has_cost_structure and rental.total_cost:
+        subtotal = rental.total_cost
+        cost_breakdown.append({
+            "component_name": "Total Cost (Estimate)",
+            "unit_type": "fixed",
+            "rate": float(rental.total_cost),
+            "quantity": 1,
+            "amount": float(rental.total_cost)
+        })
+
+    # Get hub VAT (default to 15% if not set)
+    battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == rental.battery_id).first()
+    vat_percentage = 15.0  # Default VAT percentage
+    if battery and battery.hub_id:
+        hub = db.query(SolarHub).filter(SolarHub.hub_id == battery.hub_id).first()
+        if hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None:
+            vat_percentage = hub.vat_percentage
+
+    vat_amount = subtotal * (vat_percentage / 100)
+    total = subtotal + vat_amount
+
+    # Calculate difference from original estimate (use getattr for safety)
+    original_total = getattr(rental, 'estimated_cost_total', None) or rental.total_cost or 0
+    cost_difference = total - original_total
+
+    # Get user account balance
+    user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+    account_balance = user_account.balance if user_account else 0
+
+    # Calculate amounts (use getattr for fields that may not exist in DB)
+    amount_paid_so_far = getattr(rental, 'amount_paid', 0) or 0
+    amount_still_owed = max(0, total - amount_paid_so_far)
+    amount_after_credit = max(0, amount_still_owed - account_balance)
+
+    # Check subscription coverage
+    subscription_info = None
+    subscription_covered_amount = 0
+    if rental.subscription_id:
+        user_subscription = db.query(UserSubscription).filter(
+            UserSubscription.subscription_id == rental.subscription_id
+        ).first()
+
+        if user_subscription and user_subscription.status == 'active':
+            subscription_package = db.query(SubscriptionPackage).filter(
+                SubscriptionPackage.package_id == user_subscription.package_id
+            ).first()
+
+            if subscription_package:
+                # Check if this rental type is covered by subscription
+                package_items = db.query(SubscriptionPackageItem).filter(
+                    SubscriptionPackageItem.package_id == subscription_package.package_id
+                ).all()
+
+                # Check if battery is covered
+                battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == rental.battery_id).first()
+                is_covered = False
+
+                for item in package_items:
+                    if item.item_type == 'battery' and item.item_reference == 'all':
+                        is_covered = True
+                        break
+                    elif item.item_type == 'battery_capacity' and battery and str(battery.capacity) == item.item_reference:
+                        is_covered = True
+                        break
+                    elif item.item_type == 'battery_item' and str(battery.battery_id) == item.item_reference:
+                        is_covered = True
+                        break
+
+                # Calculate subscription coverage
+                if is_covered:
+                    # Base rental cost is covered by subscription
+                    # Check kWh usage against subscription limits
+                    kwh_included = subscription_package.included_kwh_per_period or 0
+                    kwh_used_this_period = user_subscription.kwh_used_current_period or 0
+                    kwh_for_this_rental = kwh_usage or 0
+
+                    overage_kwh = max(0, (kwh_used_this_period + kwh_for_this_rental) - kwh_included)
+                    overage_cost = overage_kwh * (subscription_package.kwh_overage_rate or 0)
+
+                    # Subscription covers base cost, but not overages or late fees
+                    subscription_covered_amount = total - overage_cost
+
+                    subscription_info = {
+                        "is_covered": True,
+                        "subscription_name": subscription_package.package_name,
+                        "subscription_id": rental.subscription_id,
+                        "package_id": subscription_package.package_id,
+                        "billing_period": subscription_package.billing_period,
+                        "covered_amount": round(subscription_covered_amount, 2),
+                        "kwh_included": kwh_included,
+                        "kwh_used_this_period": kwh_used_this_period,
+                        "kwh_for_this_rental": kwh_for_this_rental,
+                        "kwh_overage": round(overage_kwh, 2),
+                        "kwh_overage_cost": round(overage_cost, 2),
+                        "remaining_cost_after_subscription": round(max(0, total - subscription_covered_amount), 2)
+                    }
+                else:
+                    subscription_info = {
+                        "is_covered": False,
+                        "subscription_name": subscription_package.package_name,
+                        "message": "This rental is not covered by your subscription package"
+                    }
+
+    # Recalculate amount owed considering subscription coverage
+    if subscription_covered_amount > 0:
+        amount_still_owed = max(0, total - subscription_covered_amount - amount_paid_so_far)
+        amount_after_credit = max(0, amount_still_owed - account_balance)
+
+    # Ensure due_back is timezone-aware for comparison
+    due_back_aware = rental.due_back
+    if due_back_aware and not due_back_aware.tzinfo:
+        due_back_aware = due_back_aware.replace(tzinfo=timezone.utc)
+
+    return {
+        "rental_id": rental_id,
+        "rental_unique_id": rental.rentral_id,  # Use rentral_id as the unique identifier
+        "duration": {
+            "start_date": start_date.isoformat(),
+            "return_date": return_date.isoformat(),
+            "actual_hours": round(actual_hours, 2),
+            "actual_days": round(actual_days, 2),
+            "scheduled_return_date": due_back_aware.isoformat() if due_back_aware else None,
+            "is_late": return_date > due_back_aware if due_back_aware else False
+        },
+        "kwh_usage": {
+            "start_reading": rental.kwh_usage_start,
+            "end_reading": kwh_usage or rental.kwh_usage_end,
+            "total_used": kwh_usage or (rental.kwh_usage_end - rental.kwh_usage_start if rental.kwh_usage_end and rental.kwh_usage_start else None)
+        },
+        "cost_breakdown": cost_breakdown,
+        "subtotal": round(subtotal, 2),
+        "vat_percentage": vat_percentage,
+        "vat_amount": round(vat_amount, 2),
+        "total": round(total, 2),
+        "original_estimate": round(original_total, 2),
+        "cost_difference": round(cost_difference, 2),
+        "payment_status": {
+            "amount_paid_so_far": round(amount_paid_so_far, 2),
+            "amount_still_owed": round(amount_still_owed, 2),
+            "user_account_balance": round(account_balance, 2),
+            "amount_after_credit": round(amount_after_credit, 2),
+            "can_pay_with_credit": account_balance >= amount_still_owed
+        },
+        "subscription": subscription_info
+    }
 
 @app.post("/rentals/{rental_id}/add-pue")
 async def add_pue_to_rental(
@@ -4248,6 +5270,2136 @@ async def startup():
             webhook_logger.error(f"❌ Startup failed: {e}")
         print(f"❌ Database initialization failed: {e}")
         raise e
+
+# ============================================================================
+# SETTINGS ENDPOINTS
+# ============================================================================
+
+@app.get("/settings/rental-durations", tags=["Settings"])
+async def get_rental_duration_presets(
+    hub_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get rental duration presets for a hub (or global)"""
+    query = db.query(RentalDurationPreset).filter(RentalDurationPreset.is_active == True)
+
+    if hub_id:
+        # Get hub-specific and global presets
+        query = query.filter(
+            or_(
+                RentalDurationPreset.hub_id == hub_id,
+                RentalDurationPreset.hub_id.is_(None)
+            )
+        )
+    else:
+        # Only global presets
+        query = query.filter(RentalDurationPreset.hub_id.is_(None))
+
+    presets = query.order_by(RentalDurationPreset.sort_order).all()
+
+    return {
+        "presets": [{
+            "preset_id": p.preset_id,
+            "hub_id": p.hub_id,
+            "label": p.label,
+            "duration_value": p.duration_value,
+            "duration_unit": p.duration_unit,
+            "sort_order": p.sort_order,
+            "is_global": p.hub_id is None,
+            "is_active": p.is_active
+        } for p in presets]
+    }
+
+@app.post("/settings/rental-durations", tags=["Settings"])
+async def create_rental_duration_preset(
+    label: str = Query(...),
+    duration_value: int = Query(...),
+    duration_unit: str = Query(...),
+    hub_id: Optional[int] = Query(None),
+    sort_order: int = Query(0),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new rental duration preset"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can create presets")
+
+    preset = RentalDurationPreset(
+        label=label,
+        duration_value=duration_value,
+        duration_unit=duration_unit,
+        hub_id=hub_id,
+        sort_order=sort_order
+    )
+    db.add(preset)
+    db.commit()
+    db.refresh(preset)
+
+    return {"message": "Preset created", "preset_id": preset.preset_id}
+
+@app.put("/settings/rental-durations/{preset_id}", tags=["Settings"])
+async def update_rental_duration_preset(
+    preset_id: int,
+    label: Optional[str] = Query(None),
+    duration_value: Optional[int] = Query(None),
+    duration_unit: Optional[str] = Query(None),
+    hub_id: Optional[int] = Query(None),
+    sort_order: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a rental duration preset"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can update presets")
+
+    preset = db.query(RentalDurationPreset).filter(RentalDurationPreset.preset_id == preset_id).first()
+    if not preset:
+        raise HTTPException(status_code=404, detail="Preset not found")
+
+    if label is not None:
+        preset.label = label
+    if duration_value is not None:
+        preset.duration_value = duration_value
+    if duration_unit is not None:
+        preset.duration_unit = duration_unit
+    if hub_id is not None:
+        preset.hub_id = hub_id
+    if sort_order is not None:
+        preset.sort_order = sort_order
+
+    db.commit()
+    db.refresh(preset)
+
+    return {"message": "Preset updated", "preset_id": preset.preset_id}
+
+@app.delete("/settings/rental-durations/{preset_id}", tags=["Settings"])
+async def delete_rental_duration_preset(
+    preset_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a rental duration preset"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can delete presets")
+
+    preset = db.query(RentalDurationPreset).filter(RentalDurationPreset.preset_id == preset_id).first()
+    if not preset:
+        raise HTTPException(status_code=404, detail="Preset not found")
+
+    db.delete(preset)
+    db.commit()
+
+    return {"message": "Preset deleted"}
+
+@app.get("/settings/pue-types", tags=["Settings"])
+async def get_pue_types(
+    hub_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get PUE equipment types"""
+    query = db.query(PUEType)
+
+    if hub_id:
+        query = query.filter(
+            or_(
+                PUEType.hub_id == hub_id,
+                PUEType.hub_id.is_(None)
+            )
+        )
+    else:
+        query = query.filter(PUEType.hub_id.is_(None))
+
+    types = query.all()
+
+    return {
+        "types": [{
+            "type_id": t.type_id,
+            "type_name": t.type_name,
+            "description": t.description,
+            "hub_id": t.hub_id,
+            "is_global": t.hub_id is None,
+            "created_at": t.created_at
+        } for t in types]
+    }
+
+@app.post("/settings/pue-types", tags=["Settings"])
+async def create_pue_type(
+    type_name: str = Query(...),
+    description: Optional[str] = Query(None),
+    hub_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new PUE type"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can create PUE types")
+
+    pue_type = PUEType(
+        type_name=type_name,
+        description=description,
+        hub_id=hub_id,
+        created_by=current_user.get('user_id')
+    )
+    db.add(pue_type)
+    db.commit()
+    db.refresh(pue_type)
+
+    return {"message": "PUE type created", "type_id": pue_type.type_id}
+
+@app.put("/settings/pue-types/{type_id}", tags=["Settings"])
+async def update_pue_type(
+    type_id: int,
+    type_name: Optional[str] = Query(None),
+    description: Optional[str] = Query(None),
+    hub_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a PUE type"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can update PUE types")
+
+    pue_type = db.query(PUEType).filter(PUEType.type_id == type_id).first()
+    if not pue_type:
+        raise HTTPException(status_code=404, detail="PUE type not found")
+
+    if type_name is not None:
+        pue_type.type_name = type_name
+    if description is not None:
+        pue_type.description = description
+    if hub_id is not None:
+        pue_type.hub_id = hub_id
+
+    db.commit()
+    db.refresh(pue_type)
+
+    return {"message": "PUE type updated", "type_id": pue_type.type_id}
+
+@app.delete("/settings/pue-types/{type_id}", tags=["Settings"])
+async def delete_pue_type(
+    type_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a PUE type"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can delete PUE types")
+
+    pue_type = db.query(PUEType).filter(PUEType.type_id == type_id).first()
+    if not pue_type:
+        raise HTTPException(status_code=404, detail="PUE type not found")
+
+    db.delete(pue_type)
+    db.commit()
+
+    return {"message": "PUE type deleted"}
+
+@app.get("/settings/pricing", tags=["Settings"])
+async def get_pricing_configs(
+    hub_id: Optional[int] = Query(None),
+    item_type: Optional[str] = Query(None),
+    is_active: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get pricing configurations"""
+    query = db.query(PricingConfig)
+
+    if hub_id:
+        query = query.filter(
+            or_(
+                PricingConfig.hub_id == hub_id,
+                PricingConfig.hub_id.is_(None)
+            )
+        )
+
+    if item_type:
+        query = query.filter(PricingConfig.item_type == item_type)
+
+    if is_active is not None:
+        query = query.filter(PricingConfig.is_active == is_active)
+
+    configs = query.all()
+
+    return {
+        "pricing_configs": [{
+            "pricing_id": c.pricing_id,
+            "item_type": c.item_type,
+            "item_reference": c.item_reference,
+            "unit_type": c.unit_type,
+            "price": float(c.price) if c.price else 0,
+            "hub_id": c.hub_id,
+            "is_active": c.is_active,
+            "created_at": c.created_at
+        } for c in configs]
+    }
+
+@app.post("/settings/pricing", tags=["Settings"])
+async def create_pricing_config(
+    item_type: str = Query(...),
+    item_reference: str = Query(...),
+    unit_type: str = Query(...),
+    price: float = Query(...),
+    hub_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new pricing configuration"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can create pricing")
+
+    # Get currency from hub settings if hub_id is provided
+    currency = 'USD'  # Default
+    if hub_id:
+        hub_settings = db.query(HubSettings).filter(HubSettings.hub_id == hub_id).first()
+        if hub_settings and hub_settings.default_currency:
+            currency = hub_settings.default_currency
+
+    pricing = PricingConfig(
+        item_type=item_type,
+        item_reference=item_reference,
+        unit_type=unit_type,
+        price=price,
+        hub_id=hub_id,
+        currency=currency
+    )
+    db.add(pricing)
+    db.commit()
+    db.refresh(pricing)
+
+    return {"message": "Pricing created", "pricing_id": pricing.pricing_id}
+
+@app.delete("/settings/pricing/{pricing_id}", tags=["Settings"])
+async def delete_pricing_config(
+    pricing_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a pricing configuration"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can delete pricing")
+
+    pricing = db.query(PricingConfig).filter(PricingConfig.pricing_id == pricing_id).first()
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+
+    db.delete(pricing)
+    db.commit()
+
+    return {"message": "Pricing deleted"}
+
+@app.get("/settings/deposit-presets", tags=["Settings"])
+async def get_deposit_presets(
+    hub_id: Optional[int] = Query(None),
+    item_type: Optional[str] = Query(None),
+    is_active: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get deposit preset configurations"""
+    query = db.query(DepositPreset)
+
+    if hub_id:
+        query = query.filter(
+            or_(
+                DepositPreset.hub_id == hub_id,
+                DepositPreset.hub_id.is_(None)
+            )
+        )
+
+    if item_type:
+        query = query.filter(DepositPreset.item_type == item_type)
+
+    if is_active is not None:
+        query = query.filter(DepositPreset.is_active == is_active)
+
+    presets = query.all()
+
+    return {
+        "deposit_presets": [{
+            "preset_id": p.preset_id,
+            "item_type": p.item_type,
+            "item_reference": p.item_reference,
+            "deposit_amount": float(p.deposit_amount) if p.deposit_amount else 0,
+            "hub_id": p.hub_id,
+            "currency": p.currency,
+            "is_active": p.is_active,
+            "created_at": p.created_at
+        } for p in presets]
+    }
+
+@app.post("/settings/deposit-presets", tags=["Settings"])
+async def create_deposit_preset(
+    item_type: str = Query(...),
+    item_reference: str = Query(...),
+    deposit_amount: float = Query(...),
+    hub_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new deposit preset configuration"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can create deposit presets")
+
+    # Get currency from hub settings if hub_id is provided
+    currency = 'USD'  # Default
+    if hub_id:
+        hub_settings = db.query(HubSettings).filter(HubSettings.hub_id == hub_id).first()
+        if hub_settings and hub_settings.default_currency:
+            currency = hub_settings.default_currency
+
+    preset = DepositPreset(
+        item_type=item_type,
+        item_reference=item_reference,
+        deposit_amount=deposit_amount,
+        hub_id=hub_id,
+        currency=currency
+    )
+    db.add(preset)
+    db.commit()
+    db.refresh(preset)
+
+    return {"message": "Deposit preset created", "preset_id": preset.preset_id}
+
+@app.delete("/settings/deposit-presets/{preset_id}", tags=["Settings"])
+async def delete_deposit_preset(
+    preset_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a deposit preset configuration"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can delete deposit presets")
+
+    preset = db.query(DepositPreset).filter(DepositPreset.preset_id == preset_id).first()
+    if not preset:
+        raise HTTPException(status_code=404, detail="Deposit preset not found")
+
+    db.delete(preset)
+    db.commit()
+
+    return {"message": "Deposit preset deleted"}
+
+@app.get("/settings/payment-types", tags=["Settings"])
+async def get_payment_types(
+    hub_id: Optional[int] = Query(None),
+    is_active: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get payment type options"""
+    query = db.query(PaymentType)
+
+    if hub_id:
+        query = query.filter(
+            or_(
+                PaymentType.hub_id == hub_id,
+                PaymentType.hub_id.is_(None)
+            )
+        )
+
+    if is_active is not None:
+        query = query.filter(PaymentType.is_active == is_active)
+
+    payment_types = query.order_by(PaymentType.sort_order).all()
+
+    return {
+        "payment_types": [{
+            "type_id": pt.type_id,
+            "type_name": pt.type_name,
+            "description": pt.description,
+            "hub_id": pt.hub_id,
+            "is_active": pt.is_active,
+            "sort_order": pt.sort_order,
+            "created_at": pt.created_at
+        } for pt in payment_types]
+    }
+
+@app.post("/settings/payment-types", tags=["Settings"])
+async def create_payment_type(
+    type_name: str = Query(...),
+    description: Optional[str] = Query(None),
+    hub_id: Optional[int] = Query(None),
+    sort_order: Optional[int] = Query(0),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new payment type option"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can create payment types")
+
+    payment_type = PaymentType(
+        type_name=type_name,
+        description=description,
+        hub_id=hub_id,
+        sort_order=sort_order
+    )
+    db.add(payment_type)
+    db.commit()
+    db.refresh(payment_type)
+
+    return {"message": "Payment type created", "type_id": payment_type.type_id}
+
+@app.delete("/settings/payment-types/{type_id}", tags=["Settings"])
+async def delete_payment_type(
+    type_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a payment type"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can delete payment types")
+
+    payment_type = db.query(PaymentType).filter(PaymentType.type_id == type_id).first()
+    if not payment_type:
+        raise HTTPException(status_code=404, detail="Payment type not found")
+
+    db.delete(payment_type)
+    db.commit()
+
+    return {"message": "Payment type deleted"}
+
+# ============================================================================
+# COST STRUCTURE ENDPOINTS
+# ============================================================================
+
+@app.get("/settings/cost-structures", tags=["Settings"])
+async def get_cost_structures(
+    hub_id: Optional[int] = Query(None),
+    item_type: Optional[str] = Query(None),
+    item_reference: Optional[str] = Query(None),
+    is_active: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get cost structure configurations with their components"""
+    query = db.query(CostStructure)
+
+    if hub_id:
+        query = query.filter(
+            or_(
+                CostStructure.hub_id == hub_id,
+                CostStructure.hub_id.is_(None)
+            )
+        )
+
+    if item_type:
+        query = query.filter(CostStructure.item_type == item_type)
+
+    if item_reference:
+        query = query.filter(CostStructure.item_reference == item_reference)
+
+    if is_active is not None:
+        query = query.filter(CostStructure.is_active == is_active)
+
+    structures = query.order_by(CostStructure.created_at.desc()).all()
+
+    result = []
+    for structure in structures:
+        # Get components for this structure
+        components = db.query(CostComponent).filter(
+            CostComponent.structure_id == structure.structure_id
+        ).order_by(CostComponent.sort_order).all()
+
+        # Get duration options for this structure
+        duration_opts = db.query(CostStructureDurationOption).filter(
+            CostStructureDurationOption.structure_id == structure.structure_id
+        ).order_by(CostStructureDurationOption.sort_order).all()
+
+        result.append({
+            "structure_id": structure.structure_id,
+            "hub_id": structure.hub_id,
+            "name": structure.name,
+            "description": structure.description,
+            "item_type": structure.item_type,
+            "item_reference": structure.item_reference,
+            "is_active": structure.is_active,
+            "created_at": structure.created_at,
+            "updated_at": structure.updated_at,
+            "components": [{
+                "component_id": comp.component_id,
+                "component_name": comp.component_name,
+                "unit_type": comp.unit_type,
+                "rate": float(comp.rate),
+                "is_calculated_on_return": comp.is_calculated_on_return,
+                "sort_order": comp.sort_order
+            } for comp in components],
+            "duration_options": [{
+                "option_id": opt.option_id,
+                "input_type": opt.input_type,
+                "label": opt.label,
+                "custom_unit": opt.custom_unit,
+                "default_value": opt.default_value,
+                "min_value": opt.min_value,
+                "max_value": opt.max_value,
+                "dropdown_options": opt.dropdown_options,
+                "sort_order": opt.sort_order
+            } for opt in duration_opts]
+        })
+
+    return {"cost_structures": result}
+
+@app.post("/settings/cost-structures", tags=["Settings"])
+async def create_cost_structure(
+    hub_id: Optional[int] = Query(None),
+    name: str = Query(...),
+    description: Optional[str] = Query(None),
+    item_type: str = Query(...),
+    item_reference: str = Query(...),
+    components: str = Query(...),  # JSON string of components array
+    duration_options: Optional[str] = Query(None),  # JSON string of duration options array
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create a new cost structure with components and duration options.
+
+    Example duration_options JSON:
+    [
+        {
+            "input_type": "custom",
+            "label": "Number of Days",
+            "custom_unit": "days",
+            "default_value": 7,
+            "min_value": 1,
+            "max_value": 90
+        },
+        {
+            "input_type": "dropdown",
+            "label": "Select Rental Period",
+            "dropdown_options": "[{\\"value\\": 1, \\"unit\\": \\"weeks\\", \\"label\\": \\"1 Week\\"}, {\\"value\\": 2, \\"unit\\": \\"weeks\\", \\"label\\": \\"2 Weeks\\"}]"
+        }
+    ]
+    """
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can create cost structures")
+
+    # Parse components JSON
+    try:
+        import json
+        components_data = json.loads(components)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid components JSON")
+
+    # Validate components data
+    if not isinstance(components_data, list) or len(components_data) == 0:
+        raise HTTPException(status_code=400, detail="Components must be a non-empty array")
+
+    # Parse duration options JSON (optional)
+    duration_options_data = []
+    if duration_options:
+        try:
+            duration_options_data = json.loads(duration_options)
+            if not isinstance(duration_options_data, list):
+                raise HTTPException(status_code=400, detail="Duration options must be an array")
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid duration_options JSON")
+
+    # Create cost structure
+    structure = CostStructure(
+        hub_id=hub_id,
+        name=name,
+        description=description,
+        item_type=item_type,
+        item_reference=item_reference,
+        is_active=True
+    )
+    db.add(structure)
+    db.flush()  # Get structure_id without committing
+
+    # Create components
+    for idx, comp_data in enumerate(components_data):
+        component = CostComponent(
+            structure_id=structure.structure_id,
+            component_name=comp_data.get('component_name'),
+            unit_type=comp_data.get('unit_type'),
+            rate=float(comp_data.get('rate', 0)),
+            is_calculated_on_return=comp_data.get('is_calculated_on_return', False),
+            sort_order=comp_data.get('sort_order', idx)
+        )
+        db.add(component)
+
+    # Create duration options
+    for idx, option_data in enumerate(duration_options_data):
+        duration_option = CostStructureDurationOption(
+            structure_id=structure.structure_id,
+            input_type=option_data.get('input_type'),
+            label=option_data.get('label'),
+            custom_unit=option_data.get('custom_unit'),
+            default_value=option_data.get('default_value'),
+            min_value=option_data.get('min_value'),
+            max_value=option_data.get('max_value'),
+            dropdown_options=option_data.get('dropdown_options'),
+            sort_order=option_data.get('sort_order', idx)
+        )
+        db.add(duration_option)
+
+    db.commit()
+    db.refresh(structure)
+
+    # Return with components and duration options
+    components = db.query(CostComponent).filter(
+        CostComponent.structure_id == structure.structure_id
+    ).order_by(CostComponent.sort_order).all()
+
+    duration_opts = db.query(CostStructureDurationOption).filter(
+        CostStructureDurationOption.structure_id == structure.structure_id
+    ).order_by(CostStructureDurationOption.sort_order).all()
+
+    return {
+        "structure_id": structure.structure_id,
+        "hub_id": structure.hub_id,
+        "name": structure.name,
+        "description": structure.description,
+        "item_type": structure.item_type,
+        "item_reference": structure.item_reference,
+        "is_active": structure.is_active,
+        "created_at": structure.created_at,
+        "updated_at": structure.updated_at,
+        "components": [{
+            "component_id": comp.component_id,
+            "component_name": comp.component_name,
+            "unit_type": comp.unit_type,
+            "rate": float(comp.rate),
+            "is_calculated_on_return": comp.is_calculated_on_return,
+            "sort_order": comp.sort_order
+        } for comp in components],
+        "duration_options": [{
+            "option_id": opt.option_id,
+            "input_type": opt.input_type,
+            "label": opt.label,
+            "custom_unit": opt.custom_unit,
+            "default_value": opt.default_value,
+            "min_value": opt.min_value,
+            "max_value": opt.max_value,
+            "dropdown_options": opt.dropdown_options,
+            "sort_order": opt.sort_order
+        } for opt in duration_opts]
+    }
+
+@app.put("/settings/cost-structures/{structure_id}", tags=["Settings"])
+async def update_cost_structure(
+    structure_id: int,
+    name: Optional[str] = Query(None),
+    description: Optional[str] = Query(None),
+    is_active: Optional[bool] = Query(None),
+    components: Optional[str] = Query(None),  # JSON string of components array
+    duration_options: Optional[str] = Query(None),  # JSON string of duration options array
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a cost structure and optionally its components and duration options"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can update cost structures")
+
+    structure = db.query(CostStructure).filter(CostStructure.structure_id == structure_id).first()
+
+    if not structure:
+        raise HTTPException(status_code=404, detail="Cost structure not found")
+
+    # Update structure fields
+    if name is not None:
+        structure.name = name
+    if description is not None:
+        structure.description = description
+    if is_active is not None:
+        structure.is_active = is_active
+
+    # Update components if provided
+    if components is not None:
+        try:
+            import json
+            components_data = json.loads(components)
+        except:
+            raise HTTPException(status_code=400, detail="Invalid components JSON")
+
+        # Delete existing components
+        db.query(CostComponent).filter(CostComponent.structure_id == structure_id).delete()
+
+        # Create new components
+        for idx, comp_data in enumerate(components_data):
+            component = CostComponent(
+                structure_id=structure_id,
+                component_name=comp_data.get('component_name'),
+                unit_type=comp_data.get('unit_type'),
+                rate=float(comp_data.get('rate', 0)),
+                is_calculated_on_return=comp_data.get('is_calculated_on_return', False),
+                sort_order=comp_data.get('sort_order', idx)
+            )
+            db.add(component)
+
+    # Update duration options if provided
+    if duration_options is not None:
+        try:
+            import json
+            duration_options_data = json.loads(duration_options)
+        except:
+            raise HTTPException(status_code=400, detail="Invalid duration_options JSON")
+
+        # Delete existing duration options
+        db.query(CostStructureDurationOption).filter(
+            CostStructureDurationOption.structure_id == structure_id
+        ).delete()
+
+        # Create new duration options
+        for idx, opt_data in enumerate(duration_options_data):
+            duration_option = CostStructureDurationOption(
+                structure_id=structure_id,
+                input_type=opt_data.get('input_type'),
+                label=opt_data.get('label'),
+                custom_unit=opt_data.get('custom_unit'),
+                default_value=opt_data.get('default_value'),
+                min_value=opt_data.get('min_value'),
+                max_value=opt_data.get('max_value'),
+                dropdown_options=opt_data.get('dropdown_options'),
+                sort_order=opt_data.get('sort_order', idx)
+            )
+            db.add(duration_option)
+
+    db.commit()
+    db.refresh(structure)
+
+    # Return with components and duration options
+    components_list = db.query(CostComponent).filter(
+        CostComponent.structure_id == structure.structure_id
+    ).order_by(CostComponent.sort_order).all()
+
+    duration_opts = db.query(CostStructureDurationOption).filter(
+        CostStructureDurationOption.structure_id == structure.structure_id
+    ).order_by(CostStructureDurationOption.sort_order).all()
+
+    return {
+        "structure_id": structure.structure_id,
+        "hub_id": structure.hub_id,
+        "name": structure.name,
+        "description": structure.description,
+        "item_type": structure.item_type,
+        "item_reference": structure.item_reference,
+        "is_active": structure.is_active,
+        "created_at": structure.created_at,
+        "updated_at": structure.updated_at,
+        "components": [{
+            "component_id": comp.component_id,
+            "component_name": comp.component_name,
+            "unit_type": comp.unit_type,
+            "rate": float(comp.rate),
+            "is_calculated_on_return": comp.is_calculated_on_return,
+            "sort_order": comp.sort_order
+        } for comp in components_list],
+        "duration_options": [{
+            "option_id": opt.option_id,
+            "input_type": opt.input_type,
+            "label": opt.label,
+            "custom_unit": opt.custom_unit,
+            "default_value": opt.default_value,
+            "min_value": opt.min_value,
+            "max_value": opt.max_value,
+            "dropdown_options": opt.dropdown_options,
+            "sort_order": opt.sort_order
+        } for opt in duration_opts]
+    }
+
+@app.delete("/settings/cost-structures/{structure_id}", tags=["Settings"])
+async def delete_cost_structure(
+    structure_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a cost structure and its components"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can delete cost structures")
+
+    structure = db.query(CostStructure).filter(CostStructure.structure_id == structure_id).first()
+
+    if not structure:
+        raise HTTPException(status_code=404, detail="Cost structure not found")
+
+    # Components will be deleted automatically due to CASCADE
+    db.delete(structure)
+    db.commit()
+
+    return {"message": "Cost structure deleted"}
+
+@app.post("/settings/cost-structures/{structure_id}/estimate", tags=["Settings"])
+async def estimate_rental_cost(
+    structure_id: int,
+    duration_value: float = Query(...),
+    duration_unit: str = Query(...),
+    kwh_estimate: Optional[float] = Query(None),
+    estimated_kwh: Optional[float] = Query(None),
+    kg_estimate: Optional[float] = Query(None),
+    vat_percentage: float = Query(0),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Calculate estimated cost for a rental based on cost structure"""
+    # Accept either kwh_estimate or estimated_kwh
+    if estimated_kwh is not None:
+        kwh_estimate = estimated_kwh
+    structure = db.query(CostStructure).filter(CostStructure.structure_id == structure_id).first()
+
+    if not structure:
+        raise HTTPException(status_code=404, detail="Cost structure not found")
+
+    # Get components
+    components = db.query(CostComponent).filter(
+        CostComponent.structure_id == structure_id
+    ).order_by(CostComponent.sort_order).all()
+
+    # Calculate cost breakdown
+    breakdown = []
+    subtotal = 0.0
+
+    for comp in components:
+        amount = 0.0
+        quantity = 0.0
+
+        if comp.unit_type == 'per_day':
+            if duration_unit == 'days':
+                quantity = duration_value
+            elif duration_unit == 'weeks':
+                quantity = duration_value * 7
+            elif duration_unit == 'months':
+                quantity = duration_value * 30  # Approximate
+            elif duration_unit == 'hours':
+                quantity = duration_value / 24
+            amount = quantity * comp.rate
+
+        elif comp.unit_type == 'per_hour':
+            if duration_unit == 'hours':
+                quantity = duration_value
+            elif duration_unit == 'days':
+                quantity = duration_value * 24
+            elif duration_unit == 'weeks':
+                quantity = duration_value * 7 * 24
+            elif duration_unit == 'months':
+                quantity = duration_value * 30 * 24
+            amount = quantity * comp.rate
+
+        elif comp.unit_type == 'per_kwh':
+            if kwh_estimate is not None:
+                quantity = kwh_estimate
+                amount = quantity * comp.rate
+            else:
+                # Can't calculate without estimate, will be calculated on return
+                quantity = 0
+                amount = 0
+
+        elif comp.unit_type == 'per_kg':
+            if kg_estimate is not None:
+                quantity = kg_estimate
+                amount = quantity * comp.rate
+            else:
+                quantity = 0
+                amount = 0
+
+        elif comp.unit_type == 'fixed':
+            quantity = 1
+            amount = comp.rate
+
+        breakdown.append({
+            "component_name": comp.component_name,
+            "unit_type": comp.unit_type,
+            "rate": float(comp.rate),
+            "quantity": float(quantity),
+            "amount": float(amount),
+            "is_calculated_on_return": comp.is_calculated_on_return
+        })
+
+        subtotal += amount
+
+    # Calculate VAT
+    vat_amount = subtotal * (vat_percentage / 100)
+    total = subtotal + vat_amount
+
+    # Check for estimated components
+    has_estimated_component = any(comp.is_calculated_on_return for comp in components)
+
+    return {
+        "structure_id": structure.structure_id,
+        "structure_name": structure.name,
+        "breakdown": breakdown,
+        "subtotal": float(subtotal),
+        "vat_percentage": float(vat_percentage),
+        "vat_amount": float(vat_amount),
+        "total": float(total),
+        "deposit_amount": float(structure.deposit_amount or 0),
+        "has_estimated_component": has_estimated_component
+    }
+
+@app.get("/settings/hub/{hub_id}", tags=["Settings"])
+async def get_hub_settings(
+    hub_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get hub settings"""
+    settings = db.query(HubSettings).filter(HubSettings.hub_id == hub_id).first()
+
+    if not settings:
+        # Return default settings
+        return {
+            "hub_id": hub_id,
+            "debt_notification_threshold": -100,
+            "default_currency": "USD",
+            "vat_percentage": 0.0,
+            "timezone": "UTC"
+        }
+
+    return {
+        "hub_id": settings.hub_id,
+        "debt_notification_threshold": float(settings.debt_notification_threshold) if settings.debt_notification_threshold else -100,
+        "default_currency": settings.default_currency or "USD",
+        "vat_percentage": float(settings.vat_percentage) if settings.vat_percentage else 0.0,
+        "timezone": settings.timezone or "UTC"
+    }
+
+@app.put("/settings/hub/{hub_id}", tags=["Settings"])
+async def update_hub_settings(
+    hub_id: int,
+    debt_notification_threshold: Optional[float] = Query(None),
+    default_currency: Optional[str] = Query(None),
+    vat_percentage: Optional[float] = Query(None),
+    timezone: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Update hub settings"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can update hub settings")
+
+    settings = db.query(HubSettings).filter(HubSettings.hub_id == hub_id).first()
+
+    if not settings:
+        settings = HubSettings(hub_id=hub_id)
+        db.add(settings)
+
+    if debt_notification_threshold is not None:
+        settings.debt_notification_threshold = debt_notification_threshold
+
+    if default_currency is not None:
+        settings.default_currency = default_currency
+
+    if vat_percentage is not None:
+        settings.vat_percentage = vat_percentage
+
+    if timezone is not None:
+        settings.timezone = timezone
+
+    db.commit()
+    db.refresh(settings)
+
+    return {"message": "Hub settings updated"}
+
+# ============================================================================
+# SUBSCRIPTION ENDPOINTS
+# ============================================================================
+
+@app.get("/settings/subscription-packages", tags=["Settings", "Subscriptions"])
+async def get_subscription_packages(
+    hub_id: Optional[int] = Query(None),
+    include_inactive: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all subscription packages for a hub"""
+    if not hub_id:
+        hub_id = current_user.get('hub_id')
+
+    if not hub_id:
+        raise HTTPException(status_code=400, detail="Hub ID required")
+
+    query = db.query(SubscriptionPackage).filter(SubscriptionPackage.hub_id == hub_id)
+
+    if not include_inactive:
+        query = query.filter(SubscriptionPackage.is_active == True)
+
+    packages = query.all()
+
+    result = []
+    for pkg in packages:
+        # Get package items
+        items = db.query(SubscriptionPackageItem).filter(
+            SubscriptionPackageItem.package_id == pkg.package_id
+        ).order_by(SubscriptionPackageItem.sort_order).all()
+
+        result.append({
+            "package_id": pkg.package_id,
+            "hub_id": pkg.hub_id,
+            "package_name": pkg.package_name,
+            "description": pkg.description,
+            "billing_period": pkg.billing_period,
+            "price": float(pkg.price),
+            "currency": pkg.currency,
+            "max_concurrent_batteries": pkg.max_concurrent_batteries,
+            "max_concurrent_pue": pkg.max_concurrent_pue,
+            "included_kwh": float(pkg.included_kwh) if pkg.included_kwh else None,
+            "overage_rate_kwh": float(pkg.overage_rate_kwh) if pkg.overage_rate_kwh else None,
+            "auto_renew": pkg.auto_renew,
+            "is_active": pkg.is_active,
+            "created_at": pkg.created_at.isoformat() if pkg.created_at else None,
+            "items": [{
+                "item_id": item.item_id,
+                "item_type": item.item_type,
+                "item_reference": item.item_reference,
+                "quantity_limit": item.quantity_limit,
+                "sort_order": item.sort_order
+            } for item in items]
+        })
+
+    return {"packages": result}
+
+
+@app.post("/settings/subscription-packages", tags=["Settings", "Subscriptions"])
+async def create_subscription_package(
+    hub_id: int = Query(...),
+    package_name: str = Query(...),
+    billing_period: str = Query(...),  # 'daily', 'weekly', 'monthly', 'yearly'
+    price: float = Query(...),
+    description: Optional[str] = Query(None),
+    currency: str = Query("USD"),
+    max_concurrent_batteries: Optional[int] = Query(None),
+    max_concurrent_pue: Optional[int] = Query(None),
+    included_kwh: Optional[float] = Query(None),
+    overage_rate_kwh: Optional[float] = Query(None),
+    auto_renew: bool = Query(True),
+    items: str = Query("[]"),  # JSON string of items
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new subscription package"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can create subscription packages")
+
+    # Validate billing period
+    if billing_period not in ['daily', 'weekly', 'monthly', 'yearly']:
+        raise HTTPException(status_code=400, detail="Invalid billing period")
+
+    # Create package
+    package = SubscriptionPackage(
+        hub_id=hub_id,
+        package_name=package_name,
+        description=description,
+        billing_period=billing_period,
+        price=price,
+        currency=currency,
+        max_concurrent_batteries=max_concurrent_batteries,
+        max_concurrent_pue=max_concurrent_pue,
+        included_kwh=included_kwh,
+        overage_rate_kwh=overage_rate_kwh,
+        auto_renew=auto_renew,
+        is_active=True
+    )
+
+    db.add(package)
+    db.flush()
+
+    # Parse and add items
+    try:
+        items_data = json.loads(items)
+        for idx, item_data in enumerate(items_data):
+            package_item = SubscriptionPackageItem(
+                package_id=package.package_id,
+                item_type=item_data.get('item_type'),
+                item_reference=item_data.get('item_reference'),
+                quantity_limit=item_data.get('quantity_limit'),
+                sort_order=item_data.get('sort_order', idx)
+            )
+            db.add(package_item)
+    except json.JSONDecodeError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Invalid items JSON")
+
+    db.commit()
+    db.refresh(package)
+
+    return {
+        "package_id": package.package_id,
+        "package_name": package.package_name,
+        "message": "Subscription package created successfully"
+    }
+
+
+@app.put("/settings/subscription-packages/{package_id}", tags=["Settings", "Subscriptions"])
+async def update_subscription_package(
+    package_id: int,
+    package_name: Optional[str] = Query(None),
+    billing_period: Optional[str] = Query(None),
+    price: Optional[float] = Query(None),
+    description: Optional[str] = Query(None),
+    currency: Optional[str] = Query(None),
+    max_concurrent_batteries: Optional[int] = Query(None),
+    max_concurrent_pue: Optional[int] = Query(None),
+    included_kwh: Optional[float] = Query(None),
+    overage_rate_kwh: Optional[float] = Query(None),
+    auto_renew: Optional[bool] = Query(None),
+    is_active: Optional[bool] = Query(None),
+    items: Optional[str] = Query(None),  # JSON string of items
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Update an existing subscription package"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can update subscription packages")
+
+    package = db.query(SubscriptionPackage).filter(
+        SubscriptionPackage.package_id == package_id
+    ).first()
+
+    if not package:
+        raise HTTPException(status_code=404, detail="Subscription package not found")
+
+    # Update fields
+    if package_name is not None:
+        package.package_name = package_name
+    if billing_period is not None:
+        if billing_period not in ['daily', 'weekly', 'monthly', 'yearly']:
+            raise HTTPException(status_code=400, detail="Invalid billing period")
+        package.billing_period = billing_period
+    if price is not None:
+        package.price = price
+    if description is not None:
+        package.description = description
+    if currency is not None:
+        package.currency = currency
+    if max_concurrent_batteries is not None:
+        package.max_concurrent_batteries = max_concurrent_batteries
+    if max_concurrent_pue is not None:
+        package.max_concurrent_pue = max_concurrent_pue
+    if included_kwh is not None:
+        package.included_kwh = included_kwh
+    if overage_rate_kwh is not None:
+        package.overage_rate_kwh = overage_rate_kwh
+    if auto_renew is not None:
+        package.auto_renew = auto_renew
+    if is_active is not None:
+        package.is_active = is_active
+
+    # Update items if provided
+    if items is not None:
+        try:
+            items_data = json.loads(items)
+            # Delete existing items
+            db.query(SubscriptionPackageItem).filter(
+                SubscriptionPackageItem.package_id == package_id
+            ).delete()
+
+            # Add new items
+            for idx, item_data in enumerate(items_data):
+                package_item = SubscriptionPackageItem(
+                    package_id=package.package_id,
+                    item_type=item_data.get('item_type'),
+                    item_reference=item_data.get('item_reference'),
+                    quantity_limit=item_data.get('quantity_limit'),
+                    sort_order=item_data.get('sort_order', idx)
+                )
+                db.add(package_item)
+        except json.JSONDecodeError:
+            db.rollback()
+            raise HTTPException(status_code=400, detail="Invalid items JSON")
+
+    package.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return {"message": "Subscription package updated successfully"}
+
+
+@app.delete("/settings/subscription-packages/{package_id}", tags=["Settings", "Subscriptions"])
+async def delete_subscription_package(
+    package_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a subscription package"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can delete subscription packages")
+
+    package = db.query(SubscriptionPackage).filter(
+        SubscriptionPackage.package_id == package_id
+    ).first()
+
+    if not package:
+        raise HTTPException(status_code=404, detail="Subscription package not found")
+
+    # Check if any active subscriptions use this package
+    active_subs = db.query(UserSubscription).filter(
+        UserSubscription.package_id == package_id,
+        UserSubscription.status == 'active'
+    ).count()
+
+    if active_subs > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete package: {active_subs} active subscriptions are using it"
+        )
+
+    # Delete package items
+    db.query(SubscriptionPackageItem).filter(
+        SubscriptionPackageItem.package_id == package_id
+    ).delete()
+
+    # Delete package
+    db.delete(package)
+    db.commit()
+
+    return {"message": "Subscription package deleted successfully"}
+
+
+@app.get("/users/{user_id}/subscriptions", tags=["Users", "Subscriptions"])
+async def get_user_subscriptions(
+    user_id: int,
+    include_inactive: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all subscriptions for a user"""
+    query = db.query(UserSubscription).filter(UserSubscription.user_id == user_id)
+
+    if not include_inactive:
+        query = query.filter(UserSubscription.status == 'active')
+
+    subscriptions = query.all()
+
+    result = []
+    for sub in subscriptions:
+        # Get package details
+        package = db.query(SubscriptionPackage).filter(
+            SubscriptionPackage.package_id == sub.package_id
+        ).first()
+
+        if package:
+            # Get package items
+            items = db.query(SubscriptionPackageItem).filter(
+                SubscriptionPackageItem.package_id == package.package_id
+            ).order_by(SubscriptionPackageItem.sort_order).all()
+
+            result.append({
+                "subscription_id": sub.subscription_id,
+                "user_id": sub.user_id,
+                "package_id": sub.package_id,
+                "package_name": package.package_name,
+                "billing_period": package.billing_period,
+                "price": float(package.price),
+                "currency": package.currency,
+                "start_date": sub.start_date.isoformat() if sub.start_date else None,
+                "end_date": sub.end_date.isoformat() if sub.end_date else None,
+                "next_billing_date": sub.next_billing_date.isoformat() if sub.next_billing_date else None,
+                "status": sub.status,
+                "auto_renew": sub.auto_renew,
+                "kwh_used_current_period": float(sub.kwh_used_current_period),
+                "included_kwh": float(package.included_kwh) if package.included_kwh else None,
+                "period_start_date": sub.period_start_date.isoformat() if sub.period_start_date else None,
+                "notes": sub.notes,
+                "created_at": sub.created_at.isoformat() if sub.created_at else None,
+                "items": [{
+                    "item_type": item.item_type,
+                    "item_reference": item.item_reference,
+                    "quantity_limit": item.quantity_limit
+                } for item in items]
+            })
+
+    return {"subscriptions": result}
+
+
+@app.post("/users/{user_id}/subscriptions", tags=["Users", "Subscriptions"])
+async def create_user_subscription(
+    user_id: int,
+    package_id: int = Query(...),
+    start_date: Optional[str] = Query(None),  # ISO format
+    auto_renew: bool = Query(True),
+    notes: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new subscription for a user"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can create subscriptions")
+
+    # Verify user exists
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Verify package exists
+    package = db.query(SubscriptionPackage).filter(
+        SubscriptionPackage.package_id == package_id
+    ).first()
+    if not package:
+        raise HTTPException(status_code=404, detail="Subscription package not found")
+
+    # Parse start date or use current time
+    if start_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date format")
+    else:
+        start_dt = datetime.now(timezone.utc)
+
+    # Calculate next billing date based on billing period
+    if package.billing_period == 'daily':
+        next_billing = start_dt + timedelta(days=1)
+    elif package.billing_period == 'weekly':
+        next_billing = start_dt + timedelta(weeks=1)
+    elif package.billing_period == 'monthly':
+        next_billing = start_dt + timedelta(days=30)
+    elif package.billing_period == 'yearly':
+        next_billing = start_dt + timedelta(days=365)
+    else:
+        next_billing = start_dt + timedelta(days=30)
+
+    # Create subscription
+    subscription = UserSubscription(
+        user_id=user_id,
+        package_id=package_id,
+        start_date=start_dt,
+        end_date=None,  # Active indefinitely
+        next_billing_date=next_billing,
+        status='active',
+        auto_renew=auto_renew,
+        kwh_used_current_period=0,
+        period_start_date=start_dt,
+        notes=notes
+    )
+
+    db.add(subscription)
+    db.commit()
+    db.refresh(subscription)
+
+    return {
+        "subscription_id": subscription.subscription_id,
+        "message": "Subscription created successfully"
+    }
+
+
+@app.put("/users/{user_id}/subscriptions/{subscription_id}", tags=["Users", "Subscriptions"])
+async def update_user_subscription(
+    user_id: int,
+    subscription_id: int,
+    status: Optional[str] = Query(None),  # 'active', 'paused', 'cancelled', 'expired'
+    auto_renew: Optional[bool] = Query(None),
+    end_date: Optional[str] = Query(None),  # ISO format
+    notes: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a user's subscription"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can update subscriptions")
+
+    subscription = db.query(UserSubscription).filter(
+        UserSubscription.subscription_id == subscription_id,
+        UserSubscription.user_id == user_id
+    ).first()
+
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    # Update fields
+    if status is not None:
+        if status not in ['active', 'paused', 'cancelled', 'expired']:
+            raise HTTPException(status_code=400, detail="Invalid status")
+        subscription.status = status
+
+    if auto_renew is not None:
+        subscription.auto_renew = auto_renew
+
+    if end_date is not None:
+        try:
+            subscription.end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date format")
+
+    if notes is not None:
+        subscription.notes = notes
+
+    subscription.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return {"message": "Subscription updated successfully"}
+
+
+@app.delete("/users/{user_id}/subscriptions/{subscription_id}", tags=["Users", "Subscriptions"])
+async def delete_user_subscription(
+    user_id: int,
+    subscription_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a user's subscription"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can delete subscriptions")
+
+    subscription = db.query(UserSubscription).filter(
+        UserSubscription.subscription_id == subscription_id,
+        UserSubscription.user_id == user_id
+    ).first()
+
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    db.delete(subscription)
+    db.commit()
+
+    return {"message": "Subscription deleted successfully"}
+
+
+@app.get("/rentals/check-subscription-coverage", tags=["Rentals", "Subscriptions"])
+async def check_subscription_coverage(
+    user_id: int = Query(...),
+    item_type: str = Query(...),  # 'battery' or 'pue'
+    item_reference: str = Query(...),  # battery capacity, 'all', pue_type, pue_item_id
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Check if a rental item is covered by user's active subscription"""
+    # Get user's active subscriptions
+    subscriptions = db.query(UserSubscription).filter(
+        UserSubscription.user_id == user_id,
+        UserSubscription.status == 'active'
+    ).all()
+
+    if not subscriptions:
+        return {
+            "covered": False,
+            "message": "No active subscription"
+        }
+
+    # Check each subscription
+    for sub in subscriptions:
+        # Get package items
+        package_items = db.query(SubscriptionPackageItem).filter(
+            SubscriptionPackageItem.package_id == sub.package_id
+        ).all()
+
+        for item in package_items:
+            # Check if item matches
+            if item.item_type == item_type:
+                # Check for exact match or "all" coverage
+                if item.item_reference == 'all' or item.item_reference == item_reference:
+                    # Get package details
+                    package = db.query(SubscriptionPackage).filter(
+                        SubscriptionPackage.package_id == sub.package_id
+                    ).first()
+
+                    # Check concurrent limits
+                    if item_type == 'battery' and package.max_concurrent_batteries:
+                        # Count active battery rentals for this user
+                        active_battery_rentals = db.query(Rental).filter(
+                            Rental.user_id == user_id,
+                            Rental.is_active == True,
+                            Rental.battery_returned_date.is_(None),
+                            Rental.subscription_id == sub.subscription_id
+                        ).count()
+
+                        if active_battery_rentals >= package.max_concurrent_batteries:
+                            return {
+                                "covered": False,
+                                "message": f"Subscription limit reached: {active_battery_rentals}/{package.max_concurrent_batteries} batteries"
+                            }
+
+                    return {
+                        "covered": True,
+                        "subscription_id": sub.subscription_id,
+                        "subscription_name": package.package_name,
+                        "message": f"Covered by '{package.package_name}' subscription"
+                    }
+
+    return {
+        "covered": False,
+        "message": "Item not covered by subscription"
+    }
+
+# ============================================================================
+# ACCOUNTS ENDPOINTS
+# ============================================================================
+
+@app.get("/accounts/user/{user_id}", tags=["Accounts"])
+async def get_user_account(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get user account details"""
+    account = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
+
+    if not account:
+        # Auto-create account
+        account = UserAccount(
+            user_id=user_id,
+            balance=0,
+            total_spent=0,
+            total_owed=0
+        )
+        db.add(account)
+        db.commit()
+        db.refresh(account)
+
+    return {
+        "account_id": account.account_id,
+        "user_id": account.user_id,
+        "balance": float(account.balance),
+        "total_spent": float(account.total_spent),
+        "total_owed": float(account.total_owed),
+        "created_at": account.created_at
+    }
+
+@app.post("/accounts/user/{user_id}/transaction", tags=["Accounts"])
+async def create_transaction(
+    user_id: int,
+    transaction_type: str = Query(...),
+    amount: float = Query(...),
+    description: Optional[str] = Query(None),
+    related_rental_id: Optional[int] = Query(None),
+    payment_type: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Record a transaction (payment, charge, refund, adjustment)"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can record transactions")
+
+    # Get or create user account
+    account = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
+    if not account:
+        account = UserAccount(user_id=user_id, balance=0, total_spent=0, total_owed=0)
+        db.add(account)
+        db.flush()
+
+    # Calculate new balance before creating transaction
+    old_balance = account.balance
+
+    # Update account balance based on transaction type
+    if transaction_type == 'payment':
+        account.balance += amount
+        account.total_owed = max(0, account.total_owed - amount)
+    elif transaction_type == 'credit':
+        account.balance += amount
+    elif transaction_type == 'charge':
+        account.balance -= amount
+        account.total_spent += amount
+        account.total_owed += amount
+    elif transaction_type == 'refund':
+        account.balance += amount
+    elif transaction_type == 'adjustment':
+        account.balance += amount
+
+    # Create transaction with account_id and balance_after
+    transaction = AccountTransaction(
+        account_id=account.account_id,
+        rental_id=related_rental_id,
+        transaction_type=transaction_type,
+        amount=amount,
+        balance_after=account.balance,
+        description=description,
+        payment_type=payment_type
+    )
+    db.add(transaction)
+    db.flush()  # Get transaction ID before creating ledger entries
+
+    # Create double-entry ledger entries
+    try:
+        from api.app.utils.accounting import create_ledger_entries
+        ledger_entries = create_ledger_entries(
+            db=db,
+            transaction_id=transaction.transaction_id,
+            transaction_type=transaction_type,
+            amount=amount,
+            description=description
+        )
+    except Exception as e:
+        # Log error but don't fail transaction (graceful degradation)
+        print(f"Warning: Failed to create ledger entries: {e}")
+
+    db.commit()
+
+    return {
+        "message": "Transaction recorded",
+        "transaction_id": transaction.transaction_id,
+        "ledger_entries_created": len(ledger_entries) if 'ledger_entries' in locals() else 0
+    }
+
+@app.get("/accounts/user/{user_id}/transactions", tags=["Accounts"])
+async def get_user_transactions(
+    user_id: int,
+    limit: Optional[int] = Query(100),
+    offset: Optional[int] = Query(0),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get transaction history for a user"""
+    # First get the user's account
+    user_account = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
+
+    if not user_account:
+        # If no account exists yet, return empty transactions
+        return {
+            "user_id": user_id,
+            "transactions": [],
+            "count": 0
+        }
+
+    # Get transactions for this account
+    transactions = db.query(AccountTransaction).filter(
+        AccountTransaction.account_id == user_account.account_id
+    ).order_by(
+        AccountTransaction.created_at.desc()
+    ).limit(limit).offset(offset).all()
+
+    return {
+        "user_id": user_id,
+        "transactions": [
+            {
+                "transaction_id": t.transaction_id,
+                "transaction_type": t.transaction_type,
+                "amount": float(t.amount),
+                "description": t.description,
+                "related_rental_id": t.rental_id,
+                "timestamp": t.created_at.isoformat() if t.created_at else None,
+                "payment_type": t.payment_type
+            }
+            for t in transactions
+        ],
+        "count": len(transactions)
+    }
+
+@app.get("/accounts/hub/{hub_id}/summary", tags=["Accounts"])
+async def get_hub_summary(
+    hub_id: int,
+    time_period: Optional[str] = Query("all"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get financial summary for a hub"""
+    # Calculate time range
+    now = datetime.now(timezone.utc)
+    start_time = None
+
+    if time_period == "day":
+        start_time = now - timedelta(days=1)
+    elif time_period == "week":
+        start_time = now - timedelta(weeks=1)
+    elif time_period == "month":
+        start_time = now - timedelta(days=30)
+
+    # Get rentals for this hub
+    battery_ids_query = db.query(BEPPPBattery.battery_id).filter(BEPPPBattery.hub_id == hub_id)
+    battery_ids = [b[0] for b in battery_ids_query.all()]
+
+    rentals_query = db.query(Rental).filter(Rental.battery_id.in_(battery_ids))
+
+    if start_time:
+        rentals_query = rentals_query.filter(Rental.timestamp_taken >= start_time)
+
+    rentals = rentals_query.all()
+
+    # Calculate totals
+    total_revenue = sum(float(getattr(r, 'amount_paid', 0) or 0) for r in rentals)
+    active_rentals = len([r for r in rentals if r.is_active])
+
+    # Get users with debt in this hub
+    user_ids_query = db.query(User.user_id).filter(User.hub_id == hub_id)
+    user_ids = [u[0] for u in user_ids_query.all()]
+
+    # Get total debt from user accounts (consistent with users in debt query)
+    accounts_with_debt_query = db.query(UserAccount).filter(
+        UserAccount.user_id.in_(user_ids),
+        UserAccount.total_owed > 0
+    )
+
+    accounts_with_debt = accounts_with_debt_query.count()
+    total_owed = sum(float(account.total_owed or 0) for account in accounts_with_debt_query.all())
+
+    return {
+        "total_revenue": total_revenue,
+        "outstanding_debt": total_owed,
+        "active_rentals": active_rentals,
+        "total_users": len(user_ids),
+        "users_with_debt": accounts_with_debt,
+        "time_period": time_period
+    }
+
+@app.post("/accounts/{account_id}/reconcile", tags=["Accounts"])
+async def reconcile_user_account(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Reconcile a user account to check for discrepancies.
+    Compares calculated balance from transactions with actual balance.
+    """
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can reconcile accounts")
+
+    from api.app.utils.accounting import reconcile_account
+    result = reconcile_account(db, account_id, current_user.get('user_id'))
+
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+
+    return result
+
+@app.get("/accounts/{account_id}/summary", tags=["Accounts"])
+async def get_user_account_summary(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get comprehensive account summary with all financial metrics"""
+    from api.app.utils.accounting import get_account_summary
+    summary = get_account_summary(db, account_id)
+
+    if "error" in summary:
+        raise HTTPException(status_code=404, detail=summary["error"])
+
+    return summary
+
+@app.get("/accounts/financial-report", tags=["Accounts"])
+async def get_financial_report(
+    hub_id: Optional[int] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Generate financial report using double-entry accounting.
+    Shows assets, liabilities, revenue, expenses, and net income.
+    """
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can view financial reports")
+
+    from api.app.utils.accounting import get_financial_report
+    from datetime import datetime
+
+    # Parse dates if provided
+    start = datetime.fromisoformat(start_date) if start_date else None
+    end = datetime.fromisoformat(end_date) if end_date else None
+
+    report = get_financial_report(db, hub_id, start, end)
+    return report
+
+@app.get("/accounts/users/in-debt", tags=["Accounts"])
+async def get_users_in_debt(
+    hub_id: Optional[int] = Query(None),
+    min_debt: Optional[float] = Query(0),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get list of users with outstanding debt"""
+    query = db.query(
+        UserAccount,
+        User
+    ).join(
+        User, UserAccount.user_id == User.user_id
+    ).filter(
+        UserAccount.total_owed > min_debt
+    )
+
+    if hub_id:
+        query = query.filter(User.hub_id == hub_id)
+
+    results = query.all()
+
+    users_in_debt = []
+    for account, user in results:
+        users_in_debt.append({
+            "user_id": user.user_id,
+            "user": user.username or user.Name or f"User {user.user_id}",
+            "balance": float(account.balance),
+            "total_owed": float(account.total_owed),
+            "total_spent": float(account.total_spent)
+        })
+
+    return {"users": users_in_debt}
+
+# ============================================================================
+# NOTIFICATIONS
+# ============================================================================
+
+def check_and_create_notifications(hub_id: int, db: Session):
+    """
+    Check for conditions that warrant notifications and create them.
+    Called on user login.
+    """
+    # Get hub settings
+    hub_settings = db.query(HubSettings).filter(HubSettings.hub_id == hub_id).first()
+    if not hub_settings:
+        return
+
+    current_time = datetime.now(timezone.utc)
+
+    # 1. Check for overdue rentals
+    overdue_threshold_hours = hub_settings.overdue_notification_hours or 24
+    overdue_time = current_time - timedelta(hours=overdue_threshold_hours)
+
+    # Query rentals via battery to get hub_id
+    overdue_rentals = db.query(Rental).join(
+        BEPPPBattery, Rental.battery_id == BEPPPBattery.battery_id
+    ).filter(
+        BEPPPBattery.hub_id == hub_id,
+        Rental.status == 'active',
+        Rental.due_back < overdue_time
+    ).all()
+
+    for rental in overdue_rentals:
+        # Check if notification already exists for this rental
+        existing = db.query(Notification).filter(
+            Notification.hub_id == hub_id,
+            Notification.notification_type == 'overdue_rental',
+            Notification.link_id == str(rental.rentral_id)
+        ).first()
+
+        if not existing:
+            # Get user info
+            user = db.query(User).filter(User.user_id == rental.user_id).first()
+            user_name = user.username or user.Name or f"User {user.user_id}"
+
+            hours_overdue = int((current_time - rental.due_back).total_seconds() / 3600)
+
+            notification = Notification(
+                hub_id=hub_id,
+                user_id=None,  # Hub-wide notification for admins
+                notification_type='overdue_rental',
+                title='Overdue Rental',
+                message=f'{user_name} has rental #{rental.rentral_id} overdue by {hours_overdue} hours.',
+                severity='warning',
+                link_type='rental',
+                link_id=str(rental.rentral_id)
+            )
+            db.add(notification)
+
+    # 2. Check for users exceeding debt threshold
+    debt_threshold = hub_settings.debt_notification_threshold or -100.0
+
+    # Get all users at this hub
+    users_at_hub = db.query(User).filter(User.hub_id == hub_id).all()
+    user_ids = [u.user_id for u in users_at_hub]
+
+    # Find accounts below threshold
+    accounts_below_threshold = db.query(UserAccount).filter(
+        UserAccount.user_id.in_(user_ids),
+        UserAccount.balance < debt_threshold
+    ).all()
+
+    for account in accounts_below_threshold:
+        # Check if notification already exists for this user's debt
+        existing = db.query(Notification).filter(
+            Notification.hub_id == hub_id,
+            Notification.notification_type == 'debt_threshold',
+            Notification.link_id == str(account.user_id),
+            Notification.is_read == False  # Only check unread notifications
+        ).first()
+
+        if not existing:
+            user = db.query(User).filter(User.user_id == account.user_id).first()
+            user_name = user.username or user.Name or f"User {user.user_id}"
+
+            # Get currency symbol
+            currency = hub_settings.default_currency or 'USD'
+            symbols = {'USD': '$', 'GBP': '£', 'EUR': '€', 'MWK': 'MK'}
+            symbol = symbols.get(currency, currency)
+
+            notification = Notification(
+                hub_id=hub_id,
+                user_id=None,  # Hub-wide notification for admins
+                notification_type='debt_threshold',
+                title='Debt Threshold Exceeded',
+                message=f'{user_name} has exceeded the debt threshold. Current balance: {symbol}{abs(account.balance):.2f}',
+                severity='error',
+                link_type='user',
+                link_id=str(account.user_id)
+            )
+            db.add(notification)
+
+    db.commit()
+
+
+@app.get("/notifications", tags=["Notifications"])
+async def get_notifications(
+    hub_id: Optional[int] = Query(None),
+    unread_only: bool = Query(False),
+    limit: int = Query(50),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get notifications for the user's hub"""
+    if not hub_id:
+        hub_id = current_user.get('hub_id')
+
+    if not hub_id:
+        raise HTTPException(status_code=400, detail="Hub ID required")
+
+    query = db.query(Notification).filter(Notification.hub_id == hub_id)
+
+    if unread_only:
+        query = query.filter(Notification.is_read == False)
+
+    notifications = query.order_by(Notification.created_at.desc()).limit(limit).all()
+
+    return {
+        "notifications": [
+            {
+                "id": n.notification_id,
+                "type": n.notification_type,
+                "title": n.title,
+                "message": n.message,
+                "severity": n.severity,
+                "read": n.is_read,
+                "link_type": n.link_type,
+                "link_id": n.link_id,
+                "timestamp": n.created_at.isoformat()
+            }
+            for n in notifications
+        ]
+    }
+
+
+@app.post("/notifications", tags=["Notifications"])
+async def create_notification(
+    notification: dict,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create a new notification.
+
+    Required fields:
+    - message: str
+    - notification_type: str (e.g., 'maintenance', 'alert', 'info')
+
+    Optional fields:
+    - title: str (default: auto-generated from type)
+    - severity: str ('info', 'warning', 'error', 'success', default: 'info')
+    - link_type: str ('battery', 'rental', 'user', 'account')
+    - link_id: str (ID of related entity)
+    - hub_id: int (default: current user's hub)
+    - user_id: int (default: null for hub-wide notifications)
+    """
+    # Get hub_id
+    hub_id = notification.get('hub_id') or current_user.get('hub_id')
+    if not hub_id:
+        raise HTTPException(status_code=400, detail="Hub ID required")
+
+    # Check permissions
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    # Validate required fields
+    if not notification.get('message'):
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    notification_type = notification.get('notification_type', 'info')
+
+    # Auto-generate title if not provided
+    title = notification.get('title')
+    if not title:
+        type_titles = {
+            'maintenance': 'Maintenance Required',
+            'alert': 'Alert',
+            'overdue_rental': 'Overdue Rental',
+            'low_battery': 'Low Battery',
+            'payment_overdue': 'Payment Overdue',
+            'info': 'Information'
+        }
+        title = type_titles.get(notification_type, 'Notification')
+
+    # Create notification
+    new_notification = Notification(
+        hub_id=hub_id,
+        user_id=notification.get('user_id'),
+        notification_type=notification_type,
+        title=title,
+        message=notification['message'],
+        severity=notification.get('severity', 'info'),
+        link_type=notification.get('link_type'),
+        link_id=str(notification.get('link_id')) if notification.get('link_id') else None
+    )
+
+    try:
+        db.add(new_notification)
+        db.commit()
+        db.refresh(new_notification)
+
+        return {
+            "notification_id": new_notification.notification_id,
+            "message": "Notification created successfully"
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create notification: {str(e)}")
+
+
+@app.post("/notifications/check", tags=["Notifications"])
+async def trigger_notification_check(
+    hub_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Manually trigger notification check (called on login)"""
+    if not hub_id:
+        hub_id = current_user.get('hub_id')
+
+    if not hub_id:
+        raise HTTPException(status_code=400, detail="Hub ID required")
+
+    check_and_create_notifications(hub_id, db)
+
+    return {"message": "Notification check completed"}
+
+
+@app.put("/notifications/{notification_id}/read", tags=["Notifications"])
+async def mark_notification_as_read(
+    notification_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Mark a notification as read"""
+    notification = db.query(Notification).filter(
+        Notification.notification_id == notification_id
+    ).first()
+
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
+
+    # Verify user has access to this hub's notifications
+    if current_user.get('hub_id') != notification.hub_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    notification.is_read = True
+    db.commit()
+
+    return {"message": "Notification marked as read"}
+
+
+@app.put("/notifications/mark-all-read", tags=["Notifications"])
+async def mark_all_notifications_as_read(
+    hub_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Mark all notifications as read for a hub"""
+    if not hub_id:
+        hub_id = current_user.get('hub_id')
+
+    if not hub_id:
+        raise HTTPException(status_code=400, detail="Hub ID required")
+
+    # Verify user has access to this hub
+    if current_user.get('hub_id') != hub_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    db.query(Notification).filter(
+        Notification.hub_id == hub_id,
+        Notification.is_read == False
+    ).update({"is_read": True})
+
+    db.commit()
+
+    return {"message": "All notifications marked as read"}
 
 # ============================================================================
 # RUN THE APP
