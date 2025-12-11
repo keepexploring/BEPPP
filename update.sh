@@ -108,13 +108,20 @@ fi
 ###############################################################################
 
 log_info "Rebuilding Docker images..."
+cd "$APP_DIR"
 docker compose -f docker-compose.prod.yml build
 
 log_success "Docker images rebuilt"
 
-log_info "Restarting services (database data will persist)..."
-docker compose -f docker-compose.prod.yml down  # Stop containers but keep volumes
-docker compose -f docker-compose.prod.yml up -d  # Start with updated code
+log_info "Stopping services (database data will persist)..."
+# Force remove old containers
+docker rm -f battery-hub-db battery-hub-api battery-hub-panel battery-hub-frontend battery-hub-nginx battery-hub-cron 2>/dev/null || true
+
+# Clean up old networks
+docker network rm battery-hub_battery-hub-network 2>/dev/null || true
+
+log_info "Starting services with updated code..."
+docker compose -f docker-compose.prod.yml up -d
 
 log_success "Services restarted"
 

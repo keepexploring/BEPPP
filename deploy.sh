@@ -548,6 +548,28 @@ else
 fi
 
 ###############################################################################
+# CREATE ADMIN USER
+###############################################################################
+
+log_info "Creating initial admin user..."
+
+# Create admin user with credentials from .env
+docker exec -e ADMIN_USERNAME=admin \
+    -e ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+    -e ADMIN_EMAIL="$SSL_EMAIL" \
+    battery-hub-api python scripts/create_initial_admin.py
+
+if [ $? -eq 0 ]; then
+    log_success "Admin user created successfully"
+    log_info "  Username: admin"
+    log_info "  Role: superadmin"
+    log_info "  Credentials saved to $APP_DIR/CREDENTIALS.txt"
+else
+    log_warning "Admin user creation failed - you can create it manually later"
+    log_info "  Run: docker exec battery-hub-api python scripts/create_initial_admin.py"
+fi
+
+###############################################################################
 # SETUP SSL CERTIFICATES
 ###############################################################################
 
