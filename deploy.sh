@@ -56,11 +56,30 @@ log_info "Starting Battery Hub Management System deployment..."
 
 log_info "Collecting configuration..."
 
-# Prompt for domain names
-read -p "Enter your main domain (e.g., batteryhub.com): " MAIN_DOMAIN
-read -p "Enter API subdomain (e.g., api.batteryhub.com): " API_DOMAIN
-read -p "Enter Panel subdomain (e.g., panel.batteryhub.com): " PANEL_DOMAIN
-read -p "Enter your email for Let's Encrypt SSL: " SSL_EMAIL
+# Check for environment variables first, then prompt if not set
+if [ -z "$MAIN_DOMAIN" ]; then
+    read -p "Enter your main domain (e.g., batteryhub.com): " MAIN_DOMAIN
+else
+    log_info "Using MAIN_DOMAIN from environment: $MAIN_DOMAIN"
+fi
+
+if [ -z "$API_DOMAIN" ]; then
+    read -p "Enter API subdomain (e.g., api.batteryhub.com): " API_DOMAIN
+else
+    log_info "Using API_DOMAIN from environment: $API_DOMAIN"
+fi
+
+if [ -z "$PANEL_DOMAIN" ]; then
+    read -p "Enter Panel subdomain (e.g., panel.batteryhub.com): " PANEL_DOMAIN
+else
+    log_info "Using PANEL_DOMAIN from environment: $PANEL_DOMAIN"
+fi
+
+if [ -z "$SSL_EMAIL" ]; then
+    read -p "Enter your email for Let's Encrypt SSL: " SSL_EMAIL
+else
+    log_info "Using SSL_EMAIL from environment: $SSL_EMAIL"
+fi
 
 # Generate secure secrets
 log_info "Generating secure secrets..."
