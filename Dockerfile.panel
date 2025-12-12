@@ -3,6 +3,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install system dependencies including curl for healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies
 COPY requirements.txt .
 COPY panel_dashboard/requirements.txt ./panel_requirements.txt
@@ -17,9 +22,9 @@ COPY models.py database.py config.py ./
 # Expose port
 EXPOSE 5100
 
-# Health check
+# Health check - check the actual app endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:5100 || exit 1
+  CMD curl -f http://localhost:5100/battery_analytics_v3 || exit 1
 
 # Run Panel server (using v3 dashboard with advanced selection)
 CMD ["panel", "serve", "panel_dashboard/battery_analytics_v3.py", \
