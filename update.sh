@@ -116,11 +116,12 @@ if [ -d "$REPO_DIR" ]; then
     # Update nginx config with current domains (in case template changed)
     log_info "Updating nginx configuration with current domains..."
 
-    # Replace domain placeholders
-    sed -i "s/yourdomain.com/$CURRENT_MAIN_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
-    sed -i "s/www.yourdomain.com/www.$CURRENT_MAIN_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
-    sed -i "s/api.yourdomain.com/$CURRENT_API_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
-    sed -i "s/panel.yourdomain.com/$CURRENT_PANEL_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
+    # Replace domain placeholders - IMPORTANT: Do specific replacements FIRST, then general
+    # This prevents api.yourdomain.com from becoming api.data.beppp.cloud instead of api.beppp.cloud
+    sed -i "s/api\.yourdomain\.com/$CURRENT_API_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i "s/panel\.yourdomain\.com/$CURRENT_PANEL_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i "s/www\.yourdomain\.com/www.$CURRENT_MAIN_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i "s/yourdomain\.com/$CURRENT_MAIN_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
 
     # Ensure SSL lines are uncommented for production
     log_info "Enabling SSL configuration..."

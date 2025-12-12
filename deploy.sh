@@ -364,13 +364,13 @@ log_info "Setting up application files..."
 # If running this script from the repo, copy files
 if [ -f "docker-compose.prod.yml" ]; then
     log_info "Copying files from current directory..."
-    cp -r * $APP_DIR/
+    rsync -av --exclude='alembic/versions_old_backup' --exclude='.git' . $APP_DIR/
 else
     # Otherwise, prompt for git repository
     read -p "Enter your git repository URL (or press Enter to skip): " GIT_REPO
     if [ -n "$GIT_REPO" ]; then
         git clone $GIT_REPO $APP_DIR/repo
-        cp -r $APP_DIR/repo/* $APP_DIR/
+        rsync -av --exclude='alembic/versions_old_backup' --exclude='.git' $APP_DIR/repo/ $APP_DIR/
         rm -rf $APP_DIR/repo
     else
         log_error "No repository provided. Please manually copy your application files to $APP_DIR"
@@ -386,9 +386,12 @@ log_success "Application files ready"
 
 log_info "Configuring Nginx with your domains..."
 
-sed -i "s/yourdomain.com/$MAIN_DOMAIN/g" $APP_DIR/nginx/conf.d/default.conf
-sed -i "s/api.yourdomain.com/$API_DOMAIN/g" $APP_DIR/nginx/conf.d/default.conf
-sed -i "s/panel.yourdomain.com/$PANEL_DOMAIN/g" $APP_DIR/nginx/conf.d/default.conf
+# Replace domain placeholders - IMPORTANT: Do specific replacements FIRST, then general
+# This prevents api.yourdomain.com from becoming api.$MAIN_DOMAIN instead of $API_DOMAIN
+sed -i "s/api\.yourdomain\.com/$API_DOMAIN/g" $APP_DIR/nginx/conf.d/default.conf
+sed -i "s/panel\.yourdomain\.com/$PANEL_DOMAIN/g" $APP_DIR/nginx/conf.d/default.conf
+sed -i "s/www\.yourdomain\.com/www.$MAIN_DOMAIN/g" $APP_DIR/nginx/conf.d/default.conf
+sed -i "s/yourdomain\.com/$MAIN_DOMAIN/g" $APP_DIR/nginx/conf.d/default.conf
 
 log_success "Nginx configured"
 
@@ -522,6 +525,23 @@ fi
 ###############################################################################
 
 log_info "Running database migrations with Alembic..."
+
+# Check for migration conflicts first
+log_info "Checking for migration conflicts..."
+MIGRATION_CHECK=$(docker exec battery-hub-api alembic heads 2>&1 || true)
+
+if echo "$MIGRATION_CHECK" | grep -q "Multiple head revisions"; then
+    log_error "Multiple Alembic head revisions detected!"
+    log_error "This should not happen on a fresh deployment."
+    log_error ""
+    log_warning "Attempting to fix automatically..."
+
+    # Clear alembic_version table and stamp with current head
+    docker exec battery-hub-db psql -U beppp -d beppp -c "DELETE FROM alembic_version;"
+    docker exec battery-hub-api alembic stamp head
+
+    log_info "Retrying migration..."
+fi
 
 # Run Alembic migrations to ensure database schema is up to date
 docker exec battery-hub-api alembic upgrade head
