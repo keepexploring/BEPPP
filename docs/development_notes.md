@@ -787,3 +787,9 @@ Local Development Process:
 
   The alembic setup in alembic/env.py is properly configured to handle Heroku PostgreSQL URLs and
   imports your models correctly.
+
+  # To run commands on the server
+
+  sudo docker exec -it battery-hub-api python solar_hub_cli.py user create-superadmin
+
+  sudo docker compose -f /opt/battery-hub/docker-compose.prod.yml ps

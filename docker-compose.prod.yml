@@ -75,9 +75,7 @@ services:
       sh -c "
         echo 'Waiting for database...' &&
         sleep 5 &&
-        echo 'Initializing database tables...' &&
-        python -c 'from database import init_db; init_db()' &&
-        echo 'Running migrations...' &&
+        echo 'Running database migrations...' &&
         alembic upgrade head &&
         echo 'Starting API server...' &&
         uvicorn api.app.main:app --host 0.0.0.0 --port 8000 --workers 4
