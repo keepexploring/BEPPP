@@ -66,11 +66,22 @@ else
 fi
 
 ###############################################################################
-# BACKUP NGINX CONFIG
+# BACKUP NGINX CONFIG AND PRESERVE DOMAIN SETTINGS
 ###############################################################################
 
-log_info "Backing up nginx configuration..."
+log_info "Backing up nginx configuration and extracting domains..."
 cp "$APP_DIR/nginx/conf.d/default.conf" "$APP_DIR/nginx/conf.d/default.conf.backup"
+
+# Extract current domains from nginx config
+CURRENT_MAIN_DOMAIN=$(grep -m 1 "server_name" "$APP_DIR/nginx/conf.d/default.conf" | awk '{print $2}' | sed 's/;//')
+CURRENT_API_DOMAIN=$(grep "server_name api\." "$APP_DIR/nginx/conf.d/default.conf" | awk '{print $2}' | sed 's/;//')
+CURRENT_PANEL_DOMAIN=$(grep "server_name panel\." "$APP_DIR/nginx/conf.d/default.conf" | awk '{print $2}' | sed 's/;//')
+
+log_info "Current domains:"
+log_info "  Main: $CURRENT_MAIN_DOMAIN"
+log_info "  API: $CURRENT_API_DOMAIN"
+log_info "  Panel: $CURRENT_PANEL_DOMAIN"
+
 log_success "Nginx config backed up"
 
 ###############################################################################
@@ -92,10 +103,17 @@ if [ -d "$REPO_DIR" ]; then
     rsync -av --exclude='nginx/conf.d/default.conf' --exclude='.git' --exclude='*.backup' --exclude='alembic/versions_old_backup' "$REPO_DIR/" "$APP_DIR/"
     log_success "Files copied"
 
-    # Restore nginx config with SSL enabled
-    log_info "Restoring nginx SSL configuration..."
-    mv "$APP_DIR/nginx/conf.d/default.conf.backup" "$APP_DIR/nginx/conf.d/default.conf"
-    log_success "Nginx config restored"
+    # Update nginx config with current domains (in case template changed)
+    log_info "Updating nginx configuration with current domains..."
+    sed -i "s/yourdomain.com/$CURRENT_MAIN_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i "s/api.yourdomain.com/$CURRENT_API_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i "s/panel.yourdomain.com/$CURRENT_PANEL_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
+
+    # Ensure SSL lines are uncommented (they should be from production deployment)
+    sed -i 's/# listen 443 ssl http2;/listen 443 ssl http2;/g' "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i 's/# ssl_certificate/ssl_certificate/g' "$APP_DIR/nginx/conf.d/default.conf"
+
+    log_success "Nginx config updated with domains: $CURRENT_MAIN_DOMAIN, $CURRENT_API_DOMAIN, $CURRENT_PANEL_DOMAIN"
 else
     log_error "Repository not found at $REPO_DIR"
     log_info "Please clone the repository first:"
