@@ -5257,18 +5257,20 @@ async def startup():
             print("🔍 DEBUG MODE: Detailed webhook logging enabled")
         else:
             print("🚀 Production mode: Minimal logging enabled (errors/warnings only)")
-        
-        init_db()
-        
+
+        # Note: Database schema is managed by Alembic migrations
+        # init_db() is not called here to avoid conflicts with Alembic
+        # Run migrations with: alembic upgrade head
+
         if DEBUG:
-            webhook_logger.info("✅ Database tables created/verified")
-        
+            webhook_logger.info("✅ Database schema managed by Alembic migrations")
+
         print("✅ Enhanced API ready with PUE management and data analytics")
-        
+
     except Exception as e:
         if DEBUG:
             webhook_logger.error(f"❌ Startup failed: {e}")
-        print(f"❌ Database initialization failed: {e}")
+        print(f"❌ API startup failed: {e}")
         raise e
 
 # ============================================================================
