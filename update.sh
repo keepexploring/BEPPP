@@ -124,12 +124,15 @@ if [ -d "$REPO_DIR" ]; then
 
     # Ensure SSL lines are uncommented for production
     log_info "Enabling SSL configuration..."
-    sed -i 's/# listen 443 ssl http2;/listen 443 ssl http2;/g' "$APP_DIR/nginx/conf.d/default.conf"
-    sed -i 's/# ssl_certificate/ssl_certificate/g' "$APP_DIR/nginx/conf.d/default.conf"
-    sed -i 's/# ssl_protocols/ssl_protocols/g' "$APP_DIR/nginx/conf.d/default.conf"
-    sed -i 's/# ssl_ciphers/ssl_ciphers/g' "$APP_DIR/nginx/conf.d/default.conf"
-    sed -i 's/# ssl_prefer_server_ciphers/ssl_prefer_server_ciphers/g' "$APP_DIR/nginx/conf.d/default.conf"
-    sed -i 's/# ssl_session/ssl_session/g' "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i 's/^    # listen 443 ssl http2;/    listen 443 ssl http2;/g' "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i 's/^    # ssl_certificate /    ssl_certificate /g' "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i 's/^    # ssl_protocols/    ssl_protocols/g' "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i 's/^    # ssl_ciphers/    ssl_ciphers/g' "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i 's/^    # ssl_prefer_server_ciphers/    ssl_prefer_server_ciphers/g' "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i 's/^    # ssl_session/    ssl_session/g' "$APP_DIR/nginx/conf.d/default.conf"
+
+    # Keep the HTTP to HTTPS redirect block commented (handled by server blocks)
+    # Keep SSL configuration comments that explain what to do
 
     log_success "Nginx config updated with domains: $CURRENT_MAIN_DOMAIN, $CURRENT_API_DOMAIN, $CURRENT_PANEL_DOMAIN"
     log_success "SSL configuration enabled"
