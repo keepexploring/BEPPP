@@ -72,10 +72,20 @@ fi
 log_info "Backing up nginx configuration and extracting domains..."
 cp "$APP_DIR/nginx/conf.d/default.conf" "$APP_DIR/nginx/conf.d/default.conf.backup"
 
-# Extract current domains from nginx config
-CURRENT_MAIN_DOMAIN=$(grep -m 1 "server_name" "$APP_DIR/nginx/conf.d/default.conf" | awk '{print $2}' | sed 's/;//')
-CURRENT_API_DOMAIN=$(grep "server_name api\." "$APP_DIR/nginx/conf.d/default.conf" | awk '{print $2}' | sed 's/;//')
-CURRENT_PANEL_DOMAIN=$(grep "server_name panel\." "$APP_DIR/nginx/conf.d/default.conf" | awk '{print $2}' | sed 's/;//')
+# Extract current domains from nginx config - look for actual configured domains (not yourdomain.com)
+CURRENT_MAIN_DOMAIN=$(grep "server_name" "$APP_DIR/nginx/conf.d/default.conf" | grep -v "yourdomain.com" | grep -v "api\." | grep -v "panel\." | head -1 | awk '{print $2}' | sed 's/;//')
+CURRENT_API_DOMAIN=$(grep "server_name api\." "$APP_DIR/nginx/conf.d/default.conf" | head -1 | awk '{print $2}' | sed 's/;//')
+CURRENT_PANEL_DOMAIN=$(grep "server_name panel\." "$APP_DIR/nginx/conf.d/default.conf" | head -1 | awk '{print $2}' | sed 's/;//')
+
+# If we couldn't extract domains, try from .env file
+if [ -z "$CURRENT_MAIN_DOMAIN" ] || [ "$CURRENT_MAIN_DOMAIN" = "yourdomain.com" ]; then
+    log_warning "Could not extract domains from nginx config, checking .env file..."
+    if [ -f "$APP_DIR/.env" ]; then
+        CURRENT_MAIN_DOMAIN=$(grep "^MAIN_DOMAIN=" "$APP_DIR/.env" | cut -d'=' -f2)
+        CURRENT_API_DOMAIN=$(grep "^API_DOMAIN=" "$APP_DIR/.env" | cut -d'=' -f2)
+        CURRENT_PANEL_DOMAIN=$(grep "^PANEL_DOMAIN=" "$APP_DIR/.env" | cut -d'=' -f2)
+    fi
+fi
 
 log_info "Current domains:"
 log_info "  Main: $CURRENT_MAIN_DOMAIN"
@@ -105,15 +115,24 @@ if [ -d "$REPO_DIR" ]; then
 
     # Update nginx config with current domains (in case template changed)
     log_info "Updating nginx configuration with current domains..."
+
+    # Replace domain placeholders
     sed -i "s/yourdomain.com/$CURRENT_MAIN_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i "s/www.yourdomain.com/www.$CURRENT_MAIN_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
     sed -i "s/api.yourdomain.com/$CURRENT_API_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
     sed -i "s/panel.yourdomain.com/$CURRENT_PANEL_DOMAIN/g" "$APP_DIR/nginx/conf.d/default.conf"
 
-    # Ensure SSL lines are uncommented (they should be from production deployment)
+    # Ensure SSL lines are uncommented for production
+    log_info "Enabling SSL configuration..."
     sed -i 's/# listen 443 ssl http2;/listen 443 ssl http2;/g' "$APP_DIR/nginx/conf.d/default.conf"
     sed -i 's/# ssl_certificate/ssl_certificate/g' "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i 's/# ssl_protocols/ssl_protocols/g' "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i 's/# ssl_ciphers/ssl_ciphers/g' "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i 's/# ssl_prefer_server_ciphers/ssl_prefer_server_ciphers/g' "$APP_DIR/nginx/conf.d/default.conf"
+    sed -i 's/# ssl_session/ssl_session/g' "$APP_DIR/nginx/conf.d/default.conf"
 
     log_success "Nginx config updated with domains: $CURRENT_MAIN_DOMAIN, $CURRENT_API_DOMAIN, $CURRENT_PANEL_DOMAIN"
+    log_success "SSL configuration enabled"
 else
     log_error "Repository not found at $REPO_DIR"
     log_info "Please clone the repository first:"
