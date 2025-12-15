@@ -1042,9 +1042,11 @@ async def handle_direct_format(battery_data: dict, db: Session, current_user: di
     parsed_fields = []
     skipped_fields = []
     unmapped_fields = []
-    
+    special_fields = []  # Fields used for timestamp/metadata processing
+
     for json_key, json_value in battery_data.items():
         if json_key in ['id', 'd', 'gd', 'tm', 'gt']:
+            special_fields.append(json_key)
             continue
             
         if json_key in LIVE_DATA_FIELD_MAPPING:
@@ -1132,10 +1134,12 @@ async def handle_direct_format(battery_data: dict, db: Session, current_user: di
         "submitted_by": current_user.get('sub'),
         "user_id": current_user.get('user_id'),
         "summary": {
-            "fields_parsed": len(parsed_fields),
-            "fields_skipped": len(skipped_fields),
-            "fields_unmapped": len(unmapped_fields),
-            "total_fields_in_payload": len(battery_data)
+            "data_fields_stored": len(parsed_fields),
+            "invalid_fields_skipped": len(skipped_fields),
+            "unknown_fields": len(unmapped_fields),
+            "timestamp_fields": len(special_fields),
+            "total_fields_in_payload": len(battery_data),
+            "breakdown": f"{len(parsed_fields)} stored + {len(special_fields)} timestamp + {len(skipped_fields)} invalid + {len(unmapped_fields)} unknown = {len(parsed_fields) + len(special_fields) + len(skipped_fields) + len(unmapped_fields)}/{len(battery_data)} total"
         }
     }
     
@@ -5279,7 +5283,7 @@ async def get_webhook_logs(
                 "timestamp": log.created_at.isoformat(),
                 "request_headers": json.loads(log.request_headers) if log.request_headers else None,
                 "request_body": json.loads(log.request_body) if log.request_body else None,
-                "response_status": log.response_status,
+                "status_code": log.response_status,  # Rename for frontend consistency
                 "response_body": json.loads(log.response_body) if log.response_body else None,
                 "error_message": log.error_message,
                 "processing_time_ms": log.processing_time_ms
