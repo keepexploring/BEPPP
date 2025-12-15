@@ -61,6 +61,30 @@ module.exports = configure(function (/* ctx */) {
       manifestFilename: 'manifest.json',
       useCredentialsForManifestTag: false,
 
+      // Custom CSP for PWA - allow API and Panel connections
+      metaVariables: {
+        appleMobileWebAppCapable: 'yes',
+        appleMobileWebAppStatusBarStyle: 'default',
+        appleTouchIcon120: 'icons/apple-icon-120x120.png',
+        appleTouchIcon180: 'icons/apple-icon-180x180.png',
+        appleTouchIcon152: 'icons/apple-icon-152x152.png',
+        appleTouchIcon167: 'icons/apple-icon-167x167.png',
+        appleSafariPinnedTab: 'icons/safari-pinned-tab.svg',
+        msapplicationTileImage: 'icons/ms-icon-144x144.png',
+        msapplicationTileColor: '#000000'
+      },
+
+      metaVariablesFn: (manifest) => {
+        return [{
+          // Override CSP to allow API connections
+          tagName: 'meta',
+          attributes: {
+            'http-equiv': 'Content-Security-Policy',
+            content: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.beppp.cloud https://panel.beppp.cloud wss: ws:;"
+          }
+        }]
+      },
+
       manifest: {
         name: 'Battery Hub Manager',
         short_name: 'Battery Hub',
