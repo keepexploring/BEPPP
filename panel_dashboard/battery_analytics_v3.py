@@ -45,13 +45,26 @@ pn.config.raw_css.append("""
 }
 """)
 
+# Import JWT configuration from API
+import sys
+sys.path.append('/app/api')
+try:
+    from config import SECRET_KEY, ALGORITHM
+except ImportError:
+    # Fallback for development
+    SECRET_KEY = "dev-secret-key-change-in-production"
+    ALGORITHM = "HS256"
+
 # Database connection
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://beppp:changeme@db:5432/beppp')
 
-# Security Note: Panel authentication removed in favor of layered security:
-# 1. Frontend requires authentication to access analytics page
-# 2. nginx CSP frame-ancestors prevents direct Panel access
-# 3. Panel only accessible via iframe from authenticated frontend
+def verify_token(token: str) -> dict:
+    """Verify JWT token and return payload"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except jwt.InvalidTokenError:
+        return None
 
 class EnhancedBatteryAnalyticsDashboard(param.Parameterized):
     """Enhanced Battery Analytics Dashboard with flexible multi-select aggregation"""
@@ -1520,11 +1533,50 @@ class EnhancedBatteryAnalyticsDashboard(param.Parameterized):
 
         return dashboard
 
-# Make the dashboard servable
+class AuthenticatedDashboard:
+    """Wrapper class that checks JWT authentication before displaying dashboard"""
+
+    def __panel__(self):
+        """
+        This method is called by Panel for each session when rendering.
+        It checks authentication and returns the appropriate view.
+        """
+        # Get token from query parameters (evaluated per-session)
+        token = pn.state.session_args.get('token', [None])[0]
+        if token:
+            token = token.decode('utf-8') if isinstance(token, bytes) else token
+
+        # Verify token
+        if not token:
+            return pn.Column(
+                "# 🔒 Authentication Required",
+                "Please log in to access the Battery Analytics Dashboard.",
+                styles={'padding': '50px', 'text-align': 'center'}
+            )
+
+        payload = verify_token(token)
+        if not payload:
+            return pn.Column(
+                "# 🔒 Invalid Authentication",
+                "Your session has expired or is invalid. Please log in again.",
+                styles={'padding': '50px', 'text-align': 'center'}
+            )
+
+        # Token is valid, create and return the dashboard
+        try:
+            dashboard = EnhancedBatteryAnalyticsDashboard()
+            return dashboard.view()
+        except Exception as e:
+            return pn.Column(
+                "# ⚠️ Error Loading Dashboard",
+                f"An error occurred: {str(e)}",
+                styles={'padding': '50px', 'text-align': 'center'}
+            )
+
+# Make the app servable
 # Security: Panel access is protected by multiple layers:
-# 1. nginx referer check (only allows access from data.beppp.cloud)
-# 2. nginx CSP frame-ancestors (only data.beppp.cloud can iframe it)
-# 3. Frontend authentication (must be logged in to see analytics page)
+# 1. JWT token validation (validates user is authenticated via __panel__ method called per-session)
+# 2. nginx referer check (only allows access from data.beppp.cloud)
+# 3. nginx CSP frame-ancestors (only data.beppp.cloud can iframe it)
 # 4. Docker network isolation (Panel not directly exposed to internet)
-dashboard = EnhancedBatteryAnalyticsDashboard()
-dashboard.view().servable(title='Battery Analytics Dashboard')
+AuthenticatedDashboard().servable(title='Battery Analytics Dashboard')
