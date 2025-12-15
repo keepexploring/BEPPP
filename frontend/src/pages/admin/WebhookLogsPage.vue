@@ -5,31 +5,62 @@
     <q-card>
       <q-card-section>
         <div class="row q-col-gutter-md q-mb-md">
-          <div class="col-12 col-md-4">
-            <q-input
-              v-model="filters.battery_id"
-              label="Battery ID"
-              outlined
-              dense
-              clearable
-            />
-          </div>
-          <div class="col-12 col-md-4">
+          <div class="col-12 col-md-3">
             <q-select
-              v-model="filters.status"
-              :options="statusOptions"
-              label="Status"
+              v-model="filters.battery_id"
+              :options="batteryOptions"
+              option-label="label"
+              option-value="value"
+              emit-value
+              map-options
+              label="Battery"
               outlined
               dense
               clearable
+              use-input
+              input-debounce="300"
+              @filter="filterBatteries"
+            >
+              <template v-slot:no-option>
+                <q-item>
+                  <q-item-section class="text-grey">
+                    No batteries found
+                  </q-item-section>
+                </q-item>
+              </template>
+            </q-select>
+          </div>
+          <div class="col-12 col-md-3">
+            <q-input
+              v-model.number="filters.limit"
+              label="Limit"
+              type="number"
+              outlined
+              dense
+              :min="1"
+              :max="1000"
             />
           </div>
-          <div class="col-12 col-md-4">
+          <div class="col-12 col-md-3">
+            <q-input
+              v-model="filters.search"
+              label="Search (endpoint, method, etc.)"
+              outlined
+              dense
+              clearable
+            >
+              <template v-slot:prepend>
+                <q-icon name="search" />
+              </template>
+            </q-input>
+          </div>
+          <div class="col-12 col-md-3">
             <q-btn
               label="Apply Filters"
               icon="filter_list"
               color="primary"
               @click="loadLogs"
+              class="full-width"
             />
           </div>
         </div>
@@ -37,15 +68,15 @@
         <q-table
           :rows="logs"
           :columns="columns"
-          row-key="id"
+          row-key="log_id"
           :loading="loading"
           :pagination="pagination"
         >
-          <template v-slot:body-cell-status="props">
+          <template v-slot:body-cell-status_code="props">
             <q-td :props="props">
               <q-badge
-                :color="props.row.status === 'success' ? 'positive' : 'negative'"
-                :label="props.row.status"
+                :color="props.row.status_code >= 200 && props.row.status_code < 300 ? 'positive' : 'negative'"
+                :label="props.row.status_code"
               />
             </q-td>
           </template>
@@ -81,22 +112,43 @@
 
         <q-separator />
 
-        <q-card-section v-if="selectedLog">
-          <div class="q-gutter-sm">
-            <div><strong>ID:</strong> {{ selectedLog.id }}</div>
-            <div><strong>Battery ID:</strong> {{ selectedLog.battery_id }}</div>
-            <div><strong>Status:</strong> {{ selectedLog.status }}</div>
-            <div><strong>Timestamp:</strong> {{ formatDate(selectedLog.timestamp) }}</div>
-
-            <div v-if="selectedLog.payload" class="q-mt-md">
-              <div class="text-subtitle2">Payload:</div>
-              <pre class="code-block">{{ JSON.stringify(selectedLog.payload, null, 2) }}</pre>
+        <q-card-section v-if="selectedLog" class="q-gutter-md">
+          <div class="row q-col-gutter-sm">
+            <div class="col-6"><strong>Log ID:</strong> {{ selectedLog.log_id }}</div>
+            <div class="col-6"><strong>Battery ID:</strong> {{ selectedLog.battery_id }}</div>
+            <div class="col-6"><strong>Endpoint:</strong> {{ selectedLog.endpoint }}</div>
+            <div class="col-6"><strong>Method:</strong> {{ selectedLog.method }}</div>
+            <div class="col-6"><strong>Status Code:</strong>
+              <q-badge
+                :color="selectedLog.status_code >= 200 && selectedLog.status_code < 300 ? 'positive' : 'negative'"
+                :label="selectedLog.status_code"
+              />
             </div>
+            <div class="col-6"><strong>Timestamp:</strong> {{ formatDate(selectedLog.timestamp) }}</div>
+          </div>
 
-            <div v-if="selectedLog.error_message" class="q-mt-md">
-              <div class="text-subtitle2 text-negative">Error Message:</div>
-              <div class="text-negative">{{ selectedLog.error_message }}</div>
-            </div>
+          <q-separator />
+
+          <div v-if="selectedLog.request_headers">
+            <div class="text-subtitle2">Request Headers:</div>
+            <pre class="code-block">{{ formatJSON(selectedLog.request_headers) }}</pre>
+          </div>
+
+          <div v-if="selectedLog.request_body">
+            <div class="text-subtitle2">Request Body:</div>
+            <pre class="code-block">{{ formatJSON(selectedLog.request_body) }}</pre>
+          </div>
+
+          <q-separator />
+
+          <div v-if="selectedLog.response_body">
+            <div class="text-subtitle2">Response Body:</div>
+            <pre class="code-block">{{ formatJSON(selectedLog.response_body) }}</pre>
+          </div>
+
+          <div v-if="selectedLog.error_message">
+            <div class="text-subtitle2 text-negative">Error Message:</div>
+            <div class="text-negative code-block">{{ selectedLog.error_message }}</div>
           </div>
         </q-card-section>
 
@@ -110,32 +162,35 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { adminAPI } from 'src/services/api'
+import { adminAPI, batteryAPI } from 'src/services/api'
 import { useQuasar, date } from 'quasar'
 
 const $q = useQuasar()
 
 const logs = ref([])
+const batteries = ref([])
+const batteryOptions = ref([])
 const loading = ref(false)
 const showDetailsDialog = ref(false)
 const selectedLog = ref(null)
 
 const filters = ref({
   battery_id: null,
-  status: null
+  search: '',
+  limit: 100
 })
 
 const pagination = ref({
   rowsPerPage: 20
 })
 
-const statusOptions = ['success', 'error']
-
 const columns = [
-  { name: 'id', label: 'ID', field: 'id', align: 'left', sortable: true },
+  { name: 'log_id', label: 'ID', field: 'log_id', align: 'left', sortable: true },
   { name: 'battery_id', label: 'Battery ID', field: 'battery_id', align: 'left', sortable: true },
+  { name: 'endpoint', label: 'Endpoint', field: 'endpoint', align: 'left', sortable: true },
+  { name: 'method', label: 'Method', field: 'method', align: 'left', sortable: true },
   { name: 'timestamp', label: 'Timestamp', field: 'timestamp', align: 'left', sortable: true },
-  { name: 'status', label: 'Status', field: 'status', align: 'center', sortable: true },
+  { name: 'status_code', label: 'Status', field: 'status_code', align: 'center', sortable: true },
   { name: 'actions', label: 'Actions', align: 'center' }
 ]
 
@@ -144,26 +199,89 @@ const formatDate = (dateStr) => {
   return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm:ss')
 }
 
+const formatJSON = (data) => {
+  if (!data) return '-'
+  if (typeof data === 'string') {
+    try {
+      return JSON.stringify(JSON.parse(data), null, 2)
+    } catch {
+      return data
+    }
+  }
+  return JSON.stringify(data, null, 2)
+}
+
+const loadBatteries = async () => {
+  try {
+    const response = await batteryAPI.getBatteries()
+    batteries.value = response.data || []
+
+    // Create options for the dropdown
+    batteryOptions.value = batteries.value.map(b => ({
+      label: `${b.battery_id} - ${b.serial_number || 'N/A'}`,
+      value: b.battery_id
+    }))
+  } catch (error) {
+    console.error('Failed to load batteries:', error)
+  }
+}
+
+const filterBatteries = (val, update) => {
+  update(() => {
+    if (val === '') {
+      batteryOptions.value = batteries.value.map(b => ({
+        label: `${b.battery_id} - ${b.serial_number || 'N/A'}`,
+        value: b.battery_id
+      }))
+    } else {
+      const needle = val.toLowerCase()
+      batteryOptions.value = batteries.value
+        .filter(b =>
+          b.battery_id.toString().includes(needle) ||
+          (b.serial_number && b.serial_number.toLowerCase().includes(needle))
+        )
+        .map(b => ({
+          label: `${b.battery_id} - ${b.serial_number || 'N/A'}`,
+          value: b.battery_id
+        }))
+    }
+  })
+}
+
 const loadLogs = async () => {
   loading.value = true
 
   try {
-    const params = {}
+    const params = {
+      limit: filters.value.limit || 100
+    }
 
     if (filters.value.battery_id) {
       params.battery_id = filters.value.battery_id
     }
 
-    if (filters.value.status) {
-      params.status = filters.value.status
+    const response = await adminAPI.getWebhookLogs(params)
+    // API returns { logs: [...], total_logs: N, showing: N, limit: N }
+    let loadedLogs = response.data.logs || []
+
+    // Client-side search filtering (since API doesn't support search yet)
+    if (filters.value.search && filters.value.search.trim()) {
+      const searchLower = filters.value.search.toLowerCase()
+      loadedLogs = loadedLogs.filter(log =>
+        log.endpoint?.toLowerCase().includes(searchLower) ||
+        log.method?.toLowerCase().includes(searchLower) ||
+        log.battery_id?.toString().includes(searchLower) ||
+        log.request_body?.toLowerCase().includes(searchLower) ||
+        log.response_body?.toLowerCase().includes(searchLower)
+      )
     }
 
-    const response = await adminAPI.getWebhookLogs(params)
-    logs.value = response.data
+    logs.value = loadedLogs
   } catch (error) {
+    console.error('Failed to load webhook logs:', error)
     $q.notify({
       type: 'negative',
-      message: 'Failed to load webhook logs',
+      message: error.response?.data?.detail || 'Failed to load webhook logs',
       position: 'top'
     })
   } finally {
@@ -177,6 +295,7 @@ const viewDetails = (log) => {
 }
 
 onMounted(() => {
+  loadBatteries()
   loadLogs()
 })
 </script>
