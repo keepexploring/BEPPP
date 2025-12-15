@@ -162,7 +162,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { adminAPI, batteryAPI } from 'src/services/api'
+import { adminAPI, batteriesAPI } from 'src/services/api'
 import { useQuasar, date } from 'quasar'
 
 const $q = useQuasar()
@@ -213,7 +213,7 @@ const formatJSON = (data) => {
 
 const loadBatteries = async () => {
   try {
-    const response = await batteryAPI.getBatteries()
+    const response = await batteriesAPI.list()
     batteries.value = response.data || []
 
     // Create options for the dropdown

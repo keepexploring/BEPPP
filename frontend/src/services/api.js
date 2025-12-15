@@ -89,6 +89,7 @@ export const usersAPI = {
 
 // Batteries
 export const batteriesAPI = {
+  list: (params) => api.get('/batteries/', { params }),
   get: (batteryId) => api.get(`/batteries/${batteryId}`),
   getByShortId: (shortId) => api.get(`/batteries/by-short-id/${shortId}`),
   create: (data) => api.post('/batteries/', data),
