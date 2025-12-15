@@ -1134,12 +1134,18 @@ async def handle_direct_format(battery_data: dict, db: Session, current_user: di
         "submitted_by": current_user.get('sub'),
         "user_id": current_user.get('user_id'),
         "summary": {
-            "data_fields_stored": len(parsed_fields),
-            "invalid_fields_skipped": len(skipped_fields),
-            "unknown_fields": len(unmapped_fields),
-            "timestamp_fields": len(special_fields),
-            "total_fields_in_payload": len(battery_data),
-            "breakdown": f"{len(parsed_fields)} stored + {len(special_fields)} timestamp + {len(skipped_fields)} invalid + {len(unmapped_fields)} unknown = {len(parsed_fields) + len(special_fields) + len(skipped_fields) + len(unmapped_fields)}/{len(battery_data)} total"
+            "status": "success",
+            "fields_stored": parsed_fields,
+            "timestamp_fields": special_fields,
+            "fields_skipped": skipped_fields,
+            "unknown_fields": unmapped_fields,
+            "counts": {
+                "stored": len(parsed_fields),
+                "timestamp": len(special_fields),
+                "skipped": len(skipped_fields),
+                "unknown": len(unmapped_fields),
+                "total_in_payload": len(battery_data)
+            }
         }
     }
     
