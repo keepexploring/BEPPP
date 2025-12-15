@@ -1535,32 +1535,48 @@ class AuthenticatedDashboard:
         This method is called by Panel for each session when rendering.
         It checks authentication and returns the appropriate view.
         """
+        print("=== DEBUG: __panel__ called ===")
+        print(f"Session args: {pn.state.session_args}")
+
         # Get token from query parameters (evaluated per-session)
         token = pn.state.session_args.get('token', [None])[0]
+        print(f"Token from args: {token}")
+
         if token:
             token = token.decode('utf-8') if isinstance(token, bytes) else token
+            print(f"Decoded token (first 50 chars): {token[:50] if token else None}")
 
         # Verify token
         if not token:
+            print("No token provided")
             return pn.Column(
                 "# 🔒 Authentication Required",
-                "Please log in to access the Battery Analytics Dashboard.",
+                "Please log in through the main application to access the analytics dashboard.",
+                pn.pane.Markdown("[Return to Login](https://data.beppp.cloud)"),
                 styles={'padding': '50px', 'text-align': 'center'}
             )
 
         payload = verify_token(token)
+        print(f"Token verification result: {payload}")
+
         if not payload:
+            print("Invalid token")
             return pn.Column(
                 "# 🔒 Invalid Authentication",
                 "Your session has expired or is invalid. Please log in again.",
+                pn.pane.Markdown("[Return to Login](https://data.beppp.cloud)"),
                 styles={'padding': '50px', 'text-align': 'center'}
             )
 
         # Token is valid, create and return the dashboard
+        print(f"Token valid for user: {payload.get('sub')}")
         try:
             dashboard = EnhancedBatteryAnalyticsDashboard()
             return dashboard.view()
         except Exception as e:
+            print(f"Error creating dashboard: {e}")
+            import traceback
+            traceback.print_exc()
             return pn.Column(
                 "# ⚠️ Error Loading Dashboard",
                 f"An error occurred: {str(e)}",
