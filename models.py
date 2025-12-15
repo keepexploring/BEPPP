@@ -732,3 +732,22 @@ class Notification(Base):
 
     # Relationships
     hub = relationship("SolarHub", foreign_keys=[hub_id])
+
+class WebhookLog(Base):
+    """Webhook request/response logging for debugging in production"""
+    __tablename__ = 'webhook_logs'
+
+    log_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    battery_id = Column(BigInteger, ForeignKey('bepppbattery.battery_id'), nullable=True)
+    endpoint = Column(String(255), nullable=False)  # /webhook/live-data, etc.
+    method = Column(String(10), nullable=False)  # POST, GET, etc.
+    request_headers = Column(Text, nullable=True)  # JSON string of headers
+    request_body = Column(Text, nullable=True)  # Full request body
+    response_status = Column(Integer, nullable=True)  # HTTP status code
+    response_body = Column(Text, nullable=True)  # Full response body
+    error_message = Column(Text, nullable=True)  # Error if request failed
+    processing_time_ms = Column(Integer, nullable=True)  # Time to process request
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    # Relationships
+    battery = relationship("BEPPPBattery", foreign_keys=[battery_id])

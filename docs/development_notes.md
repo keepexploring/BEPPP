@@ -789,7 +789,132 @@ Local Development Process:
   imports your models correctly.
 
   # To run commands on the server
-
-  sudo docker exec -it battery-hub-api python solar_hub_cli.py user create-superadmin
+sudo docker exec -it battery-hub-api python solar_hub_cli.py hub create
+sudo docker exec -it battery-hub-api python solar_hub_cli.py user create-superadmin
+  
 
   sudo docker compose -f /opt/battery-hub/docker-compose.prod.yml ps
+
+  ---- need to sort this: 
+  Yes! Every time the API container starts, it runs:
+
+  1. Line 79: init_db() - Creates all tables using SQLAlchemy (creates them if they don't exist)
+  2. Line 81: alembic upgrade head - Runs all migrations
+
+  The problem: Both init_db() and alembic are trying to create tables, which causes conflicts:
+  - init_db() tries to create tables directly
+  - Then Alembic tries to create them via migrations
+  - This causes "table already exists" errors
+
+  Solution: We should only use Alembic for schema management, not both. Let me fix the docker-compose to
+   remove the duplicate table creation:
+
+⏺ Update(docker-compose.prod.yml)
+  ⎿  Updated docker-compose.prod.yml with 1 addition and 3 removals                 
+       75          sh -c "
+       76            echo 'Waiting for database...' &&
+       77            sleep 5 &&
+       78 -          echo 'Initializing database tables...' &&
+       79 -          python -c 'from database import init_db; init_db()' &&
+       80 -          echo 'Running migrations...' &&
+       78 +          echo 'Running database migrations...' &&
+       79            alembic upgrade head &&
+       80            echo 'Starting API server...' &&
+       81            uvicorn api.app.main:app --host 0.0.0.0 --port 8000 --workers 4
+
+· Moseying… (esc to interrupt)
+  ⎿  Tip: Open the Command Palette (Cmd+Shift+P) and run "Shell Command: Install 'code' command in PATH" to 
+     enable IDE integration
+
+   IMPORTANT: Before rebooting, make sure your Docker containers are set to auto-start:
+
+  # Check if battery-hub service is enabled to auto-start
+  systemctl is-enabled battery-hub.service
+
+  # If not enabled, enable it
+  systemctl enable battery-hub.service
+
+  ---------------
+  # 1. Pull latest code
+  cd /root/BEPPP
+  git pull origin main
+
+  # 2. Backup database
+  docker exec battery-hub-db pg_dump -U beppp beppp > /root/backup_$(date +%Y%m%d_%H%M%S).sql
+
+  # 3. Copy files (preserving nginx config)
+  rsync -av --exclude='nginx/conf.d/default.conf' --exclude='.git' /root/BEPPP/ /opt/battery-hub/
+
+  # 4. Rebuild and restart
+  cd /opt/battery-hub
+  docker compose -f docker-compose.prod.yml down
+  docker compose -f docker-compose.prod.yml build
+  docker compose -f docker-compose.prod.yml up -d
+
+  # 5. Run migrations
+  sleep 10
+  docker exec battery-hub-api alembic upgrade head
+
+  # 6. Check status
+  docker compose -f docker-compose.prod.yml ps
+
+  OR
+
+  # Push to GitHub
+  git push origin main
+
+  STEP 2: On the SERVER (where you're logged in now)
+
+  Run the update script - it handles everything automatically:
+
+  # Run the update script
+  sudo bash /root/BEPPP/update.sh
+
+  The script will automatically:
+  1. ✅ Backup your database to /root/backup_TIMESTAMP.sql
+  2. ✅ Pull latest code from GitHub to /root/BEPPP
+  3. ✅ Copy files to /opt/battery-hub (preserving nginx SSL config)
+  4. ✅ Rebuild Docker containers with the fixed docker-compose
+  5. ✅ Restart all services
+  6. ✅ Run Alembic migrations
+  7. ✅ Show service status
+
+------------
+systemctl stop nginx
+systemctl disable nginx
+
+docker compose -f /opt/battery-hub/docker-compose.prod.yml down
+
+-----
+ How to Avoid This in the Future
+
+  Proper Migration Workflow (once this is fixed):
+
+  For Local Development:
+  # 1. Make changes to models.py
+  # 2. Generate migration
+  alembic revision --autogenerate -m "add new field"
+
+  # 3. Review the migration file
+  # 4. Test locally
+  alembic upgrade head
+
+  # 5. Commit migration file to git
+  git add alembic/versions/*.py
+  git commit -m "Add migration: add new field"
+
+  For Production Deployment:
+  # 1. Pull latest code (includes new migration files)
+  cd /root/BEPPP && git pull origin main
+
+  # 2. Run update script (it runs alembic upgrade head automatically)
+  bash update.sh
+
+ cd /root/BEPPP
+git pull origin main
+cp update.sh /opt/battery-hub/
+  sudo bash /opt/battery-hub/update.sh
+
+
+  cd /opt/battery-hub
+  bash update.sh

@@ -45,7 +45,12 @@ try:
         from config import BATTERY_TOKEN_EXPIRE_HOURS
     except ImportError:
         BATTERY_TOKEN_EXPIRE_HOURS = 24
-        
+
+    try:
+        from config import WEBHOOK_LOG_LIMIT
+    except ImportError:
+        WEBHOOK_LOG_LIMIT = 100
+
 except ImportError as e:
     raise ImportError(
         "Missing required configuration. Please ensure config.py exists with SECRET_KEY, ALGORITHM, and DEBUG defined."
@@ -203,6 +208,53 @@ def log_webhook_event(
             log_entry["sample_data"] = sample_data
         
         webhook_logger.debug(f"Full event data: {json.dumps(log_entry, indent=2)}")
+
+def log_webhook_to_db(
+    db: Session,
+    battery_id: Optional[int],
+    endpoint: str,
+    method: str,
+    request_headers: Optional[dict],
+    request_body: Optional[dict],
+    response_status: Optional[int],
+    response_body: Optional[dict],
+    error_message: Optional[str],
+    processing_time_ms: Optional[int]
+):
+    """
+    Log webhook request/response to database for production debugging.
+    Automatically keeps only the last WEBHOOK_LOG_LIMIT entries.
+    """
+    try:
+        # Create webhook log entry
+        webhook_log = WebhookLog(
+            battery_id=battery_id,
+            endpoint=endpoint,
+            method=method,
+            request_headers=json.dumps(request_headers) if request_headers else None,
+            request_body=json.dumps(request_body) if request_body else None,
+            response_status=response_status,
+            response_body=json.dumps(response_body) if response_body else None,
+            error_message=error_message,
+            processing_time_ms=processing_time_ms
+        )
+        db.add(webhook_log)
+        db.commit()
+
+        # Clean up old logs - keep only last WEBHOOK_LOG_LIMIT entries
+        total_logs = db.query(WebhookLog).count()
+        if total_logs > WEBHOOK_LOG_LIMIT:
+            # Delete oldest logs beyond the limit
+            logs_to_delete = total_logs - WEBHOOK_LOG_LIMIT
+            oldest_logs = db.query(WebhookLog).order_by(WebhookLog.created_at).limit(logs_to_delete).all()
+            for log in oldest_logs:
+                db.delete(log)
+            db.commit()
+
+    except Exception as e:
+        # Don't let logging failures break the webhook
+        print(f"Failed to log webhook to database: {e}")
+        db.rollback()
 
 webhook_logger = setup_webhook_logging()
 
@@ -1322,11 +1374,16 @@ async def receive_live_data(
     current_user: dict = Depends(verify_battery_or_superadmin_token)
 ):
     """Receive live data - ONLY for batteries and superadmins"""
-    
+
     request_start_time = datetime.now()
     battery_id = None
     data_id = None
-    
+    request_headers = dict(request.headers)
+    battery_data = None
+    result = None
+    error_msg = None
+    response_status = None
+
     try:
         if DEBUG:
             log_webhook_event(
@@ -1334,7 +1391,7 @@ async def receive_live_data(
                 user_info=current_user,
                 status="info"
             )
-        
+
         battery_data = await request.json()
         
         if 'id' in battery_data:
@@ -1389,36 +1446,84 @@ async def receive_live_data(
             summary=summary,
             request_data=battery_data if DEBUG else None
         )
-        
+
+        # Log to database for production debugging
+        processing_time_ms = int((datetime.now() - request_start_time).total_seconds() * 1000)
+        response_status = 200
+        log_webhook_to_db(
+            db=db,
+            battery_id=battery_id,
+            endpoint="/webhook/live-data",
+            method="POST",
+            request_headers=request_headers,
+            request_body=battery_data,
+            response_status=response_status,
+            response_body=result,
+            error_message=None,
+            processing_time_ms=processing_time_ms
+        )
+
         return result
         
     except HTTPException as he:
+        error_msg = f"HTTP {he.status_code}: {he.detail}"
         log_webhook_event(
             event_type="client_error",
             user_info=current_user,
             battery_id=battery_id,
             status="error",
-            error_message=f"HTTP {he.status_code}: {he.detail}"
+            error_message=error_msg
         )
+
+        # Log to database for production debugging
+        processing_time_ms = int((datetime.now() - request_start_time).total_seconds() * 1000)
+        log_webhook_to_db(
+            db=db,
+            battery_id=battery_id,
+            endpoint="/webhook/live-data",
+            method="POST",
+            request_headers=request_headers,
+            request_body=battery_data,
+            response_status=he.status_code,
+            response_body={"detail": he.detail},
+            error_message=error_msg,
+            processing_time_ms=processing_time_ms
+        )
+
         db.rollback()
         raise he
-        
+
     except Exception as e:
-        error_message = f"Unexpected error: {str(e)}"
-        
+        error_msg = f"Unexpected error: {str(e)}"
+
         log_webhook_event(
             event_type="server_error",
             user_info=current_user,
             battery_id=battery_id,
             status="error",
-            error_message=error_message
+            error_message=error_msg
         )
-        
+
+        # Log to database for production debugging
+        processing_time_ms = int((datetime.now() - request_start_time).total_seconds() * 1000)
+        log_webhook_to_db(
+            db=db,
+            battery_id=battery_id,
+            endpoint="/webhook/live-data",
+            method="POST",
+            request_headers=request_headers,
+            request_body=battery_data,
+            response_status=500,
+            response_body={"detail": f"Error processing live data: {str(e)}"},
+            error_message=error_msg,
+            processing_time_ms=processing_time_ms
+        )
+
         db.rollback()
-        
+
         if DEBUG:
             webhook_logger.exception("Full exception details:")
-        
+
         raise HTTPException(status_code=500, detail=f"Error processing live data: {str(e)}")
 
 # ============================================================================
@@ -5118,38 +5223,58 @@ async def export_analytics_data(
 
 @app.get("/admin/webhook-logs")
 async def get_webhook_logs(
-    lines: int = Query(100, description="Number of recent log lines to return"),
+    limit: int = Query(100, description="Number of recent webhook logs to return (max: limit from config)"),
+    battery_id: Optional[int] = Query(None, description="Filter by battery ID"),
+    db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """Get recent webhook logs (admin/superadmin only, DEBUG mode only)"""
-    if not DEBUG:
-        raise HTTPException(
-            status_code=404, 
-            detail="Webhook logs are only available in DEBUG mode"
-        )
-    
+    """
+    Get recent webhook logs from database (admin/superadmin only).
+    Shows full request/response data for debugging battery data submissions in production.
+    """
     if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
         raise HTTPException(status_code=403, detail="Admin access required")
-    
+
     try:
-        log_file_path = "logs/webhook.log"
-        
-        if not os.path.exists(log_file_path):
-            return {"logs": [], "message": "No log file found"}
-        
-        with open(log_file_path, 'r') as f:
-            all_lines = f.readlines()
-            recent_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
-        
+        # Build query
+        query = db.query(WebhookLog).order_by(desc(WebhookLog.created_at))
+
+        # Filter by battery_id if specified
+        if battery_id:
+            query = query.filter(WebhookLog.battery_id == battery_id)
+
+        # Limit results
+        logs = query.limit(min(limit, WEBHOOK_LOG_LIMIT)).all()
+
+        # Format logs for response
+        formatted_logs = []
+        for log in logs:
+            formatted_logs.append({
+                "log_id": log.log_id,
+                "battery_id": log.battery_id,
+                "endpoint": log.endpoint,
+                "method": log.method,
+                "timestamp": log.created_at.isoformat(),
+                "request_headers": json.loads(log.request_headers) if log.request_headers else None,
+                "request_body": json.loads(log.request_body) if log.request_body else None,
+                "response_status": log.response_status,
+                "response_body": json.loads(log.response_body) if log.response_body else None,
+                "error_message": log.error_message,
+                "processing_time_ms": log.processing_time_ms
+            })
+
+        total_logs = db.query(WebhookLog).count()
+
         return {
-            "logs": [line.strip() for line in recent_lines],
-            "total_lines": len(all_lines),
-            "showing_lines": len(recent_lines),
-            "debug_mode": DEBUG
+            "logs": formatted_logs,
+            "total_logs": total_logs,
+            "showing": len(formatted_logs),
+            "limit": WEBHOOK_LOG_LIMIT,
+            "filtered_by_battery": battery_id
         }
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading logs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error reading webhook logs: {str(e)}")
 
 # ============================================================================
 # HEALTH CHECK AND ROOT ENDPOINTS
