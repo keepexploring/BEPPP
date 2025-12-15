@@ -90,6 +90,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-beppp}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-beppp}
       SECRET_KEY: ${SECRET_KEY}
+      ALGORITHM: ${ALGORITHM:-HS256}
     depends_on:
       - postgres
       - api

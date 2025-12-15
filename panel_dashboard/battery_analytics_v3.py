@@ -45,15 +45,9 @@ pn.config.raw_css.append("""
 }
 """)
 
-# Import JWT configuration from API
-import sys
-sys.path.append('/app/api')
-try:
-    from config import SECRET_KEY, ALGORITHM
-except ImportError:
-    # Fallback for development
-    SECRET_KEY = "dev-secret-key-change-in-production"
-    ALGORITHM = "HS256"
+# JWT configuration from environment variables
+SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+ALGORITHM = os.getenv('ALGORITHM', 'HS256')
 
 # Database connection
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://beppp:changeme@db:5432/beppp')
