@@ -1602,6 +1602,15 @@ def create_authenticated_dashboard():
     return dashboard.view()
 
 # Make the authenticated dashboard servable
-# Call the function to create and serve the dashboard
-dashboard = create_authenticated_dashboard()
-dashboard.servable(title='Battery Analytics Dashboard')
+# Panel's servable() is called once at module load, but we want per-session auth
+# Solution: Create a template that renders the auth check on each page load
+template = pn.template.MaterialTemplate(title='Battery Analytics Dashboard')
+
+# Use pn.bind to create a function that's evaluated per session
+@pn.cache
+def get_dashboard():
+    """This is called once per session due to @pn.cache"""
+    return create_authenticated_dashboard()
+
+template.main.append(get_dashboard)
+template.servable()
