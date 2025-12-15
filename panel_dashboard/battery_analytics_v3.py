@@ -1605,5 +1605,12 @@ def create_authenticated_dashboard():
     return dashboard.view()
 
 # Make the authenticated dashboard servable
-# Simple approach: Call the function directly and let Panel handle it
-create_authenticated_dashboard().servable(title='Battery Analytics Dashboard')
+# IMPORTANT: Don't call the function here! Just reference it so Panel calls it per-session
+# Remove @pn.cache from function and let Panel handle session management
+def app():
+    """App entry point called per session"""
+    print("[ENTRY] App function called - new session!")
+    return create_authenticated_dashboard()
+
+# Serve the app function (not called!)
+app.servable(title='Battery Analytics Dashboard')
