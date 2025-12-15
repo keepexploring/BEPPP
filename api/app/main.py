@@ -2440,6 +2440,28 @@ async def create_battery(
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.get("/batteries/")
+async def list_batteries(
+    hub_id: Optional[int] = Query(None, description="Filter by hub ID"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """List all batteries (with optional hub filter)"""
+    query = db.query(BEPPPBattery)
+
+    # Apply hub filter based on user role and parameters
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.DATA_ADMIN]:
+        # Regular users can only see batteries from their hub
+        query = query.filter(BEPPPBattery.hub_id == current_user.get('hub_id'))
+    elif hub_id is not None:
+        # Admin/superadmin can filter by specific hub
+        query = query.filter(BEPPPBattery.hub_id == hub_id)
+
+    batteries = query.offset(skip).limit(limit).all()
+    return batteries
+
 @app.get("/batteries/{battery_id}")
 async def get_battery(
     battery_id: int,
@@ -2450,11 +2472,11 @@ async def get_battery(
     battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_id).first()
     if not battery:
         raise HTTPException(status_code=404, detail="Battery not found")
-    
+
     if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.DATA_ADMIN]:
         if battery.hub_id != current_user.get('hub_id'):
             raise HTTPException(status_code=403, detail="Access denied")
-    
+
     return battery
 
 @app.put("/batteries/{battery_id}")
