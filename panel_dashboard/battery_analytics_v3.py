@@ -1527,21 +1527,18 @@ class EnhancedBatteryAnalyticsDashboard(param.Parameterized):
 
         return dashboard
 
-# Module-level code that runs once at startup
-print("=== DEBUG: Module loading ===")
-print(f"Session args at module load: {pn.state.session_args}")
-
-# Get token from query parameters (evaluated at module load - THIS IS THE PROBLEM!)
+# JWT Authentication - check token from query parameters
+# Note: Panel loads this module multiple times:
+# 1. At server startup (no session args) - shows auth required
+# 2. When user connects (with session args) - validates token and shows dashboard
 token = pn.state.session_args.get('token', [None])[0]
-print(f"Token from args at module load: {token}")
 
 if token:
     token = token.decode('utf-8') if isinstance(token, bytes) else token
-    print(f"Decoded token (first 50 chars): {token[:50] if token else None}...")
 
 # Verify token
 if not token:
-    print("No token provided at module load")
+    # No token provided - show authentication required message
     error_view = pn.Column(
         "# 🔒 Authentication Required",
         "Please log in through the main application to access the analytics dashboard.",
@@ -1551,10 +1548,9 @@ if not token:
     error_view.servable(title='Battery Analytics Dashboard')
 else:
     payload = verify_token(token)
-    print(f"Token verification result: {payload}")
 
     if not payload:
-        print("Invalid token at module load")
+        # Invalid token - show error message
         error_view = pn.Column(
             "# 🔒 Invalid Authentication",
             "Your session has expired or is invalid. Please log in again.",
@@ -1563,13 +1559,12 @@ else:
         )
         error_view.servable(title='Battery Analytics Dashboard')
     else:
-        # Token is valid, create and return the dashboard
-        print(f"Token valid for user: {payload.get('sub')}")
+        # Token is valid - create and serve the dashboard
         try:
             dashboard = EnhancedBatteryAnalyticsDashboard()
             dashboard.view().servable(title='Battery Analytics Dashboard')
         except Exception as e:
-            print(f"Error creating dashboard: {e}")
+            # Dashboard creation error - show error message
             import traceback
             traceback.print_exc()
             error_view = pn.Column(
