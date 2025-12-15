@@ -75,12 +75,18 @@ def check_authentication():
     # Try to get token from query parameters (when redirected from main app)
     token = pn.state.session_args.get('token', [b''])[0].decode('utf-8')
 
+    # Debug logging
+    print(f"[AUTH DEBUG] Token from query params: {token[:20] if token else 'None'}...")
+    print(f"[AUTH DEBUG] Session args keys: {list(pn.state.session_args.keys())}")
+
     # If not in query params, try cookie
     if not token:
         token = pn.state.cookies.get('access_token', '')
+        print(f"[AUTH DEBUG] Token from cookie: {token[:20] if token else 'None'}...")
 
     # Verify token
     user_data = verify_token(token)
+    print(f"[AUTH DEBUG] User data after verification: {user_data}")
 
     if not user_data:
         # Return unauthorized page
