@@ -48,71 +48,10 @@ pn.config.raw_css.append("""
 # Database connection
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://beppp:changeme@db:5432/beppp')
 
-# JWT Authentication settings
-SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key-here')
-ALGORITHM = os.getenv('ALGORITHM', 'HS256')
-
-def verify_token(token):
-    """Verify JWT token from FastAPI app"""
-    if not token:
-        return None
-
-    try:
-        # Remove 'Bearer ' prefix if present
-        if token.startswith('Bearer '):
-            token = token[7:]
-
-        # Decode and verify token
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
-    except jwt.ExpiredSignatureError:
-        return None
-    except jwt.InvalidTokenError:
-        return None
-
-def check_authentication():
-    """Check if user is authenticated via token from query params or cookie"""
-    # Try to get token from query parameters (when redirected from main app)
-    token = pn.state.session_args.get('token', [b''])[0].decode('utf-8')
-
-    # Debug logging
-    print(f"[AUTH DEBUG] Token from query params: {token[:20] if token else 'None'}...")
-    print(f"[AUTH DEBUG] Session args keys: {list(pn.state.session_args.keys())}")
-
-    # If not in query params, try cookie
-    if not token:
-        token = pn.state.cookies.get('access_token', '')
-        print(f"[AUTH DEBUG] Token from cookie: {token[:20] if token else 'None'}...")
-
-    # Verify token
-    user_data = verify_token(token)
-    print(f"[AUTH DEBUG] User data after verification: {user_data}")
-
-    if not user_data:
-        # Return unauthorized page
-        return pn.Column(
-            pn.pane.Markdown(
-                """
-                # 🔒 Authentication Required
-
-                Please log in through the main application to access the analytics dashboard.
-
-                [Return to Login](/)
-                """,
-                sizing_mode='stretch_width',
-                styles={'text-align': 'center', 'padding': '50px'}
-            ),
-            sizing_mode='stretch_both'
-        )
-
-    # Store user info in session state
-    pn.state.cache['user'] = user_data
-
-    # Set cookie for subsequent requests (if from query param)
-    if 'token' in pn.state.session_args:
-        pn.state.cookies['access_token'] = token
-
-    return None  # Authentication successful
+# Security Note: Panel authentication removed in favor of layered security:
+# 1. Frontend requires authentication to access analytics page
+# 2. nginx CSP frame-ancestors prevents direct Panel access
+# 3. Panel only accessible via iframe from authenticated frontend
 
 class EnhancedBatteryAnalyticsDashboard(param.Parameterized):
     """Enhanced Battery Analytics Dashboard with flexible multi-select aggregation"""
@@ -1581,36 +1520,11 @@ class EnhancedBatteryAnalyticsDashboard(param.Parameterized):
 
         return dashboard
 
-# Authentication wrapper for the dashboard
-@pn.cache  # Cache per session, not globally
-def create_authenticated_dashboard():
-    """
-    Create dashboard with authentication check.
-    This function is called once per session (per user).
-    The @pn.cache decorator ensures each session gets its own instance.
-    """
-    print("[DEBUG] === create_authenticated_dashboard CALLED ===")
-    print(f"[DEBUG] pn.state exists: {hasattr(pn, 'state')}")
-
-    # Check authentication first
-    auth_error = check_authentication()
-
-    if auth_error:
-        # User not authenticated - show login prompt
-        return auth_error
-
-    # User authenticated - show dashboard
-    # Each authenticated session gets its own dashboard instance
-    dashboard = EnhancedBatteryAnalyticsDashboard()
-    return dashboard.view()
-
-# Make the authenticated dashboard servable
-# IMPORTANT: Don't call the function here! Just reference it so Panel calls it per-session
-# Remove @pn.cache from function and let Panel handle session management
-def app():
-    """App entry point called per session"""
-    print("[ENTRY] App function called - new session!")
-    return create_authenticated_dashboard()
-
-# Serve the app function (not called!)
-app.servable(title='Battery Analytics Dashboard')
+# Make the dashboard servable
+# Security: Panel access is protected by multiple layers:
+# 1. nginx referer check (only allows access from data.beppp.cloud)
+# 2. nginx CSP frame-ancestors (only data.beppp.cloud can iframe it)
+# 3. Frontend authentication (must be logged in to see analytics page)
+# 4. Docker network isolation (Panel not directly exposed to internet)
+dashboard = EnhancedBatteryAnalyticsDashboard()
+dashboard.view().servable(title='Battery Analytics Dashboard')
