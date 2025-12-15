@@ -1596,5 +1596,6 @@ def create_authenticated_dashboard():
     return dashboard.view()
 
 # Make the authenticated dashboard servable
-# The function will be called once per session, checking auth each time
-create_authenticated_dashboard.servable(title='Battery Analytics Dashboard')
+# Call the function to create and serve the dashboard
+dashboard = create_authenticated_dashboard()
+dashboard.servable(title='Battery Analytics Dashboard')
