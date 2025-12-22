@@ -3047,7 +3047,7 @@ async def list_hub_available_pue_items(
     description="""
     ## Get All Rentals
 
-    Retrieves all rentals with filtering by status.
+    Retrieves all rentals with filtering by status and user.
 
     ### Permissions:
     - **SUPERADMIN/DATA_ADMIN**: Can see all rentals across all hubs
@@ -3055,6 +3055,7 @@ async def list_hub_available_pue_items(
 
     ### Query Parameters:
     - **status**: Filter by rental status (active, returned, all)
+    - **user_id**: Filter by specific user ID (optional)
 
     ### Returns:
     - List of rentals with user, battery, and hub information
@@ -3062,6 +3063,7 @@ async def list_hub_available_pue_items(
     response_description="List of rentals")
 async def list_rentals(
     status: str = "all",
+    user_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -3069,6 +3071,10 @@ async def list_rentals(
     try:
         # Base query
         query = db.query(Rental)
+
+        # Filter by user_id if provided
+        if user_id is not None:
+            query = query.filter(Rental.user_id == user_id)
 
         # Filter by status
         if status == "active":
