@@ -64,17 +64,17 @@
                   <div v-if="costCalculation.subscription.is_covered" class="q-mt-sm">
                     <div class="row q-gutter-sm text-caption">
                       <div class="col-12">
-                        <div>Covered Amount: ${{ costCalculation.subscription.covered_amount.toFixed(2) }}</div>
+                        <div>Covered Amount: {{ currencySymbol }}{{ costCalculation.subscription.covered_amount.toFixed(2) }}</div>
                         <div v-if="costCalculation.subscription.kwh_overage > 0" class="q-mt-xs">
                           <q-icon name="warning" size="xs" class="q-mr-xs" />
                           kWh Overage: {{ costCalculation.subscription.kwh_overage.toFixed(2) }} kWh
-                          (Extra: ${{ costCalculation.subscription.kwh_overage_cost.toFixed(2) }})
+                          (Extra: {{ currencySymbol }}{{ costCalculation.subscription.kwh_overage_cost.toFixed(2) }})
                         </div>
                         <div class="q-mt-xs">
                           kWh Used This Period: {{ costCalculation.subscription.kwh_used_this_period.toFixed(1) }} / {{ costCalculation.subscription.kwh_included }} kWh
                         </div>
                         <div v-if="costCalculation.subscription.remaining_cost_after_subscription > 0" class="q-mt-xs text-weight-bold">
-                          You Still Owe: ${{ costCalculation.subscription.remaining_cost_after_subscription.toFixed(2) }}
+                          You Still Owe: {{ currencySymbol }}{{ costCalculation.subscription.remaining_cost_after_subscription.toFixed(2) }}
                         </div>
                       </div>
                     </div>
@@ -98,21 +98,21 @@
                 <tbody>
                   <tr v-for="component in costCalculation.cost_breakdown" :key="component.component_name">
                     <td>{{ component.component_name }}</td>
-                    <td class="text-right">${{ component.rate.toFixed(2) }} / {{ component.unit_type.replace('per_', '') }}</td>
+                    <td class="text-right">{{ currencySymbol }}{{ component.rate.toFixed(2) }} / {{ component.unit_type.replace('per_', '') }}</td>
                     <td class="text-right">{{ component.quantity }}</td>
-                    <td class="text-right">${{ component.amount.toFixed(2) }}</td>
+                    <td class="text-right">{{ currencySymbol }}{{ component.amount.toFixed(2) }}</td>
                   </tr>
                   <tr>
                     <td colspan="3" class="text-right text-weight-medium">Subtotal:</td>
-                    <td class="text-right text-weight-medium">${{ costCalculation.subtotal.toFixed(2) }}</td>
+                    <td class="text-right text-weight-medium">{{ currencySymbol }}{{ costCalculation.subtotal.toFixed(2) }}</td>
                   </tr>
                   <tr v-if="costCalculation.vat_amount > 0">
                     <td colspan="3" class="text-right">VAT ({{ costCalculation.vat_percentage }}%):</td>
-                    <td class="text-right">${{ costCalculation.vat_amount.toFixed(2) }}</td>
+                    <td class="text-right">{{ currencySymbol }}{{ costCalculation.vat_amount.toFixed(2) }}</td>
                   </tr>
                   <tr>
                     <td colspan="3" class="text-right text-weight-bold text-h6">Total:</td>
-                    <td class="text-right text-weight-bold text-h6">${{ costCalculation.total.toFixed(2) }}</td>
+                    <td class="text-right text-weight-bold text-h6">{{ currencySymbol }}{{ costCalculation.total.toFixed(2) }}</td>
                   </tr>
                 </tbody>
               </q-markup-table>
@@ -121,17 +121,17 @@
               <div class="q-gutter-sm">
                 <div class="row">
                   <div class="col">Original Estimate:</div>
-                  <div class="col text-right">${{ costCalculation.original_estimate.toFixed(2) }}</div>
+                  <div class="col text-right">{{ currencySymbol }}{{ costCalculation.original_estimate.toFixed(2) }}</div>
                 </div>
                 <div class="row">
                   <div class="col">Amount Paid So Far:</div>
-                  <div class="col text-right text-positive">-${{ costCalculation.payment_status.amount_paid_so_far.toFixed(2) }}</div>
+                  <div class="col text-right text-positive">-{{ currencySymbol }}{{ costCalculation.payment_status.amount_paid_so_far.toFixed(2) }}</div>
                 </div>
                 <q-separator class="q-my-sm" />
                 <div class="row text-weight-bold">
                   <div class="col">Amount Still Owed:</div>
                   <div class="col text-right" :class="costCalculation.payment_status.amount_still_owed > 0 ? 'text-negative' : 'text-positive'">
-                    ${{ costCalculation.payment_status.amount_still_owed.toFixed(2) }}
+                    {{ currencySymbol }}{{ costCalculation.payment_status.amount_still_owed.toFixed(2) }}
                   </div>
                 </div>
               </div>
@@ -208,9 +208,9 @@
               </template>
               <div class="text-weight-bold">Subscription: {{ costCalculation.subscription.subscription_name }}</div>
               <div class="text-caption">
-                Covered by subscription: ${{ costCalculation.subscription.covered_amount.toFixed(2) }}
+                Covered by subscription: {{ currencySymbol }}{{ costCalculation.subscription.covered_amount.toFixed(2) }}
                 <span v-if="costCalculation.subscription.remaining_cost_after_subscription > 0">
-                  | Additional charges: ${{ costCalculation.subscription.remaining_cost_after_subscription.toFixed(2) }}
+                  | Additional charges: {{ currencySymbol }}{{ costCalculation.subscription.remaining_cost_after_subscription.toFixed(2) }}
                 </span>
               </div>
             </q-banner>
@@ -223,14 +223,14 @@
                     <div class="text-caption text-grey-7">
                       {{ costCalculation.subscription && costCalculation.subscription.is_covered ? 'Additional Amount Owed' : 'Total Amount Owed' }}
                     </div>
-                    <div class="text-h6 text-negative">${{ costCalculation.payment_status.amount_still_owed.toFixed(2) }}</div>
+                    <div class="text-h6 text-negative">{{ currencySymbol }}{{ costCalculation.payment_status.amount_still_owed.toFixed(2) }}</div>
                     <div v-if="costCalculation.subscription && costCalculation.subscription.is_covered" class="text-caption text-grey-7">
-                      (After ${{ costCalculation.subscription.covered_amount.toFixed(2) }} subscription coverage)
+                      (After {{ currencySymbol }}{{ costCalculation.subscription.covered_amount.toFixed(2) }} subscription coverage)
                     </div>
                   </div>
                   <div v-if="costCalculation.payment_status.user_account_balance > 0" class="col">
                     <div class="text-caption text-grey-7">User's Available Credit</div>
-                    <div class="text-h6 text-positive">${{ costCalculation.payment_status.user_account_balance.toFixed(2) }}</div>
+                    <div class="text-h6 text-positive">{{ currencySymbol }}{{ costCalculation.payment_status.user_account_balance.toFixed(2) }}</div>
                   </div>
                 </div>
               </q-card-section>
@@ -251,9 +251,9 @@
                   label="Credit to Apply"
                   outlined
                   step="0.01"
-                  prefix="$"
+                  :prefix="currencySymbol"
                   :max="Math.min(costCalculation.payment_status.user_account_balance, costCalculation.payment_status.amount_still_owed)"
-                  :hint="`Max available: $${Math.min(costCalculation.payment_status.user_account_balance, costCalculation.payment_status.amount_still_owed).toFixed(2)}`"
+                  :hint="`Max available: ${currencySymbol}${Math.min(costCalculation.payment_status.user_account_balance, costCalculation.payment_status.amount_still_owed).toFixed(2)}`"
                   @update:model-value="onCreditAmountChange"
                 >
                   <template v-slot:prepend>
@@ -269,7 +269,7 @@
                 label="Cash Payment Amount"
                 outlined
                 step="0.01"
-                prefix="$"
+                :prefix="currencySymbol"
                 @update:model-value="onCashAmountChange"
               >
                 <template v-slot:prepend>
@@ -277,7 +277,7 @@
                 </template>
                 <template v-slot:hint>
                   <div class="row items-center q-gutter-xs">
-                    <span>After applying credit: ${{ remainingAfterCredit.toFixed(2) }}</span>
+                    <span>After applying credit: {{ currencySymbol }}{{ remainingAfterCredit.toFixed(2) }}</span>
                   </div>
                 </template>
               </q-input>
@@ -288,7 +288,7 @@
                   <q-icon name="warning" color="orange" size="sm" class="q-mr-sm" />
                   <div>
                     <div class="text-caption text-grey-7">Remaining Balance (will be added to user's debt)</div>
-                    <div class="text-weight-bold text-orange">${{ remainingDebt.toFixed(2) }}</div>
+                    <div class="text-weight-bold text-orange">{{ currencySymbol }}{{ remainingDebt.toFixed(2) }}</div>
                   </div>
                 </div>
               </div>
@@ -299,7 +299,7 @@
                   <q-icon name="add_circle" color="positive" size="sm" class="q-mr-sm" />
                   <div>
                     <div class="text-caption text-grey-7">Overpayment (will be added to user's credit)</div>
-                    <div class="text-weight-bold text-positive">${{ Math.abs(remainingDebt).toFixed(2) }}</div>
+                    <div class="text-weight-bold text-positive">{{ currencySymbol }}{{ Math.abs(remainingDebt).toFixed(2) }}</div>
                   </div>
                 </div>
               </div>
@@ -312,29 +312,29 @@
                   <!-- Original Total (if subscription exists) -->
                   <div v-if="costCalculation.subscription && costCalculation.subscription.is_covered" class="row q-mb-xs text-grey-7">
                     <div class="col">Original Total:</div>
-                    <div class="col text-right">${{ costCalculation.total.toFixed(2) }}</div>
+                    <div class="col text-right">{{ currencySymbol }}{{ costCalculation.total.toFixed(2) }}</div>
                   </div>
                   <div v-if="costCalculation.subscription && costCalculation.subscription.is_covered" class="row q-mb-xs text-positive">
                     <div class="col">- Subscription Coverage:</div>
-                    <div class="col text-right">-${{ costCalculation.subscription.covered_amount.toFixed(2) }}</div>
+                    <div class="col text-right">-{{ currencySymbol }}{{ costCalculation.subscription.covered_amount.toFixed(2) }}</div>
                   </div>
 
                   <!-- Current Amount Owed -->
                   <div class="row q-mb-xs" :class="costCalculation.subscription && costCalculation.subscription.is_covered ? '' : 'text-weight-medium'">
                     <div class="col">{{ costCalculation.subscription && costCalculation.subscription.is_covered ? 'Additional Amount Owed:' : 'Amount Owed:' }}</div>
-                    <div class="col text-right">${{ costCalculation.payment_status.amount_still_owed.toFixed(2) }}</div>
+                    <div class="col text-right">{{ currencySymbol }}{{ costCalculation.payment_status.amount_still_owed.toFixed(2) }}</div>
                   </div>
 
                   <!-- Credit Applied -->
                   <div v-if="formData.credit_applied > 0" class="row q-mb-xs text-positive">
                     <div class="col">- User Credit Applied:</div>
-                    <div class="col text-right">-${{ formData.credit_applied.toFixed(2) }}</div>
+                    <div class="col text-right">-{{ currencySymbol }}{{ formData.credit_applied.toFixed(2) }}</div>
                   </div>
 
                   <!-- Cash Payment -->
                   <div v-if="formData.payment_amount > 0" class="row q-mb-xs text-primary">
                     <div class="col">- Cash Payment:</div>
-                    <div class="col text-right">-${{ formData.payment_amount.toFixed(2) }}</div>
+                    <div class="col text-right">-{{ currencySymbol }}{{ formData.payment_amount.toFixed(2) }}</div>
                   </div>
 
                   <q-separator class="q-my-sm" />
@@ -347,7 +347,7 @@
                       <span v-else>Remaining Balance:</span>
                     </div>
                     <div class="col text-right" :class="remainingDebt > 0 ? 'text-orange' : remainingDebt < 0 ? 'text-positive' : 'text-positive'">
-                      ${{ Math.abs(remainingDebt).toFixed(2) }}
+                      {{ currencySymbol }}{{ Math.abs(remainingDebt).toFixed(2) }}
                     </div>
                   </div>
 
@@ -412,8 +412,12 @@
 import { ref, computed, watch } from 'vue'
 import { useQuasar, date } from 'quasar'
 import { rentalsAPI } from 'src/services/api'
+import { useHubSettingsStore } from 'stores/hubSettings'
 
 const $q = useQuasar()
+const hubSettingsStore = useHubSettingsStore()
+
+const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
 const props = defineProps({
   modelValue: {

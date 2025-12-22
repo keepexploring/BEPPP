@@ -161,7 +161,7 @@
                 </q-item-section>
                 <q-item-section side>
                   <div v-if="pue.suggested_cost_per_day || pue.rental_cost" class="text-caption">
-                    ${{ pue.rental_cost || pue.suggested_cost_per_day }}/day
+                    {{ currencySymbol }}{{ pue.rental_cost || pue.suggested_cost_per_day }}/day
                   </div>
                   <q-badge :color="getStatusColor(pue.status)">
                     {{ pue.status }}
@@ -209,15 +209,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { hubsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
+import { useHubSettingsStore } from 'stores/hubSettings'
 import { useQuasar } from 'quasar'
 
 const $q = useQuasar()
 const route = useRoute()
 const authStore = useAuthStore()
+const hubSettingsStore = useHubSettingsStore()
+
+const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
 const hub = ref(null)
 const batteries = ref([])

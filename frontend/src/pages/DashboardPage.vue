@@ -61,7 +61,7 @@
             <div class="row items-center">
               <div class="col">
                 <div class="text-overline text-grey-7">Total Revenue</div>
-                <div class="text-h4">${{ stats.totalRevenue }}</div>
+                <div class="text-h4">{{ currencySymbol }}{{ stats.totalRevenue }}</div>
               </div>
               <div class="col-auto">
                 <q-icon name="attach_money" size="48px" color="warning" />
@@ -297,10 +297,10 @@
 
             <div class="text-subtitle2 q-mt-sm">Financial Details</div>
             <div v-if="selectedRental.total_cost">
-              <strong>Total Cost:</strong> ${{ selectedRental.total_cost?.toFixed(2) }}
+              <strong>Total Cost:</strong> {{ currencySymbol }}{{ selectedRental.total_cost?.toFixed(2) }}
             </div>
             <div v-if="selectedRental.deposit_amount">
-              <strong>Deposit:</strong> ${{ selectedRental.deposit_amount?.toFixed(2) }}
+              <strong>Deposit:</strong> {{ currencySymbol }}{{ selectedRental.deposit_amount?.toFixed(2) }}
             </div>
           </div>
         </q-card-section>
@@ -323,9 +323,13 @@ import { ref, onMounted, computed } from 'vue'
 import { hubsAPI, analyticsAPI, rentalsAPI } from 'src/services/api'
 import { useQuasar, date } from 'quasar'
 import HubFilter from 'src/components/HubFilter.vue'
+import { useHubSettingsStore } from 'stores/hubSettings'
 
 const $q = useQuasar()
+const hubSettingsStore = useHubSettingsStore()
 const selectedHub = ref(null)
+
+const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
 const stats = ref({
   totalHubs: 0,

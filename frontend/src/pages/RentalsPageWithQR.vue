@@ -77,7 +77,7 @@
 
           <template v-slot:body-cell-total_cost="props">
             <q-td :props="props">
-              ${{ props.row.total_cost?.toFixed(2) || '0.00' }}
+              {{ currencySymbol }}{{ props.row.total_cost?.toFixed(2) || '0.00' }}
             </q-td>
           </template>
 
@@ -319,7 +319,7 @@
                     type="number"
                     step="0.01"
                     outlined
-                    prefix="$"
+                    :prefix="currencySymbol"
                     :rules="[val => val >= 0 || 'Rate must be positive']"
                   />
                 </div>
@@ -330,7 +330,7 @@
                     type="number"
                     step="0.01"
                     outlined
-                    prefix="$"
+                    :prefix="currencySymbol"
                   />
                 </div>
               </div>
@@ -352,7 +352,7 @@
                     <q-item-section>
                       <q-item-label>{{ scope.opt.name }}</q-item-label>
                       <q-item-label caption>
-                        ${{ scope.opt.daily_rate }}/day - {{ scope.opt.description }}
+                        {{ currencySymbol }}{{ scope.opt.daily_rate }}/day - {{ scope.opt.description }}
                       </q-item-label>
                     </q-item-section>
                   </q-item>
@@ -436,9 +436,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { rentalsAPI, hubsAPI, usersAPI, batteriesAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
+import { useHubSettingsStore } from 'stores/hubSettings'
 import { useQuasar, date } from 'quasar'
 import { parseQRData } from 'src/composables/useQRCode'
 import QRScanner from 'src/components/QRScanner.vue'
@@ -446,6 +447,10 @@ import UserSearch from 'src/components/UserSearch.vue'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
+const hubSettingsStore = useHubSettingsStore()
+
+// Currency symbol from hub settings
+const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
 const rentals = ref([])
 const hubOptions = ref([])

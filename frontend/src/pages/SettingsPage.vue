@@ -253,6 +253,15 @@
               :disable="!authStore.isSuperAdmin"
               :hint="authStore.isSuperAdmin ? 'Select the currency for this hub' : 'Contact a superadmin to change this setting'"
             />
+
+            <q-input
+              v-model="hubSettings.currency_symbol"
+              label="Currency Symbol"
+              outlined
+              :disable="!authStore.isSuperAdmin"
+              hint="Custom symbol for this currency (e.g., $, £, MK, KSh)"
+              class="q-mt-md"
+            />
           </div>
 
           <div>

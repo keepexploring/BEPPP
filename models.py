@@ -704,6 +704,7 @@ class HubSettings(Base):
     hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id', ondelete='CASCADE'), nullable=True, unique=True)
     debt_notification_threshold = Column(Float, server_default='-100.00', nullable=False)
     default_currency = Column(String(3), server_default='USD', nullable=False)
+    currency_symbol = Column(String(10), nullable=True)  # Custom currency symbol (e.g., 'MK', 'KSh', '$')
     overdue_notification_hours = Column(Integer, server_default='24', nullable=False)  # Hours after due time to send notification
     vat_percentage = Column(Float, server_default='0.00', nullable=False)  # VAT/Tax percentage (e.g., 15.0 for 15%)
     timezone = Column(String(50), server_default='UTC', nullable=False)  # Timezone (e.g., 'Africa/Nairobi', 'Europe/London')

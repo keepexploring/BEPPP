@@ -104,11 +104,11 @@
           </q-card-section>
           <q-separator />
           <q-card-section class="q-gutter-sm">
-            <div><strong>Daily Rate:</strong> ${{ rental.rental?.daily_rate }}</div>
-            <div><strong>Deposit:</strong> ${{ rental.rental?.deposit_amount }}</div>
+            <div><strong>Daily Rate:</strong> {{ currencySymbol }}{{ rental.rental?.daily_rate }}</div>
+            <div><strong>Deposit:</strong> {{ currencySymbol }}{{ rental.rental?.deposit_amount }}</div>
             <div><strong>Days Rented:</strong> {{ calculateDays(rental.rental) }}</div>
             <div class="text-h6 text-primary q-mt-md">
-              <strong>Total Cost:</strong> ${{ rental.rental?.total_cost?.toFixed(2) || '0.00' }}
+              <strong>Total Cost:</strong> {{ currencySymbol }}{{ rental.rental?.total_cost?.toFixed(2) || '0.00' }}
             </div>
           </q-card-section>
         </q-card>
@@ -208,15 +208,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { rentalsAPI } from 'src/services/api'
 import { useQuasar, date } from 'quasar'
 import RentalReturnDialog from 'components/RentalReturnDialog.vue'
+import { useHubSettingsStore } from 'stores/hubSettings'
 
 const $q = useQuasar()
 const route = useRoute()
 const router = useRouter()
+const hubSettingsStore = useHubSettingsStore()
+
+const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
 const rental = ref(null)
 const loading = ref(true)

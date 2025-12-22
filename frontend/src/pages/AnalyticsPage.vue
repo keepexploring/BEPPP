@@ -86,7 +86,7 @@
             </q-card-section>
             <q-card-section>
               <div class="text-h4 text-primary">
-                ${{ revenueData.total_revenue?.toFixed(2) || '0.00' }}
+                {{ currencySymbol }}{{ revenueData.total_revenue?.toFixed(2) || '0.00' }}
               </div>
               <div class="text-grey-7">Total Revenue ({{ timePeriod }})</div>
             </q-card-section>
@@ -114,10 +114,14 @@
 import { ref, computed, onMounted } from 'vue'
 import { hubsAPI, analyticsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
+import { useHubSettingsStore } from 'stores/hubSettings'
 import { useQuasar } from 'quasar'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
+const hubSettingsStore = useHubSettingsStore()
+
+const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
 const hubOptions = ref([])
 const selectedHub = ref(null)

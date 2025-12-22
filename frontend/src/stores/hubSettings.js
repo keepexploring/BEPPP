@@ -33,6 +33,12 @@ export const useHubSettingsStore = defineStore('hubSettings', {
      * Get currency symbol for current user's hub
      */
     currentCurrencySymbol() {
+      const authStore = useAuthStore()
+      const hubId = authStore.user?.hub_id
+      // Use custom symbol if set, otherwise use default mapping
+      if (hubId && this.settings[hubId]?.currency_symbol) {
+        return this.settings[hubId].currency_symbol
+      }
       return this.getCurrencySymbol(this.currentCurrency)
     },
 
@@ -124,6 +130,10 @@ export const useHubSettingsStore = defineStore('hubSettings', {
      * Get currency symbol for a specific hub
      */
     getHubCurrencySymbol(hubId) {
+      // Use custom symbol if set
+      if (this.settings[hubId]?.currency_symbol) {
+        return this.settings[hubId].currency_symbol
+      }
       const currency = this.getHubCurrency(hubId)
       return this.getCurrencySymbol(currency)
     },
