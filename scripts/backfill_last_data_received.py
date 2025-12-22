@@ -22,14 +22,16 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Database connection
-DB_USER = os.getenv('DB_USER', 'beppp')
-DB_PASSWORD = os.getenv('DB_PASSWORD', 'your_secure_password')
-DB_HOST = os.getenv('DB_HOST', 'localhost')
-DB_PORT = os.getenv('DB_PORT', '5432')
-DB_NAME = os.getenv('DB_NAME', 'beppp')
+# Database connection - use DATABASE_URL if available (for Docker), otherwise build from parts
+DATABASE_URL = os.getenv('DATABASE_URL')
 
-DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+if not DATABASE_URL:
+    DB_USER = os.getenv('DB_USER', 'beppp')
+    DB_PASSWORD = os.getenv('DB_PASSWORD', 'your_secure_password')
+    DB_HOST = os.getenv('DB_HOST', 'localhost')
+    DB_PORT = os.getenv('DB_PORT', '5432')
+    DB_NAME = os.getenv('DB_NAME', 'beppp')
+    DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
