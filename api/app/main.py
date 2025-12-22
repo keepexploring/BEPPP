@@ -1097,7 +1097,11 @@ async def handle_direct_format(battery_data: dict, db: Session, current_user: di
         db.add(live_data)
         db.commit()
         db.refresh(live_data)
-        
+
+        # Update battery's last_data_received timestamp
+        battery.last_data_received = datetime.now(timezone.utc)
+        db.commit()
+
         if DEBUG:
             log_webhook_event(
                 event_type="database_save_success",
