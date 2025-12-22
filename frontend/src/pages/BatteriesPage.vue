@@ -43,6 +43,23 @@
             </q-input>
           </template>
 
+          <template v-slot:body-cell-data_status="props">
+            <q-td :props="props">
+              <q-icon
+                name="circle"
+                :color="getBatteryDataStatusColor(props.row.last_data_received)"
+                size="sm"
+              >
+                <q-tooltip>
+                  {{ props.row.last_data_received
+                    ? `Last data: ${new Date(props.row.last_data_received).toLocaleString()}`
+                    : 'No data received yet'
+                  }}
+                </q-tooltip>
+              </q-icon>
+            </q-td>
+          </template>
+
           <template v-slot:body-cell-status="props">
             <q-td :props="props">
               <q-badge
@@ -162,11 +179,13 @@
 import { ref, onMounted, computed } from 'vue'
 import { batteriesAPI, hubsAPI, settingsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
+import { useHubSettingsStore } from 'stores/hubSettings'
 import { useQuasar } from 'quasar'
 import HubFilter from 'src/components/HubFilter.vue'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
+const hubSettingsStore = useHubSettingsStore()
 const selectedHub = ref(null)
 
 const batteries = ref([])
@@ -215,6 +234,7 @@ const columns = computed(() => {
   }
 
   cols.push(
+    { name: 'data_status', label: 'Data', field: 'last_data_received', align: 'center', sortable: true },
     { name: 'battery_capacity_wh', label: 'Capacity (Wh)', field: 'battery_capacity_wh', align: 'left', sortable: true },
     { name: 'status', label: 'Status', field: 'status', align: 'center', sortable: true },
     { name: 'actions', label: 'Actions', align: 'center' }
@@ -222,6 +242,22 @@ const columns = computed(() => {
 
   return cols
 })
+
+// Calculate battery data status color based on last_data_received
+const getBatteryDataStatusColor = (lastDataReceived) => {
+  if (!lastDataReceived) return 'grey'
+
+  const now = new Date()
+  const lastReceived = new Date(lastDataReceived)
+  const hoursSinceData = (now - lastReceived) / (1000 * 60 * 60)
+
+  const greenThreshold = hubSettingsStore.currentHubSettings?.battery_status_green_hours || 3
+  const orangeThreshold = hubSettingsStore.currentHubSettings?.battery_status_orange_hours || 8
+
+  if (hoursSinceData <= greenThreshold) return 'positive'  // Green
+  if (hoursSinceData <= orangeThreshold) return 'orange'   // Orange
+  return 'negative'  // Red
+}
 
 const getStatusColor = (status) => {
   const colors = {

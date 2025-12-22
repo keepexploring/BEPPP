@@ -709,6 +709,8 @@ class HubSettings(Base):
     vat_percentage = Column(Float, server_default='0.00', nullable=False)  # VAT/Tax percentage (e.g., 15.0 for 15%)
     timezone = Column(String(50), server_default='UTC', nullable=False)  # Timezone (e.g., 'Africa/Nairobi', 'Europe/London')
     default_table_rows_per_page = Column(Integer, server_default='50', nullable=False)  # Default rows per page in tables
+    battery_status_green_hours = Column(Integer, server_default='3', nullable=False)  # Hours threshold for green status (data received recently)
+    battery_status_orange_hours = Column(Integer, server_default='8', nullable=False)  # Hours threshold for orange status (data getting old)
     other_settings = Column(Text, nullable=True)  # JSON string for flexibility
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

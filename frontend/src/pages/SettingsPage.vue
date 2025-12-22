@@ -235,6 +235,50 @@
             </template>
           </q-select>
 
+          <!-- Battery Status Thresholds -->
+          <div class="q-mt-md">
+            <div class="text-subtitle2 q-mb-sm">Battery Status Indicators</div>
+            <div class="text-caption text-grey-7 q-mb-md">
+              Configure how long since last data received before battery status changes color on the batteries page.
+            </div>
+
+            <div class="row q-col-gutter-md">
+              <div class="col-6">
+                <q-input
+                  v-model.number="hubSettings.battery_status_green_hours"
+                  type="number"
+                  label="Green Status Threshold"
+                  hint="Hours for recent data (green indicator)"
+                  suffix="hours"
+                  :rules="[val => val > 0 || 'Must be greater than 0']"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="circle" color="positive" />
+                  </template>
+                </q-input>
+              </div>
+              <div class="col-6">
+                <q-input
+                  v-model.number="hubSettings.battery_status_orange_hours"
+                  type="number"
+                  label="Orange Status Threshold"
+                  hint="Hours for aging data (orange indicator)"
+                  suffix="hours"
+                  :rules="[val => val > hubSettings.battery_status_green_hours || 'Must be greater than green threshold']"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="circle" color="orange" />
+                  </template>
+                </q-input>
+              </div>
+            </div>
+            <div class="text-caption text-grey-7 q-mt-sm">
+              <q-icon name="circle" color="positive" size="xs" /> Green: Data received within {{ hubSettings.battery_status_green_hours || 3 }} hours<br />
+              <q-icon name="circle" color="orange" size="xs" /> Orange: Data received between {{ hubSettings.battery_status_green_hours || 3 }} and {{ hubSettings.battery_status_orange_hours || 8 }} hours<br />
+              <q-icon name="circle" color="negative" size="xs" /> Red: No data for over {{ hubSettings.battery_status_orange_hours || 8 }} hours
+            </div>
+          </div>
+
           <!-- Currency Setting - Superadmin Only -->
           <div class="q-mb-md q-pa-md bg-orange-1 rounded-borders">
             <div class="text-subtitle2 text-weight-bold q-mb-sm">
@@ -1604,7 +1648,9 @@ const hubSettings = ref({
   overdue_notification_hours: 24,
   vat_percentage: 0,
   timezone: 'UTC',
-  default_table_rows_per_page: 50
+  default_table_rows_per_page: 50,
+  battery_status_green_hours: 3,
+  battery_status_orange_hours: 8
 })
 
 const currencyOptions = ['USD', 'GBP', 'EUR', 'MWK']
