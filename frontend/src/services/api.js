@@ -2,6 +2,12 @@ import axios from 'axios'
 import { useAuthStore } from 'stores/auth'
 import { Notify } from 'quasar'
 
+// Router will be set by the boot file
+let router = null
+export const setRouter = (routerInstance) => {
+  router = routerInstance
+}
+
 const api = axios.create({
   baseURL: process.env.API_URL || 'http://localhost:8000',
   headers: {
@@ -35,6 +41,13 @@ api.interceptors.response.use(
         message: 'Session expired. Please login again.',
         position: 'top'
       })
+      // Redirect to login page
+      if (router) {
+        router.push({ name: 'login' })
+      } else {
+        // Fallback if router is not set
+        window.location.href = '/#/login'
+      }
     } else if (error.response?.data?.detail) {
       // Ensure detail is a string, not an object
       const detail = error.response.data.detail
