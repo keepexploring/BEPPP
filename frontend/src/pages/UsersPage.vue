@@ -115,36 +115,32 @@
         <q-card-section>
           <q-form @submit="saveUser" class="q-gutter-md">
             <q-input
-              v-if="!editingUser"
-              v-model.number="formData.user_id"
-              label="User ID"
-              type="number"
-              outlined
-              :rules="[val => !!val || 'User ID is required']"
-              hint="Unique identifier for this user"
-            />
-
-            <q-input
               v-model="formData.name"
-              label="Name"
+              label="Name *"
               outlined
               :rules="[val => !!val || 'Name is required']"
+              hint="Full name of the user"
             />
 
             <q-input
               v-model="formData.username"
-              label="Username"
+              label="Username *"
               outlined
               :rules="[val => !!val || 'Username is required']"
+              hint="Used for login"
             />
 
             <q-input
               v-if="!editingUser"
               v-model="formData.password"
-              label="Password"
+              label="Password *"
               type="password"
               outlined
-              :rules="[val => !!val || 'Password is required']"
+              :rules="[
+                val => !!val || 'Password is required',
+                val => val.length >= 8 || 'Password must be at least 8 characters'
+              ]"
+              hint="Minimum 8 characters required"
             />
 
             <q-select
@@ -154,29 +150,33 @@
               option-label="what_three_word_location"
               emit-value
               map-options
-              label="Hub"
+              label="Hub *"
               outlined
               :rules="[val => !!val || 'Hub is required']"
+              hint="Primary hub for this user"
             />
 
             <q-select
               v-model="formData.user_access_level"
               :options="roleOptions"
-              label="Access Level"
+              label="Access Level *"
               outlined
               :rules="[val => !!val || 'Access level is required']"
+              hint="user, admin, superadmin, or data_admin"
             />
 
             <q-input
               v-model="formData.mobile_number"
               label="Mobile Number"
               outlined
+              hint="Optional - for contact and notifications"
             />
 
             <q-input
               v-model="formData.users_identification_document_number"
               label="ID Document Number"
               outlined
+              hint="Optional - for user verification"
             />
 
             <q-input
@@ -185,6 +185,7 @@
               type="textarea"
               outlined
               rows="2"
+              hint="Optional - physical address"
             />
 
             <div class="row justify-end q-gutter-sm">
@@ -369,6 +370,8 @@ const saveUser = async () => {
     resetForm()
     loadUsers()
   } catch (error) {
+    console.error('User creation error:', error)
+    console.error('Error response:', error.response?.data)
     $q.notify({
       type: 'negative',
       message: error.response?.data?.detail || 'Failed to save user',

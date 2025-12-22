@@ -72,7 +72,7 @@ class SolarHub(Base):
 class User(Base):
     __tablename__ = 'user'
 
-    user_id = Column(BigInteger, primary_key=True)
+    user_id = Column(BigInteger, primary_key=True, autoincrement=True)
     Name = Column(String(255))
     users_identification_document_number = Column(String)
     mobile_number = Column(String(255))
