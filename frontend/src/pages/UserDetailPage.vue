@@ -1031,11 +1031,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { usersAPI, accountsAPI, settingsAPI, subscriptionsAPI, rentalsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
+import { useHubSettingsStore } from 'stores/hubSettings'
 
 const route = useRoute()
 const router = useRouter()
 const $q = useQuasar()
 const authStore = useAuthStore()
+const hubSettingsStore = useHubSettingsStore()
 
 const userId = ref(route.params.id)
 const loading = ref(false)
@@ -1055,23 +1057,8 @@ const pagination = ref({
   rowsPerPage: 25
 })
 
-// Hub settings for currency
-const hubSettings = ref({ default_currency: 'USD' })
-
-// Currency helper functions
-const getCurrencySymbol = (currency) => {
-  const symbols = {
-    'USD': '$',
-    'GBP': '£',
-    'EUR': '€',
-    'MWK': 'MK'
-  }
-  return symbols[currency] || currency
-}
-
-const currencySymbol = computed(() => {
-  return getCurrencySymbol(hubSettings.value.default_currency)
-})
+// Use centralized hub settings store for currency
+const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
 // Net balance = credit (positive balance) - debt (amount owed)
 const netBalance = computed(() => {
@@ -1698,17 +1685,10 @@ const submitEditUser = async () => {
 }
 
 const loadHubSettings = async () => {
-  const hubId = authStore.user?.hub_id
+  const hubId = user.value?.hub_id || authStore.user?.hub_id
   if (!hubId) return
-  try {
-    const response = await settingsAPI.getHubSettings(hubId)
-    if (response.data) {
-      hubSettings.value = response.data
-    }
-  } catch (error) {
-    console.error('Failed to load hub settings:', error)
-    // Keep default currency if failed to load
-  }
+  // Load hub settings into the store (includes currency)
+  await hubSettingsStore.loadHubSettings(hubId)
 }
 
 const loadPaymentTypes = async () => {
