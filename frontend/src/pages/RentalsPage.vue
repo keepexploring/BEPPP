@@ -1390,6 +1390,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { rentalsAPI, hubsAPI, usersAPI, batteriesAPI, pueAPI, settingsAPI, accountsAPI, subscriptionsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
+import { useHubSettingsStore } from 'stores/hubSettings'
 import { useQuasar, date } from 'quasar'
 import { useRoute, useRouter } from 'vue-router'
 import RentalReturnDialog from 'components/RentalReturnDialog.vue'
@@ -1397,6 +1398,7 @@ import HubFilter from 'src/components/HubFilter.vue'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
+const hubSettingsStore = useHubSettingsStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -1499,7 +1501,6 @@ const loadingCostStructures = ref(false)
 const selectedCostStructure = ref(null)
 const costEstimate = ref(null)
 const hubVATPercentage = ref(0)
-const hubCurrency = ref('USD')
 const estimatedKwh = ref(0)
 
 // Computed properties for dynamic form inputs based on cost structure
@@ -1570,23 +1571,8 @@ const activeRentals = computed(() => {
   return rentals.value.filter(r => r.status === 'active' || r.status === 'overdue')
 })
 
-// Computed property for currency symbol
-const currentCurrencySymbol = computed(() => {
-  const symbols = {
-    'USD': '$',
-    'EUR': '€',
-    'GBP': '£',
-    'JPY': '¥',
-    'CNY': '¥',
-    'INR': '₹',
-    'RWF': 'FRw',
-    'UGX': 'USh',
-    'KES': 'KSh',
-    'TZS': 'TSh',
-    'MWK': 'MK'
-  }
-  return symbols[hubCurrency.value] || hubCurrency.value
-})
+// Use centralized currency symbol from hub settings store
+const currentCurrencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
 // Computed property for automatic payment status
 const computedPaymentStatus = computed(() => {
@@ -2404,11 +2390,10 @@ const loadHubVAT = async (hubId) => {
   try {
     const response = await settingsAPI.getHubSettings(hubId)
     hubVATPercentage.value = response.data.vat_percentage || 0
-    hubCurrency.value = response.data.default_currency || 'USD'
+    // Currency is now handled by hubSettingsStore
   } catch (error) {
     console.error('Failed to load hub settings:', error)
     hubVATPercentage.value = 0
-    hubCurrency.value = 'USD'
   }
 }
 
