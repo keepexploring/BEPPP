@@ -24,6 +24,7 @@
           row-key="battery_id"
           :loading="loading"
           :filter="filter"
+          :pagination="pagination"
           @row-click="(_evt, row) => $router.push({ name: 'battery-detail', params: { id: row.battery_id } })"
           class="cursor-pointer"
           :no-data-label="selectedHub ? 'No batteries found for this hub - add one to get started!' : 'No batteries available yet - add your first battery!'"
@@ -159,7 +160,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { batteriesAPI, hubsAPI } from 'src/services/api'
+import { batteriesAPI, hubsAPI, settingsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useQuasar } from 'quasar'
 import HubFilter from 'src/components/HubFilter.vue'
@@ -175,6 +176,14 @@ const filter = ref('')
 const showCreateDialog = ref(false)
 const editingBattery = ref(null)
 const saving = ref(false)
+
+// Pagination settings
+const pagination = ref({
+  sortBy: 'battery_id',
+  descending: false,
+  page: 1,
+  rowsPerPage: 50
+})
 
 const formData = ref({
   battery_id: null,
@@ -342,7 +351,23 @@ const resetForm = () => {
   editingBattery.value = null
 }
 
-onMounted(() => {
+const loadHubSettings = async () => {
+  try {
+    const hubId = selectedHub.value || authStore.user?.hub_id
+    if (hubId) {
+      const response = await settingsAPI.getHubSettings(hubId)
+      if (response.data.default_table_rows_per_page) {
+        pagination.value.rowsPerPage = response.data.default_table_rows_per_page
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load hub settings:', error)
+    // Keep default pagination if settings fail to load
+  }
+}
+
+onMounted(async () => {
+  await loadHubSettings()
   loadBatteries()
   loadHubs()
 })

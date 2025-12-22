@@ -199,6 +199,15 @@
             :rules="[val => val > 0 || 'Must be greater than 0']"
           />
 
+          <q-input
+            v-model.number="hubSettings.default_table_rows_per_page"
+            type="number"
+            label="Default Table Rows Per Page"
+            hint="Number of items to show per page in tables (e.g., batteries, users, rentals)"
+            suffix="rows"
+            :rules="[val => val > 0 || 'Must be greater than 0', val => val <= 500 || 'Maximum 500 rows']"
+          />
+
           <!-- VAT/Tax Configuration -->
           <q-input
             v-model.number="hubSettings.vat_percentage"
@@ -1585,7 +1594,8 @@ const hubSettings = ref({
   default_currency: 'USD',
   overdue_notification_hours: 24,
   vat_percentage: 0,
-  timezone: 'UTC'
+  timezone: 'UTC',
+  default_table_rows_per_page: 50
 })
 
 const currencyOptions = ['USD', 'GBP', 'EUR', 'MWK']

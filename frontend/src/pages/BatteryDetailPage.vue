@@ -61,9 +61,6 @@
             <div v-if="battery.condition">
               <strong>Condition:</strong> {{ battery.condition }}
             </div>
-            <div v-if="battery.last_data_received">
-              <strong>Last Data:</strong> {{ formatDate(battery.last_data_received) }}
-            </div>
           </q-card-section>
         </q-card>
       </div>
@@ -103,9 +100,29 @@
               <div v-if="latestData.temperature">
                 <strong>Temperature:</strong> {{ latestData.temperature }}°C
               </div>
-              <div v-if="latestData.timestamp">
-                <strong>Last Update:</strong> {{ formatDate(latestData.timestamp) }}
+
+              <!-- Timestamp Information -->
+              <div v-if="latestData.timestamp || battery.last_data_received" class="q-mt-md q-pt-md" style="border-top: 1px solid #e0e0e0">
+                <div class="text-subtitle2 text-grey-8 q-mb-xs">Timestamps</div>
+                <div v-if="latestData.timestamp" class="q-ml-sm">
+                  <strong>Battery Reported:</strong> {{ formatDate(latestData.timestamp) }}
+                  <q-icon name="info" size="xs" color="grey-6" class="q-ml-xs">
+                    <q-tooltip>Time from battery's internal clock (may be incorrect if RTC not set)</q-tooltip>
+                  </q-icon>
+                </div>
+                <div v-if="battery.last_data_received" class="q-ml-sm">
+                  <strong>Server Received:</strong> {{ formatDate(battery.last_data_received) }}
+                  <q-icon name="info" size="xs" color="grey-6" class="q-ml-xs">
+                    <q-tooltip>Time when server received this data (accurate)</q-tooltip>
+                  </q-icon>
+                </div>
+                <div v-if="latestData.timestamp && battery.last_data_received && getTimestampDifference(latestData.timestamp, battery.last_data_received) > 60" class="q-ml-sm text-warning q-mt-xs">
+                  <q-icon name="warning" size="xs" />
+                  Time difference: {{ formatTimeDifference(latestData.timestamp, battery.last_data_received) }}
+                  <q-tooltip>Battery clock may need adjustment</q-tooltip>
+                </div>
               </div>
+
               <div v-if="latestData.error_message" class="text-negative">
                 <strong>Error:</strong> {{ latestData.error_message }}
               </div>
@@ -476,6 +493,27 @@ const getRentalStatusColor = (status) => {
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
   return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm:ss')
+}
+
+const getTimestampDifference = (timestamp1, timestamp2) => {
+  if (!timestamp1 || !timestamp2) return 0
+  const date1 = new Date(timestamp1)
+  const date2 = new Date(timestamp2)
+  return Math.abs(date1 - date2) / 1000 // Return difference in seconds
+}
+
+const formatTimeDifference = (timestamp1, timestamp2) => {
+  const diffSeconds = getTimestampDifference(timestamp1, timestamp2)
+
+  if (diffSeconds < 60) {
+    return `${Math.round(diffSeconds)} seconds`
+  } else if (diffSeconds < 3600) {
+    return `${Math.round(diffSeconds / 60)} minutes`
+  } else if (diffSeconds < 86400) {
+    return `${Math.round(diffSeconds / 3600)} hours`
+  } else {
+    return `${Math.round(diffSeconds / 86400)} days`
+  }
 }
 
 const generateSecret = () => {

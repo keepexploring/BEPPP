@@ -707,6 +707,7 @@ class HubSettings(Base):
     overdue_notification_hours = Column(Integer, server_default='24', nullable=False)  # Hours after due time to send notification
     vat_percentage = Column(Float, server_default='0.00', nullable=False)  # VAT/Tax percentage (e.g., 15.0 for 15%)
     timezone = Column(String(50), server_default='UTC', nullable=False)  # Timezone (e.g., 'Africa/Nairobi', 'Europe/London')
+    default_table_rows_per_page = Column(Integer, server_default='50', nullable=False)  # Default rows per page in tables
     other_settings = Column(Text, nullable=True)  # JSON string for flexibility
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
