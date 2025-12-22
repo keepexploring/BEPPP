@@ -9,7 +9,7 @@
           icon="arrow_back"
           @click="$router.back()"
         />
-        <span class="text-h4 q-ml-md">{{ hub?.name || 'Hub Details' }}</span>
+        <span class="text-h4 q-ml-md">{{ hub?.what_three_word_location || `Hub #${hub?.hub_id}` || 'Hub Details' }}</span>
       </div>
     </div>
 
@@ -27,11 +27,14 @@
           <q-separator />
           <q-card-section>
             <div class="q-gutter-sm">
-              <div><strong>ID:</strong> {{ hub.id }}</div>
-              <div><strong>Name:</strong> {{ hub.name }}</div>
-              <div><strong>Location:</strong> {{ hub.location }}</div>
-              <div v-if="hub.description">
-                <strong>Description:</strong> {{ hub.description }}
+              <div><strong>Hub ID:</strong> {{ hub.hub_id }}</div>
+              <div><strong>Location:</strong> {{ hub.what_three_word_location }}</div>
+              <div><strong>Country:</strong> {{ hub.country }}</div>
+              <div v-if="hub.solar_capacity_kw">
+                <strong>Solar Capacity:</strong> {{ hub.solar_capacity_kw }} kW
+              </div>
+              <div v-if="hub.latitude && hub.longitude">
+                <strong>Coordinates:</strong> {{ hub.latitude.toFixed(6) }}, {{ hub.longitude.toFixed(6) }}
               </div>
             </div>
           </q-card-section>
@@ -98,17 +101,17 @@
             <q-list v-if="batteries.length > 0" separator>
               <q-item
                 v-for="battery in batteries"
-                :key="battery.id"
+                :key="battery.battery_id"
                 clickable
-                :to="{ name: 'battery-detail', params: { id: battery.id } }"
+                :to="{ name: 'battery-detail', params: { id: battery.battery_id } }"
               >
                 <q-item-section avatar>
                   <q-icon name="battery_charging_full" />
                 </q-item-section>
                 <q-item-section>
-                  <q-item-label>{{ battery.serial_number }}</q-item-label>
+                  <q-item-label>Battery #{{ battery.battery_id }}{{ battery.short_id ? ` (${battery.short_id})` : '' }}</q-item-label>
                   <q-item-label caption>
-                    {{ battery.capacity }}Wh - {{ battery.model }}
+                    {{ battery.battery_capacity_wh || '-' }} Wh
                   </q-item-label>
                 </q-item-section>
                 <q-item-section side>
@@ -180,16 +183,16 @@
           <q-separator />
           <q-card-section>
             <q-list v-if="users.length > 0" separator>
-              <q-item v-for="user in users" :key="user.id">
+              <q-item v-for="user in users" :key="user.user_id" clickable :to="{ name: 'user-detail', params: { id: user.user_id } }">
                 <q-item-section avatar>
                   <q-icon name="person" />
                 </q-item-section>
                 <q-item-section>
-                  <q-item-label>{{ user.username }}</q-item-label>
-                  <q-item-label caption>{{ user.email }}</q-item-label>
+                  <q-item-label>{{ user.Name || user.username || `User ${user.user_id}` }}</q-item-label>
+                  <q-item-label caption>{{ user.username }}{{ user.mobile_number ? ` • ${user.mobile_number}` : '' }}</q-item-label>
                 </q-item-section>
                 <q-item-section side>
-                  <q-badge>{{ user.role }}</q-badge>
+                  <q-badge :color="getRoleColor(user.user_access_level)">{{ user.user_access_level }}</q-badge>
                 </q-item-section>
               </q-item>
             </q-list>
@@ -228,6 +231,16 @@ const getStatusColor = (status) => {
     retired: 'negative'
   }
   return colors[status] || 'grey'
+}
+
+const getRoleColor = (role) => {
+  const colors = {
+    user: 'grey',
+    admin: 'primary',
+    superadmin: 'purple',
+    data_admin: 'info'
+  }
+  return colors[role] || 'grey'
 }
 
 const loadHubDetails = async () => {
