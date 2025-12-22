@@ -38,6 +38,7 @@
       align="left"
     >
       <q-tab name="pue-types" label="PUE Types" />
+      <q-tab name="payment-types" label="Payment Types" />
       <q-tab name="cost-structures" label="Cost Structures" />
       <q-tab name="subscriptions" label="Subscriptions" />
       <q-tab name="hub" label="Hub Settings" />
@@ -63,6 +64,46 @@
             <q-td :props="props">
               <q-btn flat round dense icon="edit" color="primary" @click="editType(props.row)" />
               <q-btn flat round dense icon="delete" color="negative" @click="deleteType(props.row)" />
+            </q-td>
+          </template>
+        </q-table>
+      </q-tab-panel>
+
+      <!-- Payment Types Tab -->
+      <q-tab-panel name="payment-types">
+        <div class="row justify-between q-mb-md">
+          <div class="text-h6">Payment Types</div>
+          <q-btn color="primary" label="Add Payment Type" icon="add" @click="showAddPaymentTypeDialog = true" />
+        </div>
+
+        <div class="text-caption text-grey-7 q-mb-md">
+          Configure payment methods available for transactions (rentals, deposits, credit top-ups).
+        </div>
+
+        <q-table
+          :rows="paymentTypes"
+          :columns="paymentTypeColumns"
+          row-key="type_id"
+          :loading="loadingPaymentTypes"
+        >
+          <template v-slot:body-cell-is_active="props">
+            <q-td :props="props">
+              <q-badge :color="props.row.is_active ? 'positive' : 'grey'" :label="props.row.is_active ? 'Active' : 'Inactive'" />
+            </q-td>
+          </template>
+          <template v-slot:body-cell-actions="props">
+            <q-td :props="props">
+              <q-btn
+                flat
+                round
+                dense
+                :icon="props.row.is_active ? 'block' : 'check_circle'"
+                :color="props.row.is_active ? 'negative' : 'positive'"
+                @click="togglePaymentType(props.row)"
+              >
+                <q-tooltip>{{ props.row.is_active ? 'Deactivate' : 'Activate' }}</q-tooltip>
+              </q-btn>
+              <q-btn flat round dense icon="delete" color="negative" @click="deletePaymentType(props.row)" />
             </q-td>
           </template>
         </q-table>
@@ -339,6 +380,38 @@
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
           <q-btn flat :label="editingType ? 'Update' : 'Add'" color="primary" @click="saveType" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Add Payment Type Dialog -->
+    <q-dialog v-model="showAddPaymentTypeDialog">
+      <q-card style="min-width: 400px">
+        <q-card-section>
+          <div class="text-h6">Add Payment Type</div>
+        </q-card-section>
+
+        <q-card-section class="q-gutter-md">
+          <q-input
+            v-model="newPaymentType.type_name"
+            label="Payment Type Name *"
+            outlined
+            :rules="[val => !!val || 'Name is required']"
+            hint="e.g., Cash, Mobile Money, Bank Transfer"
+          />
+          <q-input
+            v-model="newPaymentType.description"
+            label="Description"
+            type="textarea"
+            outlined
+            rows="2"
+            hint="Optional description"
+          />
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn flat label="Add" color="primary" @click="savePaymentType" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -1353,6 +1426,22 @@ const newType = ref({
   description: ''
 })
 
+// Payment Types
+const paymentTypes = ref([])
+const loadingPaymentTypes = ref(false)
+const showAddPaymentTypeDialog = ref(false)
+const newPaymentType = ref({
+  type_name: '',
+  description: ''
+})
+
+const paymentTypeColumns = [
+  { name: 'type_name', label: 'Payment Type', field: 'type_name', align: 'left' },
+  { name: 'description', label: 'Description', field: 'description', align: 'left' },
+  { name: 'is_active', label: 'Status', field: 'is_active', align: 'center' },
+  { name: 'actions', label: 'Actions', align: 'center' }
+]
+
 const typeColumns = [
   { name: 'type_name', label: 'Type Name', field: 'type_name', align: 'left' },
   { name: 'description', label: 'Description', field: 'description', align: 'left' },
@@ -1687,6 +1776,110 @@ const deleteType = async (type) => {
       await loadTypes()
     } catch (error) {
       $q.notify({ type: 'negative', message: 'Failed to delete type', position: 'top' })
+    }
+  })
+}
+
+// Payment Types functions
+const loadPaymentTypes = async () => {
+  if (!activeHubId.value) return
+  loadingPaymentTypes.value = true
+  try {
+    const response = await settingsAPI.getPaymentTypes({
+      hub_id: activeHubId.value
+    })
+    paymentTypes.value = response.data.payment_types || []
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to load payment types',
+      position: 'top'
+    })
+  } finally {
+    loadingPaymentTypes.value = false
+  }
+}
+
+const savePaymentType = async () => {
+  if (!newPaymentType.value.type_name) {
+    $q.notify({
+      type: 'warning',
+      message: 'Please enter a payment type name',
+      position: 'top'
+    })
+    return
+  }
+
+  try {
+    await settingsAPI.createPaymentType({
+      type_name: newPaymentType.value.type_name,
+      description: newPaymentType.value.description,
+      hub_id: activeHubId.value
+    })
+
+    $q.notify({
+      type: 'positive',
+      message: 'Payment type created successfully',
+      position: 'top'
+    })
+
+    showAddPaymentTypeDialog.value = false
+    newPaymentType.value = { type_name: '', description: '' }
+    await loadPaymentTypes()
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: error.response?.data?.detail || 'Failed to create payment type',
+      position: 'top'
+    })
+  }
+}
+
+const togglePaymentType = async (paymentType) => {
+  try {
+    await settingsAPI.updatePaymentType(paymentType.type_id, {
+      is_active: !paymentType.is_active
+    })
+
+    $q.notify({
+      type: 'positive',
+      message: `Payment type ${paymentType.is_active ? 'deactivated' : 'activated'}`,
+      position: 'top'
+    })
+
+    await loadPaymentTypes()
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to update payment type',
+      position: 'top'
+    })
+  }
+}
+
+const deletePaymentType = async (paymentType) => {
+  $q.dialog({
+    title: 'Confirm Delete',
+    message: `Delete payment type "${paymentType.type_name}"?`,
+    cancel: true,
+    persistent: true
+  }).onOk(async () => {
+    try {
+      await settingsAPI.deletePaymentType(paymentType.type_id)
+
+      $q.notify({
+        type: 'positive',
+        message: 'Payment type deleted',
+        position: 'top'
+      })
+
+      await loadPaymentTypes()
+    } catch (error) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to delete payment type',
+        position: 'top'
+      })
     }
   })
 }
@@ -2134,6 +2327,7 @@ const onHubChange = async (newHubId) => {
   await Promise.all([
     loadDurations(),
     loadTypes(),
+    loadPaymentTypes(),
     loadPricing(),
     loadCostStructures(),
     loadHubSettings()
@@ -2467,6 +2661,7 @@ onMounted(async () => {
   // Load all settings data
   loadDurations()
   loadTypes()
+  loadPaymentTypes()
   loadPricing()
   loadCostStructures()
   loadSubscriptionPackages()

@@ -211,6 +211,8 @@ export const settingsAPI = {
     api.get('/settings/payment-types', { params }),
   createPaymentType: (data) =>
     api.post('/settings/payment-types', null, { params: data }),
+  updatePaymentType: (typeId, data) =>
+    api.put(`/settings/payment-types/${typeId}`, null, { params: data }),
   deletePaymentType: (typeId) =>
     api.delete(`/settings/payment-types/${typeId}`),
 
