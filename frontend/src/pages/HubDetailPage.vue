@@ -151,16 +151,18 @@
           <q-separator />
           <q-card-section>
             <q-list v-if="pueItems.length > 0" separator>
-              <q-item v-for="pue in pueItems" :key="pue.id">
+              <q-item v-for="pue in pueItems" :key="pue.pue_id" clickable :to="{ name: 'pue' }">
                 <q-item-section avatar>
                   <q-icon name="devices" />
                 </q-item-section>
                 <q-item-section>
-                  <q-item-label>{{ pue.name }}</q-item-label>
-                  <q-item-label caption>{{ pue.description }}</q-item-label>
+                  <q-item-label>{{ pue.name }}{{ pue.power_rating_watts ? ` (${pue.power_rating_watts}W)` : '' }}</q-item-label>
+                  <q-item-label caption>{{ pue.description || 'No description' }}</q-item-label>
                 </q-item-section>
                 <q-item-section side>
-                  <div>${{ pue.daily_rate }}/day</div>
+                  <div v-if="pue.suggested_cost_per_day || pue.rental_cost" class="text-caption">
+                    ${{ pue.rental_cost || pue.suggested_cost_per_day }}/day
+                  </div>
                   <q-badge :color="getStatusColor(pue.status)">
                     {{ pue.status }}
                   </q-badge>

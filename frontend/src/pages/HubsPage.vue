@@ -23,6 +23,8 @@
           row-key="hub_id"
           :loading="loading"
           :filter="filter"
+          @row-click="(_evt, row) => $router.push({ name: 'hub-detail', params: { id: row.hub_id } })"
+          class="cursor-pointer"
         >
           <template v-slot:top-right>
             <q-input
