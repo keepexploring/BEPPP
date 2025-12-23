@@ -1645,6 +1645,7 @@ const isStructureValid = computed(() => {
 const hubSettings = ref({
   debt_notification_threshold: -100,
   default_currency: 'USD',
+  currency_symbol: null,
   overdue_notification_hours: 24,
   vat_percentage: 0,
   timezone: 'UTC',
