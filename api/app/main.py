@@ -6440,6 +6440,38 @@ async def estimate_rental_cost(
                 quantity = 0
                 amount = 0
 
+        elif comp.unit_type == 'per_week':
+            if duration_unit == 'weeks':
+                quantity = duration_value
+            elif duration_unit == 'days':
+                quantity = duration_value / 7
+            elif duration_unit == 'months':
+                quantity = duration_value * 4.33  # Approximate weeks per month
+            elif duration_unit == 'hours':
+                quantity = duration_value / (24 * 7)
+            amount = quantity * comp.rate
+
+        elif comp.unit_type == 'per_month':
+            if duration_unit == 'months':
+                quantity = duration_value
+            elif duration_unit == 'weeks':
+                quantity = duration_value / 4.33
+            elif duration_unit == 'days':
+                quantity = duration_value / 30
+            elif duration_unit == 'hours':
+                quantity = duration_value / (24 * 30)
+            amount = quantity * comp.rate
+
+        elif comp.unit_type == 'per_recharge':
+            # Estimate based on expected recharges (will be 0 in estimate, calculated on return)
+            quantity = 0
+            amount = 0
+
+        elif comp.unit_type == 'one_time':
+            # One-time fee charged once regardless of duration
+            quantity = 1
+            amount = comp.rate
+
         elif comp.unit_type == 'fixed':
             quantity = 1
             amount = comp.rate
