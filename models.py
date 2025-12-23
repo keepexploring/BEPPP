@@ -110,6 +110,7 @@ class Note(Base):
     rentals = relationship("Rental", secondary=rental_notes, back_populates="notes")
     pue_items = relationship("ProductiveUseEquipment", secondary=pue_notes, back_populates="notes")
     pue_rentals = relationship("PUERental", secondary=pue_rental_notes, back_populates="notes")
+    battery_rentals = relationship("BatteryRental", secondary=battery_rental_notes, back_populates="notes")
 
 class BEPPPBattery(Base):
     __tablename__ = 'bepppbattery'
@@ -160,6 +161,7 @@ class ProductiveUseEquipment(Base):
     notes = relationship("Note", secondary=pue_notes, back_populates="pue_items")
     pue_rentals = relationship("PUERental", back_populates="pue")
     rental_items = relationship("RentalPUEItem", back_populates="pue")
+    inspections = relationship("PUEInspection", back_populates="pue", cascade="all, delete-orphan")
 
 class LiveData(Base):
     __tablename__ = 'livedata'
@@ -316,6 +318,7 @@ class PUERental(Base):
     pue = relationship("ProductiveUseEquipment", back_populates="pue_rentals")
     user = relationship("User", back_populates="pue_rentals")
     notes = relationship("Note", secondary=pue_rental_notes, back_populates="pue_rentals")
+    pay_to_own_ledger = relationship("PUEPayToOwnLedger", back_populates="pue_rental", uselist=False, cascade="all, delete-orphan")
 
 # Analytics helper models for aggregation results
 class BatteryUsageStats:
@@ -755,3 +758,241 @@ class WebhookLog(Base):
 
     # Relationships
     battery = relationship("BEPPPBattery", foreign_keys=[battery_id])
+
+
+# ============================================================================
+# RENTAL SYSTEM RESTRUCTURE - NEW MODELS
+# ============================================================================
+
+# Junction table for battery rental notes
+battery_rental_notes = Table('battery_rental_notes', Base.metadata,
+    Column('rental_id', BigInteger, ForeignKey('battery_rentals.rental_id'), primary_key=True),
+    Column('note_id', BigInteger, ForeignKey('note.id'), primary_key=True)
+)
+
+
+class CostStructureBatteryConfig(Base):
+    """Battery-specific configuration for cost structures"""
+    __tablename__ = 'cost_structure_battery_config'
+
+    config_id = Column(Integer, primary_key=True, autoincrement=True)
+    structure_id = Column(Integer, ForeignKey('cost_structures.structure_id', ondelete='CASCADE'), nullable=False, unique=True)
+
+    # Rental period settings
+    max_retention_days = Column(Integer, nullable=True)  # Max days before MUST return (soft limit)
+    allow_extensions = Column(Boolean, server_default='true', nullable=False)
+
+    # Overdue handling (combinable options)
+    grace_period_days = Column(Integer, nullable=True)  # Days of grace before penalties
+    daily_fine_after_grace = Column(Float, nullable=True)  # Per-day fine after grace
+    auto_rollover_to_next_period = Column(Boolean, server_default='false', nullable=False)  # Auto-extend to next rental period
+    rollover_discount_percentage = Column(Float, nullable=True)  # Discount on auto-rollover (e.g., 10%)
+
+    # Recharge settings
+    max_recharges = Column(Integer, nullable=True)  # NULL = unlimited
+    recharge_fee_per_occurrence = Column(Float, nullable=True)  # Fee per recharge (if per_recharge component not used)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    cost_structure = relationship("CostStructure", foreign_keys=[structure_id])
+
+
+class CostStructurePUEConfig(Base):
+    """PUE-specific configuration for cost structures"""
+    __tablename__ = 'cost_structure_pue_config'
+
+    config_id = Column(Integer, primary_key=True, autoincrement=True)
+    structure_id = Column(Integer, ForeignKey('cost_structures.structure_id', ondelete='CASCADE'), nullable=False, unique=True)
+
+    # Pay-to-own settings
+    supports_pay_to_own = Column(Boolean, server_default='false', nullable=False)
+    default_pay_to_own_price = Column(Float, nullable=True)  # Default price to own
+    pay_to_own_conversion_formula = Column(String(50), nullable=True)  # 'fixed_price', 'cumulative_rental', 'percentage_based'
+
+    # Inspection settings
+    requires_inspections = Column(Boolean, server_default='false', nullable=False)
+    inspection_interval_days = Column(Integer, nullable=True)  # Days between required inspections
+    inspection_reminder_days = Column(Integer, server_default='7', nullable=False)  # Days before inspection to send reminder
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    cost_structure = relationship("CostStructure", foreign_keys=[structure_id])
+
+
+class BatteryRental(Base):
+    """Battery rentals - separate from PUE rentals"""
+    __tablename__ = 'battery_rentals'
+
+    rental_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey('user.user_id', ondelete='CASCADE'), nullable=False)
+    hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id', ondelete='CASCADE'), nullable=False)
+
+    # Rental period
+    start_date = Column(DateTime(timezone=True), nullable=False)
+    end_date = Column(DateTime(timezone=True), nullable=False)  # Original due date
+    actual_return_date = Column(DateTime(timezone=True), nullable=True)
+
+    # Status
+    status = Column(String(20), server_default='active', nullable=False)  # active, returned, overdue, cancelled
+
+    # Cost structure tracking
+    cost_structure_id = Column(Integer, ForeignKey('cost_structures.structure_id', ondelete='SET NULL'), nullable=True)
+    cost_structure_snapshot = Column(Text, nullable=True)  # JSON snapshot
+
+    # Payment tracking
+    estimated_cost_before_vat = Column(Float, nullable=True)
+    estimated_vat = Column(Float, nullable=True)
+    estimated_cost_total = Column(Float, nullable=True)
+    final_cost_before_vat = Column(Float, nullable=True)
+    final_vat = Column(Float, nullable=True)
+    final_cost_total = Column(Float, nullable=True)
+    amount_paid = Column(Float, server_default='0', nullable=False)
+    amount_owed = Column(Float, server_default='0', nullable=False)
+    deposit_amount = Column(Float, server_default='0', nullable=False)
+    deposit_returned = Column(Boolean, server_default='false', nullable=False)
+    deposit_returned_date = Column(DateTime(timezone=True), nullable=True)
+    payment_method = Column(String(50), nullable=True)
+    payment_type = Column(String(50), nullable=True)
+    payment_status = Column(String(50), nullable=True)
+
+    # Overdue handling
+    max_retention_days = Column(Integer, nullable=True)  # From cost structure
+    grace_period_days = Column(Integer, nullable=True)
+    grace_period_end_date = Column(DateTime(timezone=True), nullable=True)  # Calculated
+    daily_fine_after_grace = Column(Float, nullable=True)
+    auto_rollover_enabled = Column(Boolean, server_default='false', nullable=False)
+
+    # Recharge tracking
+    max_recharges = Column(Integer, nullable=True)  # NULL = unlimited
+    recharges_used = Column(Integer, server_default='0', nullable=False)
+
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_by = Column(BigInteger, ForeignKey('user.user_id', ondelete='SET NULL'), nullable=True)
+
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id])
+    hub = relationship("SolarHub", foreign_keys=[hub_id])
+    cost_structure = relationship("CostStructure", foreign_keys=[cost_structure_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    battery_items = relationship("BatteryRentalItem", back_populates="rental", cascade="all, delete-orphan")
+    notes = relationship("Note", secondary=battery_rental_notes, back_populates="battery_rentals")
+
+
+class BatteryRentalItem(Base):
+    """Individual batteries in a battery rental"""
+    __tablename__ = 'battery_rental_items'
+
+    item_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    rental_id = Column(BigInteger, ForeignKey('battery_rentals.rental_id', ondelete='CASCADE'), nullable=False)
+    battery_id = Column(BigInteger, ForeignKey('bepppbattery.battery_id', ondelete='CASCADE'), nullable=False)
+
+    # Item-specific tracking
+    condition_at_checkout = Column(String(50), nullable=True)  # good, fair, damaged
+    condition_at_return = Column(String(50), nullable=True)
+    notes = Column(Text, nullable=True)
+
+    # kWh tracking (if cost structure uses kWh)
+    kwh_at_checkout = Column(Float, nullable=True)
+    kwh_at_return = Column(Float, nullable=True)
+    kwh_used = Column(Float, nullable=True)
+
+    # Timestamps
+    added_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    returned_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    rental = relationship("BatteryRental", back_populates="battery_items")
+    battery = relationship("BEPPPBattery")
+
+
+class PUEPayToOwnLedger(Base):
+    """Separate tracking for pay-to-own progress"""
+    __tablename__ = 'pue_pay_to_own_ledger'
+
+    ledger_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    pue_rental_id = Column(BigInteger, ForeignKey('puerental.pue_rental_id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(BigInteger, ForeignKey('user.user_id', ondelete='CASCADE'), nullable=False)
+
+    # Pay-to-own tracking
+    total_price = Column(Float, nullable=False)  # Original price to own
+    amount_paid_to_date = Column(Float, server_default='0', nullable=False)
+    amount_remaining = Column(Float, nullable=False)
+    # percent_paid calculated as GENERATED column - would need to add in migration if needed
+
+    # Status
+    status = Column(String(20), server_default='active', nullable=False)  # active, paid_off, converted_to_rental, defaulted
+
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    pue_rental = relationship("PUERental", back_populates="pay_to_own_ledger")
+    user = relationship("User")
+    transactions = relationship("PUEPayToOwnTransaction", back_populates="ledger", cascade="all, delete-orphan")
+
+    # Computed property for percent paid
+    @property
+    def percent_paid(self):
+        if self.total_price > 0:
+            return (self.amount_paid_to_date / self.total_price) * 100
+        return 0
+
+
+class PUEPayToOwnTransaction(Base):
+    """Individual payments toward PUE ownership"""
+    __tablename__ = 'pue_pay_to_own_transactions'
+
+    transaction_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    ledger_id = Column(BigInteger, ForeignKey('pue_pay_to_own_ledger.ledger_id', ondelete='CASCADE'), nullable=False)
+    account_transaction_id = Column(Integer, ForeignKey('account_transactions.transaction_id', ondelete='SET NULL'), nullable=True)
+
+    amount = Column(Float, nullable=False)
+    payment_date = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    description = Column(Text, nullable=True)
+
+    # Balance tracking
+    balance_before = Column(Float, nullable=True)
+    balance_after = Column(Float, nullable=True)
+
+    created_by = Column(BigInteger, ForeignKey('user.user_id', ondelete='SET NULL'), nullable=True)
+
+    # Relationships
+    ledger = relationship("PUEPayToOwnLedger", back_populates="transactions")
+    account_transaction = relationship("AccountTransaction")
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class PUEInspection(Base):
+    """PUE inspection tracking"""
+    __tablename__ = 'pue_inspections'
+
+    inspection_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    pue_id = Column(BigInteger, ForeignKey('productiveuseequipment.pue_id', ondelete='CASCADE'), nullable=False)
+    pue_rental_id = Column(BigInteger, ForeignKey('puerental.pue_rental_id', ondelete='SET NULL'), nullable=True)
+
+    inspection_date = Column(DateTime(timezone=True), nullable=False)
+    inspector_id = Column(BigInteger, ForeignKey('user.user_id', ondelete='SET NULL'), nullable=True)
+
+    # Inspection details
+    condition = Column(String(50), nullable=True)  # excellent, good, fair, poor, damaged
+    issues_found = Column(Text, nullable=True)
+    actions_taken = Column(Text, nullable=True)
+    next_inspection_due = Column(DateTime(timezone=True), nullable=True)
+
+    # Optional link to notes system
+    note_id = Column(BigInteger, ForeignKey('note.id', ondelete='SET NULL'), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    pue = relationship("ProductiveUseEquipment", back_populates="inspections")
+    pue_rental = relationship("PUERental")
+    inspector = relationship("User", foreign_keys=[inspector_id])
+    note = relationship("Note")
