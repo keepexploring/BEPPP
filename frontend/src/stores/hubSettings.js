@@ -51,6 +51,17 @@ export const useHubSettingsStore = defineStore('hubSettings', {
       return hubId && state.settings[hubId]
         ? state.settings[hubId].default_table_rows_per_page || 50
         : 50
+    },
+
+    /**
+     * Get timezone for current user's hub
+     */
+    currentTimezone: (state) => {
+      const authStore = useAuthStore()
+      const hubId = authStore.user?.hub_id
+      return hubId && state.settings[hubId]
+        ? state.settings[hubId].timezone || 'UTC'
+        : 'UTC'
     }
   },
 

@@ -52,7 +52,7 @@
               >
                 <q-tooltip>
                   {{ props.row.last_data_received
-                    ? `Last data: ${new Date(props.row.last_data_received).toLocaleString()} UTC`
+                    ? `Last data: ${new Date(props.row.last_data_received).toLocaleString()} ${currentTimezone}`
                     : 'No data received yet'
                   }}
                 </q-tooltip>
@@ -187,6 +187,7 @@ const $q = useQuasar()
 const authStore = useAuthStore()
 const hubSettingsStore = useHubSettingsStore()
 const selectedHub = ref(null)
+const currentTimezone = computed(() => hubSettingsStore.currentTimezone || 'UTC')
 
 const batteries = ref([])
 const hubOptions = ref([])

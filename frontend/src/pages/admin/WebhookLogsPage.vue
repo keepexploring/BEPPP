@@ -167,11 +167,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { adminAPI, batteriesAPI } from 'src/services/api'
 import { useQuasar, date } from 'quasar'
+import { useHubSettingsStore } from 'stores/hubSettings'
 
 const $q = useQuasar()
+const hubSettingsStore = useHubSettingsStore()
 
 const logs = ref([])
 const batteries = ref([])
@@ -202,7 +204,8 @@ const columns = [
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
-  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm:ss') + ' UTC'
+  const timezone = hubSettingsStore.currentTimezone || 'UTC'
+  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm:ss') + ` ${timezone}`
 }
 
 const formatJSON = (data) => {
