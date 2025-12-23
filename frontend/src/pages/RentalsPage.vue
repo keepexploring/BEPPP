@@ -1719,7 +1719,7 @@ const getPaymentStatusDescription = (rental) => {
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
-  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm')
+  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm') + ' UTC'
 }
 
 const onRowClick = (evt, row) => {

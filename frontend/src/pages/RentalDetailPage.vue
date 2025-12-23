@@ -257,7 +257,7 @@ const getStatusColor = (status) => {
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
-  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm')
+  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm') + ' UTC'
 }
 
 const calculateDays = (rental) => {

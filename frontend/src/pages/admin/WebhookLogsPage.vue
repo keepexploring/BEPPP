@@ -72,6 +72,12 @@
           :loading="loading"
           :pagination="pagination"
         >
+          <template v-slot:body-cell-battery_id="props">
+            <q-td :props="props">
+              {{ props.row.battery_id || 'N/A' }}
+            </q-td>
+          </template>
+
           <template v-slot:body-cell-status_code="props">
             <q-td :props="props">
               <q-badge
@@ -196,7 +202,7 @@ const columns = [
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
-  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm:ss')
+  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm:ss') + ' UTC'
 }
 
 const formatJSON = (data) => {

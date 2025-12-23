@@ -492,7 +492,7 @@ const getRentalStatusColor = (status) => {
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
-  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm:ss')
+  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm:ss') + ' UTC'
 }
 
 const getTimestampDifference = (timestamp1, timestamp2) => {

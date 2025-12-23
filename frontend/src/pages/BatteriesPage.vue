@@ -52,7 +52,7 @@
               >
                 <q-tooltip>
                   {{ props.row.last_data_received
-                    ? `Last data: ${new Date(props.row.last_data_received).toLocaleString()}`
+                    ? `Last data: ${new Date(props.row.last_data_received).toLocaleString()} UTC`
                     : 'No data received yet'
                   }}
                 </q-tooltip>

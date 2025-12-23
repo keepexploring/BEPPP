@@ -1175,7 +1175,7 @@ const getRoleColor = (role) => {
 
 const formatTimestamp = (timestamp) => {
   if (!timestamp) return ''
-  return new Date(timestamp).toLocaleString()
+  return new Date(timestamp).toLocaleString() + ' UTC'
 }
 
 const loadUser = async () => {

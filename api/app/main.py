@@ -284,8 +284,8 @@ class UserCreate(BaseModel):
     address: Optional[str] = None
     hub_id: int
     user_access_level: str
-    username: str
-    password: str
+    username: Optional[str] = None  # Auto-generated from name if not provided
+    password: Optional[str] = None  # Auto-generated if not provided
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
@@ -2280,6 +2280,30 @@ async def create_user(
         # Remove user_id if present (database will auto-generate it)
         user_data.pop("user_id", None)
 
+        # Auto-generate username from name if not provided
+        generated_username = None
+        if not user_data.get("username"):
+            # Create username from name + number
+            base_username = user_data["name"].lower().replace(" ", "")
+            # Check for existing usernames and find next available number
+            counter = 1
+            test_username = base_username
+            while db.query(User).filter(User.username == test_username).first():
+                test_username = f"{base_username}{counter}"
+                counter += 1
+            user_data["username"] = test_username
+            generated_username = test_username
+
+        # Auto-generate password if not provided
+        generated_password = None
+        if not user_data.get("password"):
+            import secrets
+            import string
+            # Generate a random 12-character password
+            alphabet = string.ascii_letters + string.digits
+            generated_password = ''.join(secrets.choice(alphabet) for _ in range(12))
+            user_data["password"] = generated_password
+
         user_data["password_hash"] = hash_password(user_data.pop("password"))
         user_data["Name"] = user_data.pop("name")
 
@@ -2292,7 +2316,18 @@ async def create_user(
 
         db.commit()
         db.refresh(db_user)
-        return db_user
+
+        # Return user with generated credentials if they were auto-generated
+        response_data = {
+            "user": db_user,
+            "generated_credentials": {}
+        }
+        if generated_username:
+            response_data["generated_credentials"]["username"] = generated_username
+        if generated_password:
+            response_data["generated_credentials"]["password"] = generated_password
+
+        return response_data
     except Exception as e:
         db.rollback()
         import traceback
@@ -2357,6 +2392,39 @@ async def update_user(
         db.commit()
         db.refresh(user)
         return user
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Reset a user's password (admin/superadmin only)"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        import secrets
+        import string
+        # Generate a random 12-character password
+        alphabet = string.ascii_letters + string.digits
+        new_password = ''.join(secrets.choice(alphabet) for _ in range(12))
+
+        # Update password
+        user.password_hash = hash_password(new_password)
+        db.commit()
+
+        return {
+            "message": "Password reset successfully",
+            "new_password": new_password
+        }
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
