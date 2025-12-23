@@ -6422,7 +6422,11 @@ async def get_hub_settings(
             "debt_notification_threshold": -100,
             "default_currency": "USD",
             "vat_percentage": 0.0,
-            "timezone": "UTC"
+            "timezone": "UTC",
+            "overdue_notification_hours": 24,
+            "default_table_rows_per_page": 50,
+            "battery_status_green_hours": 3,
+            "battery_status_orange_hours": 8
         }
 
     return {
@@ -6430,7 +6434,11 @@ async def get_hub_settings(
         "debt_notification_threshold": float(settings.debt_notification_threshold) if settings.debt_notification_threshold else -100,
         "default_currency": settings.default_currency or "USD",
         "vat_percentage": float(settings.vat_percentage) if settings.vat_percentage else 0.0,
-        "timezone": settings.timezone or "UTC"
+        "timezone": settings.timezone or "UTC",
+        "overdue_notification_hours": settings.overdue_notification_hours if settings.overdue_notification_hours else 24,
+        "default_table_rows_per_page": settings.default_table_rows_per_page if settings.default_table_rows_per_page else 50,
+        "battery_status_green_hours": settings.battery_status_green_hours if settings.battery_status_green_hours else 3,
+        "battery_status_orange_hours": settings.battery_status_orange_hours if settings.battery_status_orange_hours else 8
     }
 
 @app.put("/settings/hub/{hub_id}", tags=["Settings"])
@@ -6440,6 +6448,10 @@ async def update_hub_settings(
     default_currency: Optional[str] = Query(None),
     vat_percentage: Optional[float] = Query(None),
     timezone: Optional[str] = Query(None),
+    overdue_notification_hours: Optional[int] = Query(None),
+    default_table_rows_per_page: Optional[int] = Query(None),
+    battery_status_green_hours: Optional[int] = Query(None),
+    battery_status_orange_hours: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -6464,6 +6476,18 @@ async def update_hub_settings(
 
     if timezone is not None:
         settings.timezone = timezone
+
+    if overdue_notification_hours is not None:
+        settings.overdue_notification_hours = overdue_notification_hours
+
+    if default_table_rows_per_page is not None:
+        settings.default_table_rows_per_page = default_table_rows_per_page
+
+    if battery_status_green_hours is not None:
+        settings.battery_status_green_hours = battery_status_green_hours
+
+    if battery_status_orange_hours is not None:
+        settings.battery_status_orange_hours = battery_status_orange_hours
 
     db.commit()
     db.refresh(settings)
