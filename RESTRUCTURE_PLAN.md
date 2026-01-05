@@ -1,5 +1,23 @@
 # BEPPP Rental System Restructure Plan
 
+## Current Status (December 23, 2025)
+
+**Phase 1: Database Changes** ✅ COMPLETE
+- All tables created, migration file generated
+- Commit: 0cdbe23
+- Currently testing with Docker rebuild
+
+**Phase 2: Backend Changes** 🔄 IN PROGRESS
+- Models created ✅
+- Cost structure estimate API updated ✅
+- Remaining: Battery rental endpoints, PUE rental endpoints, inspection endpoints
+
+**Phase 3: Frontend Changes** ⏳ NOT STARTED
+
+**Phase 4: Notifications** ⏳ NOT STARTED
+
+---
+
 ## Overview
 Major restructure to separate battery rentals from PUE rentals, add pay-to-own functionality for PUE, enhance cost structures, and add inspection tracking.
 
@@ -335,32 +353,47 @@ GET    /api/cost-structures/{id}/calculate - Calculate cost with overdue handlin
 
 ## Migration Strategy
 
-### Phase 1: Database Changes
-1. Create new tables (BatteryRental, BatteryRentalItem, PUEPayToOwnLedger, etc.)
-2. Add new columns to existing tables
-3. **DELETE existing rental data** (as per user decision)
-4. Update indexes
+### Phase 1: Database Changes ✅ COMPLETE
+1. ✅ Create new tables (BatteryRental, BatteryRentalItem, PUEPayToOwnLedger, etc.)
+2. ✅ Add new columns to existing tables
+3. ✅ **DELETE existing rental data** (as per user decision)
+4. ✅ Update indexes
+5. ✅ Created migration file: `alembic/versions/f177f72b3403_restructure_rental_system.py`
+6. ✅ Committed: 0cdbe23 "Add database migration and models for rental system restructure"
+7. 🔄 Testing migration locally (Docker rebuild in progress)
 
-### Phase 2: Backend Changes
-1. Create new models in `models.py`
-2. Update API endpoints in `main.py`
-3. Add business logic for:
-   - Overdue calculation with grace periods
-   - Pay-to-own payment allocation
-   - Inspection due date calculation
-   - Recharge limit tracking
+### Phase 2: Backend Changes (IN PROGRESS)
+1. ✅ Create new models in `models.py`
+   - ✅ BatteryRental
+   - ✅ BatteryRentalItem
+   - ✅ CostStructureBatteryConfig
+   - ✅ CostStructurePUEConfig
+   - ✅ PUEPayToOwnLedger
+   - ✅ PUEPayToOwnTransaction
+   - ✅ PUEInspection
+2. ⏳ Update API endpoints in `main.py`
+   - ✅ Update cost structure estimate API with new unit types (per_week, per_month, per_recharge, one_time)
+   - ⏳ Update return cost calculation with overdue logic
+   - ⏳ Create battery rental endpoints
+   - ⏳ Create PUE rental endpoints
+   - ⏳ Create inspection endpoints
+3. ⏳ Add business logic for:
+   - ⏳ Overdue calculation with grace periods
+   - ⏳ Pay-to-own payment allocation
+   - ⏳ Inspection due date calculation
+   - ⏳ Recharge limit tracking
 
-### Phase 3: Frontend Changes
-1. Update user detail page with separate sections
-2. Create new rental creation pages
-3. Update settings page with enhanced cost structure builder
-4. Add inspection recording UI
-5. Update PUE list/detail pages
+### Phase 3: Frontend Changes (NOT STARTED)
+1. ⏳ Update user detail page with separate sections
+2. ⏳ Create new rental creation pages
+3. ⏳ Update settings page with enhanced cost structure builder
+4. ⏳ Add inspection recording UI
+5. ⏳ Update PUE list/detail pages
 
-### Phase 4: Notifications
-1. Add inspection due alerts
-2. Add overdue rental alerts
-3. Add retention limit warnings
+### Phase 4: Notifications (NOT STARTED)
+1. ⏳ Add inspection due alerts
+2. ⏳ Add overdue rental alerts
+3. ⏳ Add retention limit warnings
 
 ---
 

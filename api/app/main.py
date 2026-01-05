@@ -466,6 +466,78 @@ class AddPUEToRentalRequest(BaseModel):
     rental_cost: Optional[float] = Field(None, description="Additional cost for new PUE items")
     due_back: Optional[datetime] = Field(None, description="Due date for new PUE items")
 
+# ============================================================================
+# NEW RENTAL SYSTEM PYDANTIC MODELS
+# ============================================================================
+
+class BatteryRentalCreate(BaseModel):
+    """Create a new battery rental"""
+    user_id: int = Field(..., description="User ID renting the batteries")
+    battery_ids: List[int] = Field(..., description="List of battery IDs to rent")
+    cost_structure_id: int = Field(..., description="Cost structure to apply")
+    rental_start_date: Optional[datetime] = Field(None, description="Rental start date (defaults to now)")
+    due_date: Optional[datetime] = Field(None, description="Expected return date")
+    deposit_amount: Optional[float] = Field(None, description="Deposit collected")
+    notes: Optional[List[str]] = Field(None, description="Notes about the rental")
+
+class BatteryRentalUpdate(BaseModel):
+    """Update battery rental details"""
+    due_date: Optional[datetime] = Field(None, description="Update expected return date")
+    notes: Optional[List[str]] = Field(None, description="Add notes to rental")
+
+class BatteryRentalReturn(BaseModel):
+    """Return batteries from a rental"""
+    battery_ids: Optional[List[int]] = Field(None, description="Battery IDs to return (if None, return all)")
+    return_date: Optional[datetime] = Field(None, description="Return date (defaults to now)")
+    condition_notes: Optional[str] = Field(None, description="Notes about battery condition")
+    payment_amount: Optional[float] = Field(None, description="Payment collected on return")
+    payment_type: Optional[str] = Field(None, description="Payment type: Cash, Mobile Money, etc.")
+
+class BatteryRentalAddBattery(BaseModel):
+    """Add batteries to existing rental"""
+    battery_ids: List[int] = Field(..., description="Battery IDs to add")
+    additional_cost: Optional[float] = Field(None, description="Additional cost for new batteries")
+
+class BatteryRentalRecharge(BaseModel):
+    """Record a battery recharge"""
+    battery_id: int = Field(..., description="Battery ID that was recharged")
+    recharge_date: Optional[datetime] = Field(None, description="Recharge date (defaults to now)")
+    recharge_cost: Optional[float] = Field(None, description="Cost of recharge")
+    notes: Optional[str] = Field(None, description="Recharge notes")
+
+class PUERentalCreateNew(BaseModel):
+    """Create a new PUE rental with pay-to-own support"""
+    user_id: int = Field(..., description="User ID renting the PUE")
+    pue_id: int = Field(..., description="PUE item ID")
+    cost_structure_id: int = Field(..., description="Cost structure to apply")
+    rental_start_date: Optional[datetime] = Field(None, description="Rental start date (defaults to now)")
+    is_pay_to_own: bool = Field(False, description="Is this a pay-to-own rental")
+    pay_to_own_price: Optional[float] = Field(None, description="Total price for pay-to-own")
+    initial_payment: Optional[float] = Field(None, description="Initial payment amount")
+    notes: Optional[List[str]] = Field(None, description="Notes about the rental")
+
+class PUERentalPayment(BaseModel):
+    """Record payment for PUE rental"""
+    payment_amount: float = Field(..., description="Payment amount")
+    payment_date: Optional[datetime] = Field(None, description="Payment date (defaults to now)")
+    payment_type: str = Field("Cash", description="Payment type: Cash, Mobile Money, etc.")
+    notes: Optional[str] = Field(None, description="Payment notes")
+
+class PUERentalConvertToRental(BaseModel):
+    """Convert pay-to-own back to regular rental"""
+    new_cost_structure_id: int = Field(..., description="New cost structure for rental")
+    refund_amount: Optional[float] = Field(None, description="Amount to refund")
+    notes: Optional[str] = Field(None, description="Conversion notes")
+
+class PUEInspectionCreate(BaseModel):
+    """Create PUE inspection record"""
+    inspector_name: str = Field(..., description="Name of inspector")
+    inspection_date: Optional[datetime] = Field(None, description="Inspection date (defaults to now)")
+    condition: str = Field(..., description="Condition: Excellent, Good, Fair, Poor, Damaged")
+    notes: Optional[str] = Field(None, description="Inspection notes")
+    requires_maintenance: bool = Field(False, description="Does PUE require maintenance")
+    maintenance_notes: Optional[str] = Field(None, description="Maintenance notes")
+
 class DataQuery(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -4502,6 +4574,848 @@ async def return_individual_pue_item(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Error returning PUE item: {str(e)}")
+
+# ============================================================================
+# NEW BATTERY RENTAL ENDPOINTS
+# ============================================================================
+
+@app.post("/battery-rentals",
+    tags=["Battery Rentals"],
+    summary="Create Battery Rental",
+    description="""
+    ## Create a New Battery Rental
+
+    Creates a new battery rental using the restructured rental system.
+    Supports multiple batteries in a single rental.
+
+    ### Permissions:
+    - **ADMIN**: Can create rentals
+    - **SUPERADMIN**: Can create rentals
+    - **USER**: Can create rentals for their own hub
+
+    ### Features:
+    - Multiple batteries in one rental
+    - Automatic availability checking
+    - Cost structure application
+    - Overdue handling with grace periods
+    - Recharge tracking
+
+    ### Returns:
+    - Created rental information with all batteries
+    """,
+    response_description="Created battery rental details")
+async def create_battery_rental(
+    rental: BatteryRentalCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new battery rental"""
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot create rentals")
+
+    try:
+        # Verify user exists
+        user = db.query(BEPPPUser).filter(BEPPPUser.user_id == rental.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Authorization check
+        if current_user.get('role') == UserRole.USER:
+            if user.hub_id != current_user.get('hub_id'):
+                raise HTTPException(status_code=403, detail="Access denied")
+
+        # Verify cost structure exists
+        cost_structure = db.query(CostStructure).filter(
+            CostStructure.structure_id == rental.cost_structure_id
+        ).first()
+        if not cost_structure:
+            raise HTTPException(status_code=404, detail="Cost structure not found")
+
+        # Check all batteries exist and are available
+        batteries = []
+        for battery_id in rental.battery_ids:
+            battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_id).first()
+            if not battery:
+                raise HTTPException(status_code=404, detail=f"Battery {battery_id} not found")
+
+            # Check if battery is already in an active rental
+            existing_rental = db.query(BatteryRentalItem).join(BatteryRental).filter(
+                BatteryRentalItem.battery_id == battery_id,
+                BatteryRentalItem.return_date.is_(None),
+                BatteryRental.rental_status == 'active'
+            ).first()
+            if existing_rental:
+                raise HTTPException(status_code=409, detail=f"Battery {battery_id} is already rented")
+
+            batteries.append(battery)
+
+        # Create rental
+        rental_start = rental.rental_start_date or datetime.now(timezone.utc)
+        new_rental = BatteryRental(
+            user_id=rental.user_id,
+            hub_id=user.hub_id,
+            cost_structure_id=rental.cost_structure_id,
+            rental_start_date=rental_start,
+            rental_end_date=rental.due_date,
+            deposit_paid=rental.deposit_amount or 0.0,
+            rental_status='active'
+        )
+        db.add(new_rental)
+        db.flush()  # Get rental_id
+
+        # Create rental items for each battery
+        rental_items = []
+        for battery in batteries:
+            item = BatteryRentalItem(
+                rental_id=new_rental.rental_id,
+                battery_id=battery.battery_id,
+                rental_start_date=rental_start
+            )
+            db.add(item)
+            rental_items.append(item)
+
+        # Add notes if provided
+        if rental.notes:
+            for note_content in rental.notes:
+                note = Note(content=note_content)
+                db.add(note)
+                db.flush()
+                new_rental.notes.append(note)
+
+        db.commit()
+        db.refresh(new_rental)
+
+        return {
+            "message": "Battery rental created successfully",
+            "rental_id": new_rental.rental_id,
+            "user_id": new_rental.user_id,
+            "hub_id": new_rental.hub_id,
+            "battery_ids": rental.battery_ids,
+            "rental_start_date": new_rental.rental_start_date.isoformat(),
+            "rental_end_date": new_rental.rental_end_date.isoformat() if new_rental.rental_end_date else None,
+            "status": new_rental.rental_status,
+            "deposit_paid": float(new_rental.deposit_paid),
+            "cost_structure_id": new_rental.cost_structure_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Error creating battery rental: {str(e)}")
+
+@app.get("/battery-rentals/{rental_id}",
+    tags=["Battery Rentals"],
+    summary="Get Battery Rental Details")
+async def get_battery_rental(
+    rental_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get details of a specific battery rental"""
+    rental = db.query(BatteryRental).filter(BatteryRental.rental_id == rental_id).first()
+    if not rental:
+        raise HTTPException(status_code=404, detail="Rental not found")
+
+    # Authorization check
+    if current_user.get('role') == UserRole.USER:
+        user = db.query(BEPPPUser).filter(BEPPPUser.user_id == rental.user_id).first()
+        if user.hub_id != current_user.get('hub_id'):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    # Get rental items (batteries)
+    items = db.query(BatteryRentalItem).filter(BatteryRentalItem.rental_id == rental_id).all()
+    batteries = []
+    for item in items:
+        battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == item.battery_id).first()
+        batteries.append({
+            "battery_id": battery.battery_id,
+            "serial_number": battery.serial_number,
+            "capacity": battery.capacity,
+            "rental_start_date": item.rental_start_date.isoformat(),
+            "return_date": item.return_date.isoformat() if item.return_date else None,
+            "recharge_count": item.recharge_count
+        })
+
+    return {
+        "rental_id": rental.rental_id,
+        "user_id": rental.user_id,
+        "hub_id": rental.hub_id,
+        "cost_structure_id": rental.cost_structure_id,
+        "rental_start_date": rental.rental_start_date.isoformat(),
+        "rental_end_date": rental.rental_end_date.isoformat() if rental.rental_end_date else None,
+        "actual_return_date": rental.actual_return_date.isoformat() if rental.actual_return_date else None,
+        "deposit_paid": float(rental.deposit_paid),
+        "total_cost_calculated": float(rental.total_cost_calculated) if rental.total_cost_calculated else None,
+        "amount_paid": float(rental.amount_paid) if rental.amount_paid else None,
+        "rental_status": rental.rental_status,
+        "batteries": batteries
+    }
+
+@app.post("/battery-rentals/{rental_id}/return",
+    tags=["Battery Rentals"],
+    summary="Return Batteries")
+async def return_batteries(
+    rental_id: int,
+    return_data: BatteryRentalReturn,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Return batteries from a rental"""
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot process returns")
+
+    try:
+        rental = db.query(BatteryRental).filter(BatteryRental.rental_id == rental_id).first()
+        if not rental:
+            raise HTTPException(status_code=404, detail="Rental not found")
+
+        # Authorization check
+        if current_user.get('role') == UserRole.USER:
+            user = db.query(BEPPPUser).filter(BEPPPUser.user_id == rental.user_id).first()
+            if user.hub_id != current_user.get('hub_id'):
+                raise HTTPException(status_code=403, detail="Access denied")
+
+        return_date = return_data.return_date or datetime.now(timezone.utc)
+
+        # Get items to return
+        if return_data.battery_ids:
+            items = db.query(BatteryRentalItem).filter(
+                BatteryRentalItem.rental_id == rental_id,
+                BatteryRentalItem.battery_id.in_(return_data.battery_ids),
+                BatteryRentalItem.return_date.is_(None)
+            ).all()
+        else:
+            # Return all unreturned batteries
+            items = db.query(BatteryRentalItem).filter(
+                BatteryRentalItem.rental_id == rental_id,
+                BatteryRentalItem.return_date.is_(None)
+            ).all()
+
+        if not items:
+            raise HTTPException(status_code=400, detail="No batteries to return")
+
+        # Mark batteries as returned
+        for item in items:
+            item.return_date = return_date
+
+        # Check if all batteries returned
+        remaining = db.query(BatteryRentalItem).filter(
+            BatteryRentalItem.rental_id == rental_id,
+            BatteryRentalItem.return_date.is_(None)
+        ).count()
+
+        if remaining == 0:
+            rental.actual_return_date = return_date
+            rental.rental_status = 'completed'
+
+        # Record payment if provided
+        if return_data.payment_amount:
+            rental.amount_paid = (rental.amount_paid or 0) + return_data.payment_amount
+
+        # Add condition notes
+        if return_data.condition_notes:
+            note = Note(content=f"Return notes: {return_data.condition_notes}")
+            db.add(note)
+            db.flush()
+            rental.notes.append(note)
+
+        db.commit()
+
+        return {
+            "message": "Batteries returned successfully",
+            "rental_id": rental_id,
+            "returned_battery_ids": [item.battery_id for item in items],
+            "return_date": return_date.isoformat(),
+            "rental_status": rental.rental_status,
+            "remaining_batteries": remaining
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Error returning batteries: {str(e)}")
+
+@app.post("/battery-rentals/{rental_id}/add-battery",
+    tags=["Battery Rentals"],
+    summary="Add Battery to Rental")
+async def add_battery_to_rental(
+    rental_id: int,
+    add_data: BatteryRentalAddBattery,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Add batteries to an existing rental"""
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot modify rentals")
+
+    try:
+        rental = db.query(BatteryRental).filter(BatteryRental.rental_id == rental_id).first()
+        if not rental:
+            raise HTTPException(status_code=404, detail="Rental not found")
+
+        if rental.rental_status != 'active':
+            raise HTTPException(status_code=400, detail="Can only add batteries to active rentals")
+
+        # Check batteries
+        for battery_id in add_data.battery_ids:
+            battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_id).first()
+            if not battery:
+                raise HTTPException(status_code=404, detail=f"Battery {battery_id} not found")
+
+            # Check availability
+            existing = db.query(BatteryRentalItem).join(BatteryRental).filter(
+                BatteryRentalItem.battery_id == battery_id,
+                BatteryRentalItem.return_date.is_(None),
+                BatteryRental.rental_status == 'active'
+            ).first()
+            if existing:
+                raise HTTPException(status_code=409, detail=f"Battery {battery_id} is already rented")
+
+            # Add to rental
+            item = BatteryRentalItem(
+                rental_id=rental_id,
+                battery_id=battery_id,
+                rental_start_date=datetime.now(timezone.utc)
+            )
+            db.add(item)
+
+        db.commit()
+
+        return {
+            "message": "Batteries added successfully",
+            "rental_id": rental_id,
+            "added_battery_ids": add_data.battery_ids
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Error adding batteries: {str(e)}")
+
+@app.post("/battery-rentals/{rental_id}/recharge",
+    tags=["Battery Rentals"],
+    summary="Record Battery Recharge")
+async def record_recharge(
+    rental_id: int,
+    recharge_data: BatteryRentalRecharge,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Record a battery recharge during rental"""
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot record recharges")
+
+    try:
+        # Find the rental item
+        item = db.query(BatteryRentalItem).filter(
+            BatteryRentalItem.rental_id == rental_id,
+            BatteryRentalItem.battery_id == recharge_data.battery_id,
+            BatteryRentalItem.return_date.is_(None)
+        ).first()
+
+        if not item:
+            raise HTTPException(status_code=404, detail="Battery not found in active rental")
+
+        # Increment recharge count
+        item.recharge_count = (item.recharge_count or 0) + 1
+        item.last_recharge_date = recharge_data.recharge_date or datetime.now(timezone.utc)
+
+        # Add note if provided
+        if recharge_data.notes:
+            rental = db.query(BatteryRental).filter(BatteryRental.rental_id == rental_id).first()
+            note = Note(content=f"Recharge #{item.recharge_count}: {recharge_data.notes}")
+            db.add(note)
+            db.flush()
+            rental.notes.append(note)
+
+        db.commit()
+
+        return {
+            "message": "Recharge recorded successfully",
+            "rental_id": rental_id,
+            "battery_id": recharge_data.battery_id,
+            "recharge_count": item.recharge_count,
+            "recharge_date": item.last_recharge_date.isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Error recording recharge: {str(e)}")
+
+# ============================================================================
+# NEW PUE RENTAL ENDPOINTS
+# ============================================================================
+
+@app.post("/pue-rentals",
+    tags=["PUE Rentals"],
+    summary="Create PUE Rental",
+    description="""
+    ## Create a New PUE Rental
+
+    Creates a new PUE rental with optional pay-to-own support.
+
+    ### Permissions:
+    - **ADMIN**: Can create rentals
+    - **SUPERADMIN**: Can create rentals
+    - **USER**: Can create rentals for their own hub
+
+    ### Features:
+    - Regular rental or pay-to-own
+    - Payment tracking
+    - Inspection scheduling
+    - Ownership transfer on completion
+
+    ### Returns:
+    - Created rental information
+    """,
+    response_description="Created PUE rental details")
+async def create_pue_rental(
+    rental: PUERentalCreateNew,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new PUE rental"""
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot create rentals")
+
+    try:
+        # Verify user and PUE exist
+        user = db.query(BEPPPUser).filter(BEPPPUser.user_id == rental.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        pue = db.query(BEPPPPUE).filter(BEPPPPUE.pue_id == rental.pue_id).first()
+        if not pue:
+            raise HTTPException(status_code=404, detail="PUE not found")
+
+        # Check if PUE is available
+        if pue.status != 'available':
+            raise HTTPException(status_code=409, detail=f"PUE is not available (status: {pue.status})")
+
+        # Authorization check
+        if current_user.get('role') == UserRole.USER:
+            if user.hub_id != current_user.get('hub_id'):
+                raise HTTPException(status_code=403, detail="Access denied")
+
+        # Create rental
+        rental_start = rental.rental_start_date or datetime.now(timezone.utc)
+        new_rental = PUERental(
+            user_id=rental.user_id,
+            pue_id=rental.pue_id,
+            hub_id=user.hub_id,
+            cost_structure_id=rental.cost_structure_id,
+            timestamp_taken=rental_start,
+            is_pay_to_own=rental.is_pay_to_own,
+            pay_to_own_price=rental.pay_to_own_price,
+            pay_to_own_paid_amount=rental.initial_payment or 0.0,
+            status='active'
+        )
+        db.add(new_rental)
+        db.flush()
+
+        # If pay-to-own, create ledger
+        if rental.is_pay_to_own and rental.pay_to_own_price:
+            ledger = PUEPayToOwnLedger(
+                pue_rental_id=new_rental.pue_rental_id,
+                total_price=rental.pay_to_own_price,
+                amount_paid=rental.initial_payment or 0.0,
+                ownership_transferred=False
+            )
+            db.add(ledger)
+            db.flush()
+
+            # Record initial payment transaction
+            if rental.initial_payment and rental.initial_payment > 0:
+                transaction = PUEPayToOwnTransaction(
+                    ledger_id=ledger.ledger_id,
+                    payment_date=rental_start,
+                    payment_amount=rental.initial_payment,
+                    payment_type='Cash',
+                    notes='Initial payment'
+                )
+                db.add(transaction)
+
+        # Update PUE status
+        pue.status = 'rented'
+
+        # Add notes if provided
+        if rental.notes:
+            for note_content in rental.notes:
+                note = Note(content=note_content)
+                db.add(note)
+                db.flush()
+                new_rental.notes.append(note)
+
+        db.commit()
+        db.refresh(new_rental)
+
+        return {
+            "message": "PUE rental created successfully",
+            "pue_rental_id": new_rental.pue_rental_id,
+            "user_id": new_rental.user_id,
+            "pue_id": new_rental.pue_id,
+            "rental_start_date": new_rental.timestamp_taken.isoformat(),
+            "is_pay_to_own": new_rental.is_pay_to_own,
+            "pay_to_own_price": float(new_rental.pay_to_own_price) if new_rental.pay_to_own_price else None,
+            "amount_paid": float(new_rental.pay_to_own_paid_amount) if new_rental.pay_to_own_paid_amount else 0.0,
+            "status": new_rental.status
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Error creating PUE rental: {str(e)}")
+
+@app.get("/pue-rentals/{rental_id}",
+    tags=["PUE Rentals"],
+    summary="Get PUE Rental Details")
+async def get_pue_rental(
+    rental_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get details of a specific PUE rental"""
+    rental = db.query(PUERental).filter(PUERental.pue_rental_id == rental_id).first()
+    if not rental:
+        raise HTTPException(status_code=404, detail="Rental not found")
+
+    # Authorization check
+    if current_user.get('role') == UserRole.USER:
+        user = db.query(BEPPPUser).filter(BEPPPUser.user_id == rental.user_id).first()
+        if user.hub_id != current_user.get('hub_id'):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    # Get PUE details
+    pue = db.query(BEPPPPUE).filter(BEPPPPUE.pue_id == rental.pue_id).first()
+
+    # Get pay-to-own ledger if applicable
+    ledger_info = None
+    if rental.is_pay_to_own:
+        ledger = db.query(PUEPayToOwnLedger).filter(
+            PUEPayToOwnLedger.pue_rental_id == rental_id
+        ).first()
+        if ledger:
+            ledger_info = {
+                "total_price": float(ledger.total_price),
+                "amount_paid": float(ledger.amount_paid),
+                "remaining_balance": float(ledger.remaining_balance) if ledger.remaining_balance else None,
+                "ownership_transferred": ledger.ownership_transferred,
+                "ownership_transfer_date": ledger.ownership_transfer_date.isoformat() if ledger.ownership_transfer_date else None
+            }
+
+    return {
+        "pue_rental_id": rental.pue_rental_id,
+        "user_id": rental.user_id,
+        "pue_id": rental.pue_id,
+        "pue_name": pue.pue_name if pue else None,
+        "rental_start_date": rental.timestamp_taken.isoformat(),
+        "return_date": rental.date_returned.isoformat() if rental.date_returned else None,
+        "is_pay_to_own": rental.is_pay_to_own,
+        "status": rental.status,
+        "pay_to_own_ledger": ledger_info
+    }
+
+@app.post("/pue-rentals/{rental_id}/payment",
+    tags=["PUE Rentals"],
+    summary="Record PUE Payment")
+async def record_pue_payment(
+    rental_id: int,
+    payment: PUERentalPayment,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Record a payment for PUE rental (applies to pay-to-own if applicable)"""
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot record payments")
+
+    try:
+        rental = db.query(PUERental).filter(PUERental.pue_rental_id == rental_id).first()
+        if not rental:
+            raise HTTPException(status_code=404, detail="Rental not found")
+
+        payment_date = payment.payment_date or datetime.now(timezone.utc)
+
+        # If pay-to-own, update ledger
+        if rental.is_pay_to_own:
+            ledger = db.query(PUEPayToOwnLedger).filter(
+                PUEPayToOwnLedger.pue_rental_id == rental_id
+            ).first()
+
+            if not ledger:
+                raise HTTPException(status_code=404, detail="Pay-to-own ledger not found")
+
+            # Record transaction
+            transaction = PUEPayToOwnTransaction(
+                ledger_id=ledger.ledger_id,
+                payment_date=payment_date,
+                payment_amount=payment.payment_amount,
+                payment_type=payment.payment_type,
+                notes=payment.notes
+            )
+            db.add(transaction)
+
+            # Update ledger
+            ledger.amount_paid = (ledger.amount_paid or 0) + payment.payment_amount
+            ledger.remaining_balance = ledger.total_price - ledger.amount_paid
+
+            # Check if fully paid
+            if ledger.remaining_balance <= 0:
+                ledger.ownership_transferred = True
+                ledger.ownership_transfer_date = payment_date
+                rental.status = 'completed'
+
+                # Update PUE ownership
+                pue = db.query(BEPPPPUE).filter(BEPPPPUE.pue_id == rental.pue_id).first()
+                if pue:
+                    pue.status = 'owned'
+                    pue.owner_user_id = rental.user_id
+        else:
+            # Regular rental payment
+            rental.pay_to_own_paid_amount = (rental.pay_to_own_paid_amount or 0) + payment.payment_amount
+
+        # Update rental
+        rental.pay_to_own_paid_amount = (rental.pay_to_own_paid_amount or 0) + payment.payment_amount
+
+        db.commit()
+
+        return {
+            "message": "Payment recorded successfully",
+            "pue_rental_id": rental_id,
+            "payment_amount": float(payment.payment_amount),
+            "total_paid": float(rental.pay_to_own_paid_amount),
+            "payment_date": payment_date.isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Error recording payment: {str(e)}")
+
+@app.get("/pue-rentals/{rental_id}/pay-to-own-ledger",
+    tags=["PUE Rentals"],
+    summary="Get Pay-to-Own Progress")
+async def get_pay_to_own_ledger(
+    rental_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get pay-to-own payment progress and transaction history"""
+    rental = db.query(PUERental).filter(PUERental.pue_rental_id == rental_id).first()
+    if not rental:
+        raise HTTPException(status_code=404, detail="Rental not found")
+
+    if not rental.is_pay_to_own:
+        raise HTTPException(status_code=400, detail="This is not a pay-to-own rental")
+
+    ledger = db.query(PUEPayToOwnLedger).filter(
+        PUEPayToOwnLedger.pue_rental_id == rental_id
+    ).first()
+
+    if not ledger:
+        raise HTTPException(status_code=404, detail="Ledger not found")
+
+    # Get transactions
+    transactions = db.query(PUEPayToOwnTransaction).filter(
+        PUEPayToOwnTransaction.ledger_id == ledger.ledger_id
+    ).order_by(PUEPayToOwnTransaction.payment_date.desc()).all()
+
+    transaction_list = [{
+        "transaction_id": t.transaction_id,
+        "payment_date": t.payment_date.isoformat(),
+        "payment_amount": float(t.payment_amount),
+        "payment_type": t.payment_type,
+        "notes": t.notes
+    } for t in transactions]
+
+    return {
+        "ledger_id": ledger.ledger_id,
+        "pue_rental_id": rental_id,
+        "total_price": float(ledger.total_price),
+        "amount_paid": float(ledger.amount_paid),
+        "remaining_balance": float(ledger.remaining_balance) if ledger.remaining_balance else 0.0,
+        "ownership_transferred": ledger.ownership_transferred,
+        "ownership_transfer_date": ledger.ownership_transfer_date.isoformat() if ledger.ownership_transfer_date else None,
+        "payment_progress_percentage": (float(ledger.amount_paid) / float(ledger.total_price) * 100) if ledger.total_price > 0 else 0,
+        "transactions": transaction_list
+    }
+
+# ============================================================================
+# PUE INSPECTION ENDPOINTS
+# ============================================================================
+
+@app.post("/pue/{pue_id}/inspections",
+    tags=["PUE Inspections"],
+    summary="Record PUE Inspection")
+async def create_pue_inspection(
+    pue_id: int,
+    inspection: PUEInspectionCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Record a new PUE inspection"""
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot record inspections")
+
+    try:
+        pue = db.query(BEPPPPUE).filter(BEPPPPUE.pue_id == pue_id).first()
+        if not pue:
+            raise HTTPException(status_code=404, detail="PUE not found")
+
+        inspection_date = inspection.inspection_date or datetime.now(timezone.utc)
+
+        new_inspection = PUEInspection(
+            pue_id=pue_id,
+            inspection_date=inspection_date,
+            inspector_name=inspection.inspector_name,
+            condition=inspection.condition,
+            inspection_notes=inspection.notes,
+            requires_maintenance=inspection.requires_maintenance,
+            maintenance_notes=inspection.maintenance_notes
+        )
+        db.add(new_inspection)
+
+        # Update PUE last inspection date
+        pue.last_inspection_date = inspection_date
+
+        # Calculate next inspection date if there's an interval
+        # Get cost structure config for inspection interval
+        if pue.status == 'rented':
+            rental = db.query(PUERental).filter(
+                PUERental.pue_id == pue_id,
+                PUERental.status == 'active'
+            ).first()
+            if rental:
+                config = db.query(CostStructurePUEConfig).filter(
+                    CostStructurePUEConfig.structure_id == rental.cost_structure_id
+                ).first()
+                if config and config.inspection_interval_days:
+                    pue.next_inspection_due = inspection_date + timedelta(days=config.inspection_interval_days)
+
+        db.commit()
+        db.refresh(new_inspection)
+
+        return {
+            "message": "Inspection recorded successfully",
+            "inspection_id": new_inspection.inspection_id,
+            "pue_id": pue_id,
+            "inspection_date": new_inspection.inspection_date.isoformat(),
+            "condition": new_inspection.condition,
+            "requires_maintenance": new_inspection.requires_maintenance,
+            "next_inspection_due": pue.next_inspection_due.isoformat() if pue.next_inspection_due else None
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Error recording inspection: {str(e)}")
+
+@app.get("/pue/{pue_id}/inspections",
+    tags=["PUE Inspections"],
+    summary="Get PUE Inspection History")
+async def get_pue_inspections(
+    pue_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get inspection history for a specific PUE"""
+    pue = db.query(BEPPPPUE).filter(BEPPPPUE.pue_id == pue_id).first()
+    if not pue:
+        raise HTTPException(status_code=404, detail="PUE not found")
+
+    inspections = db.query(PUEInspection).filter(
+        PUEInspection.pue_id == pue_id
+    ).order_by(PUEInspection.inspection_date.desc()).all()
+
+    inspection_list = [{
+        "inspection_id": i.inspection_id,
+        "inspection_date": i.inspection_date.isoformat(),
+        "inspector_name": i.inspector_name,
+        "condition": i.condition,
+        "inspection_notes": i.inspection_notes,
+        "requires_maintenance": i.requires_maintenance,
+        "maintenance_notes": i.maintenance_notes,
+        "maintenance_completed": i.maintenance_completed,
+        "maintenance_completed_date": i.maintenance_completed_date.isoformat() if i.maintenance_completed_date else None
+    } for i in inspections]
+
+    return {
+        "pue_id": pue_id,
+        "pue_name": pue.pue_name,
+        "last_inspection_date": pue.last_inspection_date.isoformat() if pue.last_inspection_date else None,
+        "next_inspection_due": pue.next_inspection_due.isoformat() if pue.next_inspection_due else None,
+        "inspection_count": len(inspections),
+        "inspections": inspection_list
+    }
+
+@app.get("/inspections/due",
+    tags=["PUE Inspections"],
+    summary="Get PUE Due for Inspection")
+async def get_due_inspections(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all PUE items that are due for inspection"""
+    today = datetime.now(timezone.utc).date()
+
+    # PUE with next_inspection_due <= today
+    due_pue = db.query(BEPPPPUE).filter(
+        BEPPPPUE.next_inspection_due.isnot(None),
+        func.date(BEPPPPUE.next_inspection_due) <= today
+    ).all()
+
+    result = [{
+        "pue_id": p.pue_id,
+        "pue_name": p.pue_name,
+        "serial_number": p.serial_number,
+        "status": p.status,
+        "last_inspection_date": p.last_inspection_date.isoformat() if p.last_inspection_date else None,
+        "next_inspection_due": p.next_inspection_due.isoformat() if p.next_inspection_due else None,
+        "days_overdue": (today - p.next_inspection_due.date()).days if p.next_inspection_due else 0
+    } for p in due_pue]
+
+    return {
+        "count": len(result),
+        "due_inspections": result
+    }
+
+@app.get("/inspections/overdue",
+    tags=["PUE Inspections"],
+    summary="Get Overdue Inspections")
+async def get_overdue_inspections(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all PUE items with overdue inspections"""
+    today = datetime.now(timezone.utc).date()
+
+    # PUE with next_inspection_due < today
+    overdue_pue = db.query(BEPPPPUE).filter(
+        BEPPPPUE.next_inspection_due.isnot(None),
+        func.date(BEPPPPUE.next_inspection_due) < today
+    ).all()
+
+    result = [{
+        "pue_id": p.pue_id,
+        "pue_name": p.pue_name,
+        "serial_number": p.serial_number,
+        "status": p.status,
+        "last_inspection_date": p.last_inspection_date.isoformat() if p.last_inspection_date else None,
+        "next_inspection_due": p.next_inspection_due.isoformat() if p.next_inspection_due else None,
+        "days_overdue": (today - p.next_inspection_due.date()).days
+    } for p in overdue_pue]
+
+    return {
+        "count": len(result),
+        "overdue_inspections": result
+    }
 
 # ============================================================================
 # DATA QUERY ENDPOINTS

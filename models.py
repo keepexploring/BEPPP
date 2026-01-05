@@ -47,6 +47,11 @@ pue_rental_notes = Table('puerental_notes', Base.metadata,
     Column('note_id', BigInteger, ForeignKey('note.id'), primary_key=True)
 )
 
+battery_rental_notes = Table('battery_rental_notes', Base.metadata,
+    Column('rental_id', BigInteger, ForeignKey('battery_rentals.rental_id'), primary_key=True),
+    Column('note_id', BigInteger, ForeignKey('note.id'), primary_key=True)
+)
+
 class SolarHub(Base):
     __tablename__ = 'solarhub'
     
@@ -763,13 +768,6 @@ class WebhookLog(Base):
 # ============================================================================
 # RENTAL SYSTEM RESTRUCTURE - NEW MODELS
 # ============================================================================
-
-# Junction table for battery rental notes
-battery_rental_notes = Table('battery_rental_notes', Base.metadata,
-    Column('rental_id', BigInteger, ForeignKey('battery_rentals.rental_id'), primary_key=True),
-    Column('note_id', BigInteger, ForeignKey('note.id'), primary_key=True)
-)
-
 
 class CostStructureBatteryConfig(Base):
     """Battery-specific configuration for cost structures"""
