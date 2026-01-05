@@ -58,6 +58,21 @@
             </q-td>
           </template>
 
+          <template v-slot:body-cell-inspection_status="props">
+            <q-td :props="props">
+              <q-badge
+                v-if="props.row.inspection_status"
+                :color="getInspectionStatusColor(props.row.inspection_status)"
+                :label="getInspectionStatusLabel(props.row.inspection_status)"
+              >
+                <q-tooltip v-if="props.row.last_inspection_date">
+                  Last inspection: {{ formatDate(props.row.last_inspection_date) }}
+                </q-tooltip>
+              </q-badge>
+              <q-badge v-else color="grey" label="No data" />
+            </q-td>
+          </template>
+
           <template v-slot:body-cell-actions="props">
             <q-td :props="props">
               <q-btn
@@ -181,7 +196,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { pueAPI, hubsAPI } from 'src/services/api'
+import { pueAPI, hubsAPI, pueInspectionsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useQuasar } from 'quasar'
 import HubFilter from 'src/components/HubFilter.vue'
@@ -237,6 +252,7 @@ const columns = computed(() => {
     { name: 'power_rating_watts', label: 'Power (W)', field: 'power_rating_watts', align: 'left' },
     { name: 'status', label: 'Status', field: 'status', align: 'center', sortable: true },
     { name: 'usage_location', label: 'Usage Location', field: 'usage_location', align: 'center' },
+    { name: 'inspection_status', label: 'Inspection', field: 'inspection_status', align: 'center', sortable: true },
     { name: 'actions', label: 'Actions', align: 'center' }
   )
 
@@ -251,6 +267,31 @@ const getStatusColor = (status) => {
     retired: 'negative'
   }
   return colors[status] || 'grey'
+}
+
+const getInspectionStatusColor = (status) => {
+  const colors = {
+    ok: 'positive',
+    due_soon: 'warning',
+    overdue: 'negative',
+    never_inspected: 'grey'
+  }
+  return colors[status] || 'grey'
+}
+
+const getInspectionStatusLabel = (status) => {
+  const labels = {
+    ok: 'OK',
+    due_soon: 'Due Soon',
+    overdue: 'Overdue',
+    never_inspected: 'Not Inspected'
+  }
+  return labels[status] || status
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return 'N/A'
+  return new Date(dateString).toLocaleDateString()
 }
 
 const loadPUE = async () => {

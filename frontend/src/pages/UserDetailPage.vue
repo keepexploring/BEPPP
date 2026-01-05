@@ -261,92 +261,231 @@
         </q-card-section>
       </q-card>
 
-      <!-- Current Rentals -->
+      <!-- Rentals (Tabbed View) -->
       <q-card class="q-mb-md">
         <q-card-section>
           <div class="row items-center q-mb-md">
             <div class="col">
-              <div class="text-h6">Current Rentals</div>
+              <div class="text-h6">Rentals</div>
             </div>
             <div class="col-auto">
-              <q-btn flat label="Refresh" icon="refresh" @click="loadCurrentRentals" />
+              <q-btn-dropdown color="primary" label="Create Rental" icon="add" class="q-mr-sm">
+                <q-list>
+                  <q-item clickable v-close-popup @click="router.push(`/rentals/battery/create?user_id=${userId}`)">
+                    <q-item-section avatar>
+                      <q-icon name="battery_charging_full" color="primary" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>New Battery Rental</q-item-label>
+                      <q-item-label caption>Rent batteries to this user</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <q-item clickable v-close-popup @click="router.push(`/rentals/pue/create?user_id=${userId}`)">
+                    <q-item-section avatar>
+                      <q-icon name="devices_other" color="primary" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>New PUE Rental</q-item-label>
+                      <q-item-label caption>Rent productive use equipment</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                </q-list>
+              </q-btn-dropdown>
+              <q-btn flat label="Refresh" icon="refresh" @click="refreshAllRentals" />
             </div>
           </div>
 
-          <div v-if="rentalsLoading" class="row justify-center q-pa-md">
-            <q-spinner color="primary" size="2em" />
-          </div>
+          <q-tabs
+            v-model="rentalTab"
+            dense
+            class="text-grey"
+            active-color="primary"
+            indicator-color="primary"
+            align="left"
+          >
+            <q-tab name="battery" label="Battery Rentals" />
+            <q-tab name="pue" label="PUE Rentals" />
+          </q-tabs>
 
-          <div v-else-if="currentRentals.length === 0" class="text-grey-7 q-pa-md text-center">
-            <q-icon name="inbox" size="48px" class="q-mb-sm" />
-            <div>No active rentals</div>
-          </div>
+          <q-separator />
 
-          <q-list v-else bordered separator>
-            <q-item v-for="rental in currentRentals" :key="rental.rentral_id" class="q-pa-md">
-              <q-item-section>
-                <q-item-label class="text-weight-medium">
-                  Rental #{{ rental.rentral_id }}
-                  <q-chip dense size="sm" color="positive" text-color="white" class="q-ml-sm">
-                    {{ rental.status }}
-                  </q-chip>
-                </q-item-label>
-                <q-item-label caption class="q-mt-sm">
-                  <div class="row q-col-gutter-md">
-                    <div class="col-12 col-md-6">
-                      <div><strong>Battery:</strong> {{ rental.battery_model || `Battery ID ${rental.battery_id}` }}</div>
-                      <div v-if="rental.pue_items && rental.pue_items.length > 0">
-                        <strong>PUE Items:</strong>
-                        <q-chip v-for="pue in rental.pue_items" :key="pue.pue_id" dense size="sm" class="q-ml-xs">
-                          {{ pue.name || `PUE ${pue.pue_id}` }}
-                        </q-chip>
+          <q-tab-panels v-model="rentalTab" animated>
+            <!-- Battery Rentals Tab -->
+            <q-tab-panel name="battery">
+              <div v-if="batteryRentalsLoading" class="row justify-center q-pa-md">
+                <q-spinner color="primary" size="2em" />
+              </div>
+
+              <div v-else-if="batteryRentals.length === 0" class="text-grey-7 q-pa-md text-center">
+                <q-icon name="battery_charging_full" size="48px" class="q-mb-sm" />
+                <div>No active battery rentals</div>
+                <q-btn
+                  flat
+                  color="primary"
+                  label="Create Battery Rental"
+                  icon="add"
+                  @click="router.push(`/rentals/battery/create?user_id=${userId}`)"
+                  class="q-mt-md"
+                />
+              </div>
+
+              <q-list v-else bordered separator>
+                <q-item v-for="rental in batteryRentals" :key="rental.rental_id" class="q-pa-md">
+                  <q-item-section>
+                    <q-item-label class="text-weight-medium">
+                      Battery Rental #{{ rental.rental_id }}
+                      <q-chip dense size="sm" color="positive" text-color="white" class="q-ml-sm">
+                        Active
+                      </q-chip>
+                    </q-item-label>
+                    <q-item-label caption class="q-mt-sm">
+                      <div class="row q-col-gutter-md">
+                        <div class="col-12 col-md-6">
+                          <div><strong>Batteries:</strong> {{ rental.items?.length || 0 }} item(s)</div>
+                          <div v-if="rental.recharge_count !== undefined">
+                            <strong>Recharges:</strong> {{ rental.recharge_count }}
+                          </div>
+                          <div v-if="rental.deposit_amount">
+                            <strong>Deposit:</strong> {{ currencySymbol }}{{ rental.deposit_amount.toFixed(2) }}
+                          </div>
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <div><strong>Start Date:</strong> {{ formatTimestamp(rental.rental_start_date) }}</div>
+                          <div v-if="rental.due_date"><strong>Due Date:</strong> {{ formatTimestamp(rental.due_date) }}</div>
+                          <div v-if="rental.cost_structure_name">
+                            <strong>Cost Structure:</strong> {{ rental.cost_structure_name }}
+                          </div>
+                        </div>
                       </div>
-                      <div v-if="rental.total_cost">
-                        <strong>Total Cost:</strong> {{ currencySymbol }}{{ rental.total_cost.toFixed(2) }}
-                      </div>
+                    </q-item-label>
+                  </q-item-section>
+
+                  <q-item-section side>
+                    <div class="column q-gutter-sm">
+                      <q-btn
+                        color="primary"
+                        label="Return"
+                        icon="assignment_return"
+                        dense
+                        @click="openReturnDialog(rental, 'battery')"
+                      />
+                      <q-btn
+                        color="orange"
+                        label="Recharge"
+                        icon="bolt"
+                        dense
+                        @click="openRechargeDialog(rental)"
+                      />
+                      <q-btn
+                        flat
+                        dense
+                        color="info"
+                        label="Details"
+                        icon="info"
+                        @click="router.push(`/rentals/battery/${rental.rental_id}`)"
+                      />
                     </div>
-                    <div class="col-12 col-md-6">
-                      <div><strong>Rental Start:</strong> {{ formatTimestamp(rental.timestamp_taken) }}</div>
-                      <div><strong>Due Back:</strong> {{ formatTimestamp(rental.due_back) }}</div>
-                      <div v-if="rental.payment_status">
-                        <strong>Payment:</strong>
-                        <q-chip dense size="sm" :color="getPaymentStatusColor(rental.payment_status)">
-                          {{ rental.payment_status }}
-                        </q-chip>
-                      </div>
-                    </div>
-                  </div>
-                </q-item-label>
-              </q-item-section>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-tab-panel>
 
-              <q-item-section side>
-                <div class="column q-gutter-sm">
-                  <q-btn
-                    color="primary"
-                    label="Return"
-                    icon="assignment_return"
-                    dense
-                    @click="openReturnDialog(rental)"
-                  />
-                  <q-btn
-                    color="orange"
-                    label="Extend"
-                    icon="schedule"
-                    dense
-                    @click="openExtendDialog(rental)"
-                  />
-                  <q-btn
-                    flat
-                    dense
-                    color="info"
-                    label="Details"
-                    icon="info"
-                    @click="router.push(`/rentals/${rental.rentral_id}`)"
-                  />
-                </div>
-              </q-item-section>
-            </q-item>
-          </q-list>
+            <!-- PUE Rentals Tab -->
+            <q-tab-panel name="pue">
+              <div v-if="pueRentalsLoading" class="row justify-center q-pa-md">
+                <q-spinner color="primary" size="2em" />
+              </div>
+
+              <div v-else-if="pueRentals.length === 0" class="text-grey-7 q-pa-md text-center">
+                <q-icon name="devices_other" size="48px" class="q-mb-sm" />
+                <div>No active PUE rentals</div>
+                <q-btn
+                  flat
+                  color="primary"
+                  label="Create PUE Rental"
+                  icon="add"
+                  @click="router.push(`/rentals/pue/create?user_id=${userId}`)"
+                  class="q-mt-md"
+                />
+              </div>
+
+              <q-list v-else bordered separator>
+                <q-item v-for="rental in pueRentals" :key="rental.rental_id" class="q-pa-md">
+                  <q-item-section>
+                    <q-item-label class="text-weight-medium">
+                      PUE Rental #{{ rental.rental_id }}
+                      <q-chip dense size="sm" color="positive" text-color="white" class="q-ml-sm">
+                        Active
+                      </q-chip>
+                      <q-chip
+                        v-if="rental.is_pay_to_own"
+                        dense
+                        size="sm"
+                        color="purple"
+                        text-color="white"
+                        class="q-ml-sm"
+                      >
+                        Pay-to-Own
+                      </q-chip>
+                    </q-item-label>
+                    <q-item-label caption class="q-mt-sm">
+                      <div class="row q-col-gutter-md">
+                        <div class="col-12 col-md-6">
+                          <div><strong>PUE:</strong> {{ rental.pue_name || `PUE ID ${rental.pue_id}` }}</div>
+                          <div v-if="rental.is_pay_to_own && rental.pay_to_own_price">
+                            <strong>Total Price:</strong> {{ currencySymbol }}{{ rental.pay_to_own_price.toFixed(2) }}
+                          </div>
+                          <div v-if="rental.is_pay_to_own && rental.amount_paid !== undefined">
+                            <strong>Paid:</strong> {{ currencySymbol }}{{ rental.amount_paid.toFixed(2) }}
+                            <q-linear-progress
+                              :value="rental.pay_to_own_price > 0 ? rental.amount_paid / rental.pay_to_own_price : 0"
+                              color="purple"
+                              class="q-mt-xs"
+                            />
+                          </div>
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <div><strong>Start Date:</strong> {{ formatTimestamp(rental.rental_start_date) }}</div>
+                          <div v-if="rental.cost_structure_name">
+                            <strong>Cost Structure:</strong> {{ rental.cost_structure_name }}
+                          </div>
+                        </div>
+                      </div>
+                    </q-item-label>
+                  </q-item-section>
+
+                  <q-item-section side>
+                    <div class="column q-gutter-sm">
+                      <q-btn
+                        v-if="rental.is_pay_to_own"
+                        color="purple"
+                        label="Payment"
+                        icon="payment"
+                        dense
+                        @click="openPaymentDialog(rental)"
+                      />
+                      <q-btn
+                        v-else
+                        color="primary"
+                        label="Return"
+                        icon="assignment_return"
+                        dense
+                        @click="openReturnDialog(rental, 'pue')"
+                      />
+                      <q-btn
+                        flat
+                        dense
+                        color="info"
+                        label="Details"
+                        icon="info"
+                        @click="router.push(`/rentals/pue/${rental.rental_id}`)"
+                      />
+                    </div>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-tab-panel>
+          </q-tab-panels>
         </q-card-section>
       </q-card>
 
@@ -1029,7 +1168,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
-import { usersAPI, accountsAPI, settingsAPI, subscriptionsAPI, rentalsAPI } from 'src/services/api'
+import { usersAPI, accountsAPI, settingsAPI, subscriptionsAPI, rentalsAPI, batteryRentalsAPI, pueRentalsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
 
@@ -1129,12 +1268,26 @@ const selectedSubscriptionDetails = computed(() => {
   return availableSubscriptionPackages.value.find(p => p.package_id === selectedSubscriptionPackage.value)
 })
 
-// Current Rentals
+// Current Rentals (Legacy)
 const currentRentals = ref([])
 const rentalsLoading = ref(false)
+
+// Battery Rentals
+const batteryRentals = ref([])
+const batteryRentalsLoading = ref(false)
+
+// PUE Rentals
+const pueRentals = ref([])
+const pueRentalsLoading = ref(false)
+
+// Rental tab
+const rentalTab = ref('battery')
+
+// Rental dialogs
 const showReturnDialog = ref(false)
 const showExtendDialog = ref(false)
 const selectedRental = ref(null)
+const selectedRentalType = ref(null) // 'battery' or 'pue'
 const returnCondition = ref('good')
 const returnNotes = ref('')
 const returnDeposit = ref(false)
@@ -1707,8 +1860,9 @@ const loadPaymentTypes = async () => {
 }
 
 // Rental actions
-const openReturnDialog = (rental) => {
+const openReturnDialog = (rental, type = 'legacy') => {
   selectedRental.value = rental
+  selectedRentalType.value = type
   returnCondition.value = 'good'
   returnNotes.value = ''
   returnDeposit.value = rental.deposit_amount && rental.deposit_amount > 0 && !rental.deposit_returned
@@ -1722,6 +1876,26 @@ const openExtendDialog = (rental) => {
   extendPaymentType.value = null
   confirmExtendPayment.value = false
   showExtendDialog.value = true
+}
+
+const openRechargeDialog = (rental) => {
+  // TODO: Implement recharge dialog for battery rentals
+  $q.notify({
+    type: 'info',
+    message: 'Recharge functionality coming soon',
+    position: 'top'
+  })
+  console.log('Open recharge dialog for rental:', rental)
+}
+
+const openPaymentDialog = (rental) => {
+  // TODO: Implement payment dialog for pay-to-own PUE rentals
+  $q.notify({
+    type: 'info',
+    message: 'Payment functionality coming soon',
+    position: 'top'
+  })
+  console.log('Open payment dialog for rental:', rental)
 }
 
 const submitReturnRental = async () => {
@@ -1814,7 +1988,7 @@ const submitExtendRental = async () => {
   }
 }
 
-// Load current rentals for this user
+// Load current rentals for this user (Legacy)
 const loadCurrentRentals = async () => {
   try {
     rentalsLoading.value = true
@@ -1832,6 +2006,50 @@ const loadCurrentRentals = async () => {
   }
 }
 
+// Load battery rentals for this user
+const loadBatteryRentals = async () => {
+  try {
+    batteryRentalsLoading.value = true
+    const response = await batteryRentalsAPI.list({ user_id: userId.value, status: 'active' })
+    batteryRentals.value = response.data || []
+  } catch (error) {
+    console.error('Failed to load battery rentals:', error)
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to load battery rentals',
+      position: 'top'
+    })
+  } finally {
+    batteryRentalsLoading.value = false
+  }
+}
+
+// Load PUE rentals for this user
+const loadPueRentals = async () => {
+  try {
+    pueRentalsLoading.value = true
+    const response = await pueRentalsAPI.list({ user_id: userId.value, status: 'active' })
+    pueRentals.value = response.data || []
+  } catch (error) {
+    console.error('Failed to load PUE rentals:', error)
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to load PUE rentals',
+      position: 'top'
+    })
+  } finally {
+    pueRentalsLoading.value = false
+  }
+}
+
+// Refresh all rentals
+const refreshAllRentals = async () => {
+  await Promise.all([
+    loadBatteryRentals(),
+    loadPueRentals()
+  ])
+}
+
 onMounted(async () => {
   loadHubSettings()
   await loadUser()
@@ -1840,6 +2058,7 @@ onMounted(async () => {
   loadTransactions()
   loadUserSubscriptions()
   loadSubscriptionPackages()
-  loadCurrentRentals()
+  // Load new rental system data
+  refreshAllRentals()
 })
 </script>

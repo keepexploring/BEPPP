@@ -124,7 +124,7 @@ export const pueAPI = {
   delete: (pueId) => api.delete(`/pue/${pueId}`)
 }
 
-// Rentals
+// Rentals (Legacy - use batteryRentalsAPI and pueRentalsAPI instead)
 export const rentalsAPI = {
   list: (params) => api.get('/rentals/', { params }),
   get: (rentalId) => api.get(`/rentals/${rentalId}`),
@@ -140,6 +140,38 @@ export const rentalsAPI = {
     api.put(`/rentals/${rentalId}/pue-items/${pueId}/return`, data),
   calculateReturnCost: (rentalId, params) =>
     api.get(`/rentals/${rentalId}/calculate-return-cost`, { params })
+}
+
+// Battery Rentals
+export const batteryRentalsAPI = {
+  list: (params) => api.get('/battery-rentals', { params }),
+  get: (rentalId) => api.get(`/battery-rentals/${rentalId}`),
+  create: (data) => api.post('/battery-rentals', data),
+  return: (rentalId, data) =>
+    api.post(`/battery-rentals/${rentalId}/return`, data),
+  addBattery: (rentalId, batteryId) =>
+    api.post(`/battery-rentals/${rentalId}/add-battery`, { battery_id: batteryId }),
+  recordRecharge: (rentalId, data) =>
+    api.post(`/battery-rentals/${rentalId}/recharge`, data)
+}
+
+// PUE Rentals
+export const pueRentalsAPI = {
+  list: (params) => api.get('/pue-rentals', { params }),
+  get: (rentalId) => api.get(`/pue-rentals/${rentalId}`),
+  create: (data) => api.post('/pue-rentals', data),
+  recordPayment: (rentalId, data) =>
+    api.post(`/pue-rentals/${rentalId}/payment`, data),
+  getPayToOwnLedger: (rentalId) =>
+    api.get(`/pue-rentals/${rentalId}/pay-to-own-ledger`)
+}
+
+// PUE Inspections
+export const pueInspectionsAPI = {
+  create: (pueId, data) => api.post(`/pue/${pueId}/inspections`, data),
+  list: (pueId) => api.get(`/pue/${pueId}/inspections`),
+  getDue: (params) => api.get('/inspections/due', { params }),
+  getOverdue: (params) => api.get('/inspections/overdue', { params })
 }
 
 // Data

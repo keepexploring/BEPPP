@@ -61,6 +61,26 @@ const routes = [
         component: () => import('pages/RentalDetailPage.vue')
       },
       {
+        path: 'rentals/battery/create',
+        name: 'create-battery-rental',
+        component: () => import('pages/CreateBatteryRentalPage.vue')
+      },
+      {
+        path: 'rentals/pue/create',
+        name: 'create-pue-rental',
+        component: () => import('pages/CreatePUERentalPage.vue')
+      },
+      {
+        path: 'rentals/battery/:id',
+        name: 'battery-rental-detail',
+        component: () => import('pages/RentalDetailPage.vue')
+      },
+      {
+        path: 'rentals/pue/:id',
+        name: 'pue-rental-detail',
+        component: () => import('pages/RentalDetailPage.vue')
+      },
+      {
         path: 'admin/webhooks',
         name: 'webhook-logs',
         meta: { requiresAdmin: true },
