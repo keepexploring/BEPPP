@@ -373,3 +373,118 @@ Ensure cost calculation functions handle:
 - ✅ No console errors
 - ✅ All old rentalsAPI calls replaced
 - ✅ Complete test coverage
+
+---
+
+## IMPLEMENTATION COMPLETED - January 6, 2026
+
+### Commit: d215c43
+**All remaining frontend implementation phases completed successfully.**
+
+### Files Modified (7 files):
+
+#### 1. PUEPage.vue ✅ COMPLETED
+**Lines modified**: 468-538 (inspection functions)
+- ✅ Added inspection button to actions column with fact_check icon
+- ✅ Created inspection history dialog with q-table showing past inspections
+- ✅ Created record inspection dialog with comprehensive form
+- ✅ Added inspection state variables: showInspectionDialog, showRecordInspectionDialog, selectedPUE, inspections, loadingInspections, savingInspection
+- ✅ Implemented `openInspectionDialog(pue)` - loads inspection history for selected PUE
+- ✅ Implemented `loadInspections(pueId)` - calls pueInspectionsAPI.list()
+- ✅ Implemented `recordInspection()` - creates new inspection with validation
+- ✅ Implemented `getConditionColor(condition)` - returns badge color for condition
+- ✅ Integrated with pueInspectionsAPI
+- ✅ Added condition options: Excellent, Good, Fair, Poor, Damaged
+
+#### 2. DashboardPage.vue ✅ COMPLETED
+**Lines modified**: 182-285 (PUE alerts card), 428 (imports), 452-459 (state), 492-512 (metrics), 538-563 (inspection loading)
+- ✅ Added PUE Inspection Alerts card with overdue/due soon sections
+- ✅ Updated imports to use batteryRentalsAPI and pueRentalsAPI
+- ✅ Added reactive state for overdueInspections and dueSoonInspections
+- ✅ Updated active rentals metric to count BOTH battery AND PUE rentals in parallel
+- ✅ Added PUE inspection loading logic with hub filtering
+- ✅ Displays inspection status badges (overdue/due soon)
+- ✅ Links to PUE page for inspection actions
+
+#### 3. SettingsPage.vue ✅ COMPLETED
+**Lines modified**: 662-684 (cost components), 1045-1063 (pricing units)
+- ✅ Added `per_recharge` unit type to cost structure components
+- ✅ Added `one_time` unit type to cost structure components
+- ✅ Updated pricing unit type selector with all new types
+- ✅ Maintains alphabetical ordering in selectors
+
+#### 4. BatteryDetailPage.vue ✅ COMPLETED
+**Lines modified**: 430 (import), 656-668 (loadRentalHistory function)
+- ✅ Updated import to use batteryRentalsAPI instead of rentalsAPI
+- ✅ Updated loadRentalHistory() to call batteryRentalsAPI.list()
+- ✅ Maintains backward compatibility with existing functionality
+
+#### 5. RentalsPageWithQR.vue ✅ COMPLETED
+**Lines modified**: 440 (import), 670 (create), 702 (return)
+- ✅ Updated import to use batteryRentalsAPI
+- ✅ Updated saveRental() to call batteryRentalsAPI.create()
+- ✅ Updated confirmReturn() to call batteryRentalsAPI.returnBattery()
+- ✅ Maintains QR scanning functionality for batteries
+
+#### 6. RentalReturnDialog.vue ✅ COMPLETED
+**Lines modified**: 414 (imports), 433-445 (rental type detection), 526 (cost calc), 618-619 (return)
+- ✅ Updated imports to use batteryRentalsAPI and pueRentalsAPI
+- ✅ Added `rentalType` computed property - detects battery vs PUE rentals
+- ✅ Added `rentalAPI` computed property - dynamically selects correct API
+- ✅ Updated fetchCostCalculation() to use rentalAPI.value.calculateReturnCost()
+- ✅ Updated return handler with dynamic method selection (returnBattery vs returnPUE)
+- ✅ Supports both rental_id and pue_rental_id fields
+- ✅ Universal dialog now handles both rental types seamlessly
+
+#### 7. RentalsPage.vue ✅ VERIFIED
+**Status**: Already had rental type filtering implemented
+- ✅ Rental type tabs: All Types / Battery / PUE
+- ✅ Uses batteryRentalsAPI and pueRentalsAPI
+- ✅ Combined view with proper filtering
+
+### Testing Results:
+
+#### IDE Diagnostics: ✅ PASSED
+- All modified files: **0 errors**
+- TypeScript validation: **PASSED**
+- Vue syntax validation: **PASSED**
+- Linting: **PASSED**
+
+#### Dev Server Compilation: ✅ PASSED
+- Successfully compiles and starts
+- Ready at http://localhost:9000/
+- No runtime errors detected
+
+### Implementation Phases Completed:
+
+- ✅ **Phase 2.4**: Update RentalsPage.vue with combined view and filters
+- ✅ **Phase 2.5**: RentalDetailPage.vue handles legacy rentals
+- ✅ **Phase 3.2**: Create PUE detail inspection UI component
+- ✅ **Phase 3.3**: Add inspection alerts to DashboardPage.vue
+- ✅ **Phase 4.1**: Update SettingsPage.vue with cost structure config
+- ✅ **Phase 5.1**: Update BatteryDetailPage.vue rental history
+- ✅ **Phase 5.2**: Update DashboardPage.vue metrics for new rental types
+- ✅ **Phase 5.3**: Update RentalsPageWithQR.vue for new rental types
+- ✅ **Phase 5.4**: Update RentalReturnDialog.vue for both rental types
+
+### Key Achievements:
+
+1. **Separated API Usage**: All pages now correctly use batteryRentalsAPI and pueRentalsAPI instead of legacy rentalsAPI
+2. **Universal Components**: RentalReturnDialog intelligently handles both rental types
+3. **Full Inspection System**: Complete UI for PUE inspection tracking with history and recording
+4. **Accurate Metrics**: Dashboard now counts both battery and PUE rentals
+5. **New Unit Types**: Cost structures support per_recharge and one_time
+6. **Zero Errors**: All files pass validation with no diagnostics
+
+### Ready for Integration Testing:
+
+The frontend implementation is now complete and ready for full integration testing with the backend. All code changes compile successfully and are free of syntax/type errors.
+
+### Next Steps:
+
+1. Start development server: `npm run dev`
+2. Test each completed phase against backend APIs
+3. Verify inspection tracking workflow
+4. Test return dialog with both rental types
+5. Validate cost calculations with new unit types
+6. Check dashboard metrics accuracy
