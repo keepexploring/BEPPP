@@ -437,7 +437,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { rentalsAPI, hubsAPI, usersAPI, batteriesAPI } from 'src/services/api'
+import { batteryRentalsAPI, hubsAPI, usersAPI, batteriesAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
 import { useQuasar, date } from 'quasar'
@@ -667,7 +667,7 @@ const saveRental = async () => {
       expected_return_date: new Date(formData.value.expected_return_date).toISOString()
     }
 
-    await rentalsAPI.create(rentalData)
+    await batteryRentalsAPI.create(rentalData)
     $q.notify({
       type: 'positive',
       message: 'Rental created successfully',
@@ -699,7 +699,7 @@ const returnRental = (rental) => {
 const confirmReturn = async () => {
   saving.value = true
   try {
-    await rentalsAPI.returnBattery(returningRental.value.id, {
+    await batteryRentalsAPI.returnBattery(returningRental.value.id, {
       actual_return_date: new Date(returnData.value.actual_return_date).toISOString(),
       return_notes: returnData.value.return_notes
     })

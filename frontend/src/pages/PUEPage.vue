@@ -76,6 +76,16 @@
           <template v-slot:body-cell-actions="props">
             <q-td :props="props">
               <q-btn
+                flat
+                round
+                dense
+                icon="fact_check"
+                color="info"
+                @click="openInspectionDialog(props.row)"
+              >
+                <q-tooltip>Inspections</q-tooltip>
+              </q-btn>
+              <q-btn
                 v-if="authStore.isAdmin"
                 flat
                 round
@@ -191,6 +201,130 @@
         </q-card-section>
       </q-card>
     </q-dialog>
+
+    <!-- Inspection Dialog -->
+    <q-dialog v-model="showInspectionDialog">
+      <q-card style="min-width: 700px">
+        <q-card-section>
+          <div class="text-h6">Inspections - {{ selectedPUE?.name || `PUE #${selectedPUE?.pue_id}` }}</div>
+        </q-card-section>
+
+        <q-separator />
+
+        <q-card-section>
+          <div class="row items-center q-mb-md">
+            <div class="col">
+              <div class="text-subtitle1">Inspection History</div>
+            </div>
+            <div class="col-auto">
+              <q-btn
+                label="Record New Inspection"
+                icon="add"
+                color="primary"
+                @click="showRecordInspectionDialog = true"
+              />
+            </div>
+          </div>
+
+          <q-table
+            :rows="inspections"
+            :columns="inspectionColumns"
+            row-key="inspection_id"
+            :loading="loadingInspections"
+            :rows-per-page-options="[5, 10, 20]"
+          >
+            <template v-slot:body-cell-condition="props">
+              <q-td :props="props">
+                <q-badge :color="getConditionColor(props.row.condition)">
+                  {{ props.row.condition }}
+                </q-badge>
+              </q-td>
+            </template>
+
+            <template v-slot:body-cell-requires_maintenance="props">
+              <q-td :props="props">
+                <q-icon
+                  :name="props.row.requires_maintenance ? 'warning' : 'check_circle'"
+                  :color="props.row.requires_maintenance ? 'warning' : 'positive'"
+                  size="sm"
+                />
+              </q-td>
+            </template>
+          </q-table>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn label="Close" flat v-close-popup />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Record Inspection Dialog -->
+    <q-dialog v-model="showRecordInspectionDialog">
+      <q-card style="min-width: 500px">
+        <q-card-section>
+          <div class="text-h6">Record New Inspection</div>
+        </q-card-section>
+
+        <q-card-section>
+          <q-form @submit="recordInspection" class="q-gutter-md">
+            <q-input
+              v-model="inspectionForm.inspector_name"
+              label="Inspector Name *"
+              outlined
+              :rules="[val => !!val || 'Inspector name is required']"
+            />
+
+            <q-input
+              v-model="inspectionForm.inspection_date"
+              label="Inspection Date"
+              type="datetime-local"
+              outlined
+            />
+
+            <q-select
+              v-model="inspectionForm.condition"
+              :options="conditionOptions"
+              label="Condition *"
+              outlined
+              :rules="[val => !!val || 'Condition is required']"
+            />
+
+            <q-input
+              v-model="inspectionForm.notes"
+              label="Inspection Notes"
+              type="textarea"
+              outlined
+              rows="3"
+            />
+
+            <q-checkbox
+              v-model="inspectionForm.requires_maintenance"
+              label="Requires Maintenance"
+            />
+
+            <q-input
+              v-if="inspectionForm.requires_maintenance"
+              v-model="inspectionForm.maintenance_notes"
+              label="Maintenance Notes"
+              type="textarea"
+              outlined
+              rows="2"
+            />
+
+            <div class="row justify-end q-gutter-sm">
+              <q-btn label="Cancel" flat v-close-popup />
+              <q-btn
+                label="Record Inspection"
+                type="submit"
+                color="primary"
+                :loading="savingInspection"
+              />
+            </div>
+          </q-form>
+        </q-card-section>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -224,8 +358,34 @@ const formData = ref({
   status: 'available'
 })
 
+// Inspection state
+const showInspectionDialog = ref(false)
+const showRecordInspectionDialog = ref(false)
+const selectedPUE = ref(null)
+const inspections = ref([])
+const loadingInspections = ref(false)
+const savingInspection = ref(false)
+
+const inspectionForm = ref({
+  inspector_name: '',
+  inspection_date: new Date().toISOString().slice(0, 16),
+  condition: '',
+  notes: '',
+  requires_maintenance: false,
+  maintenance_notes: ''
+})
+
 const statusOptions = ['available', 'rented', 'maintenance', 'retired']
 const usageLocationOptions = ['hub_only', 'battery_only', 'both']
+const conditionOptions = ['Excellent', 'Good', 'Fair', 'Poor', 'Damaged']
+
+const inspectionColumns = [
+  { name: 'inspection_date', label: 'Date', field: 'inspection_date', align: 'left', sortable: true, format: val => formatDate(val) },
+  { name: 'inspector_name', label: 'Inspector', field: 'inspector_name', align: 'left' },
+  { name: 'condition', label: 'Condition', field: 'condition', align: 'center' },
+  { name: 'requires_maintenance', label: 'Maintenance', field: 'requires_maintenance', align: 'center' },
+  { name: 'notes', label: 'Notes', field: 'notes', align: 'left' }
+]
 
 const columns = computed(() => {
   const cols = [
@@ -292,6 +452,89 @@ const getInspectionStatusLabel = (status) => {
 const formatDate = (dateString) => {
   if (!dateString) return 'N/A'
   return new Date(dateString).toLocaleDateString()
+}
+
+const getConditionColor = (condition) => {
+  const colors = {
+    'Excellent': 'positive',
+    'Good': 'positive',
+    'Fair': 'warning',
+    'Poor': 'negative',
+    'Damaged': 'negative'
+  }
+  return colors[condition] || 'grey'
+}
+
+const openInspectionDialog = async (pue) => {
+  selectedPUE.value = pue
+  showInspectionDialog.value = true
+  await loadInspections(pue.pue_id)
+}
+
+const loadInspections = async (pueId) => {
+  loadingInspections.value = true
+  try {
+    const response = await pueInspectionsAPI.list(pueId)
+    inspections.value = response.data || []
+  } catch (error) {
+    console.error('Failed to load inspections:', error)
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to load inspections',
+      position: 'top'
+    })
+  } finally {
+    loadingInspections.value = false
+  }
+}
+
+const recordInspection = async () => {
+  if (!selectedPUE.value) return
+
+  savingInspection.value = true
+  try {
+    const inspectionData = {
+      inspector_name: inspectionForm.value.inspector_name,
+      inspection_date: inspectionForm.value.inspection_date ? new Date(inspectionForm.value.inspection_date).toISOString() : undefined,
+      condition: inspectionForm.value.condition,
+      notes: inspectionForm.value.notes || undefined,
+      requires_maintenance: inspectionForm.value.requires_maintenance,
+      maintenance_notes: inspectionForm.value.requires_maintenance ? inspectionForm.value.maintenance_notes : undefined
+    }
+
+    await pueInspectionsAPI.create(selectedPUE.value.pue_id, inspectionData)
+
+    $q.notify({
+      type: 'positive',
+      message: 'Inspection recorded successfully',
+      position: 'top'
+    })
+
+    showRecordInspectionDialog.value = false
+    resetInspectionForm()
+    await loadInspections(selectedPUE.value.pue_id)
+    await loadPUE() // Refresh main list to update inspection status
+  } catch (error) {
+    console.error('Failed to record inspection:', error)
+    $q.notify({
+      type: 'negative',
+      message: error.response?.data?.detail || 'Failed to record inspection',
+      position: 'top'
+    })
+  } finally {
+    savingInspection.value = false
+  }
+}
+
+const resetInspectionForm = () => {
+  inspectionForm.value = {
+    inspector_name: '',
+    inspection_date: new Date().toISOString().slice(0, 16),
+    condition: '',
+    notes: '',
+    requires_maintenance: false,
+    maintenance_notes: ''
+  }
 }
 
 const loadPUE = async () => {

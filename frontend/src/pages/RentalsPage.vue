@@ -22,11 +22,27 @@
       </div>
     </div>
 
-    <!-- Filter tabs -->
+    <!-- Rental Type Filter tabs -->
+    <q-tabs
+      v-model="rentalTypeFilter"
+      dense
+      class="text-grey"
+      active-color="secondary"
+      indicator-color="secondary"
+      align="left"
+      narrow-indicator
+      @update:model-value="loadRentals"
+    >
+      <q-tab name="all" label="All Types" />
+      <q-tab name="battery" label="Battery" />
+      <q-tab name="pue" label="PUE" />
+    </q-tabs>
+
+    <!-- Status Filter tabs -->
     <q-tabs
       v-model="statusFilter"
       dense
-      class="text-grey"
+      class="text-grey q-mt-sm"
       active-color="primary"
       indicator-color="primary"
       align="justify"
@@ -63,6 +79,15 @@
                 <q-icon name="search" />
               </template>
             </q-input>
+          </template>
+
+          <template v-slot:body-cell-rental_type="props">
+            <q-td :props="props">
+              <q-badge
+                :color="props.row.rental_type === 'battery' ? 'blue' : 'purple'"
+                :label="props.row.rental_type === 'battery' ? 'Battery' : 'PUE'"
+              />
+            </q-td>
           </template>
 
           <template v-slot:body-cell-status="props">
@@ -1388,7 +1413,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { rentalsAPI, hubsAPI, usersAPI, batteriesAPI, pueAPI, settingsAPI, accountsAPI, subscriptionsAPI } from 'src/services/api'
+import { rentalsAPI, batteryRentalsAPI, pueRentalsAPI, hubsAPI, usersAPI, batteriesAPI, pueAPI, settingsAPI, accountsAPI, subscriptionsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
 import { useQuasar, date } from 'quasar'
@@ -1414,6 +1439,7 @@ const selectedPUE = ref(null)
 const loading = ref(false)
 const filter = ref('')
 const statusFilter = ref('all')
+const rentalTypeFilter = ref('all')
 const selectedHub = ref(null)
 const showCreateDialog = ref(false)
 const showReturnDialog = ref(false)
@@ -1651,6 +1677,7 @@ const returnData = ref({
 
 const columns = [
   { name: 'rentral_id', label: 'ID', field: 'rentral_id', align: 'left', sortable: true },
+  { name: 'rental_type', label: 'Type', field: 'rental_type', align: 'center', sortable: true },
   { name: 'hub', label: 'Hub', field: row => row.hub?.what_three_word_location || `Hub ${row.hub?.hub_id || '-'}`, align: 'left', sortable: true },
   { name: 'user', label: 'User', field: row => row.user?.Name || row.user?.username || `User ${row.user_id}`, align: 'left', sortable: true },
   { name: 'battery', label: 'Battery', field: row => row.battery?.short_id || `Battery ${row.battery_id}`, align: 'left' },
@@ -1723,7 +1750,14 @@ const formatDate = (dateStr) => {
 }
 
 const onRowClick = (evt, row) => {
-  router.push({ name: 'rental-detail', params: { id: row.rentral_id } })
+  if (row.rental_type === 'battery') {
+    router.push(`/rentals/battery/${row.rentral_id}`)
+  } else if (row.rental_type === 'pue') {
+    router.push(`/rentals/pue/${row.rentral_id}`)
+  } else {
+    // Fallback for legacy rentals
+    router.push({ name: 'rental-detail', params: { id: row.rentral_id } })
+  }
 }
 
 const loadRentals = async () => {
@@ -1741,8 +1775,45 @@ const loadRentals = async () => {
       params.hub_id = selectedHub.value
     }
 
-    const response = await rentalsAPI.list(params)
-    rentals.value = response.data
+    let allRentals = []
+
+    // Load rentals based on rental type filter
+    if (rentalTypeFilter.value === 'all') {
+      // Load both battery and PUE rentals
+      const [batteryResponse, pueResponse] = await Promise.all([
+        batteryRentalsAPI.list(params),
+        pueRentalsAPI.list(params)
+      ])
+
+      // Add rental_type field to each item
+      const batteryRentals = (batteryResponse.data || []).map(rental => ({
+        ...rental,
+        rental_type: 'battery'
+      }))
+
+      const pueRentals = (pueResponse.data || []).map(rental => ({
+        ...rental,
+        rental_type: 'pue'
+      }))
+
+      allRentals = [...batteryRentals, ...pueRentals]
+    } else if (rentalTypeFilter.value === 'battery') {
+      // Load only battery rentals
+      const response = await batteryRentalsAPI.list(params)
+      allRentals = (response.data || []).map(rental => ({
+        ...rental,
+        rental_type: 'battery'
+      }))
+    } else if (rentalTypeFilter.value === 'pue') {
+      // Load only PUE rentals
+      const response = await pueRentalsAPI.list(params)
+      allRentals = (response.data || []).map(rental => ({
+        ...rental,
+        rental_type: 'pue'
+      }))
+    }
+
+    rentals.value = allRentals
   } catch (error) {
     console.error('Failed to load rentals:', error)
     $q.notify({

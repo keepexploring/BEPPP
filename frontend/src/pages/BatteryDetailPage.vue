@@ -427,7 +427,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { batteriesAPI, dataAPI, hubsAPI, rentalsAPI, notificationsAPI } from 'src/services/api'
+import { batteriesAPI, dataAPI, hubsAPI, batteryRentalsAPI, notificationsAPI } from 'src/services/api'
 import { useQuasar, date, copyToClipboard } from 'quasar'
 import { useAuthStore } from 'stores/auth'
 import ErrorHistoryTable from 'src/components/ErrorHistoryTable.vue'
@@ -655,7 +655,7 @@ const loadNotes = async () => {
 
 const loadRentalHistory = async () => {
   try {
-    const response = await rentalsAPI.list({ battery_id: battery.value.battery_id })
+    const response = await batteryRentalsAPI.list({ battery_id: battery.value.battery_id })
     rentalHistory.value = response.data || []
 
     // Find active rental

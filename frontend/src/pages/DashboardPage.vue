@@ -179,6 +179,111 @@
         </q-card>
       </div>
 
+      <!-- PUE Inspection Alerts -->
+      <div class="col-12">
+        <q-card>
+          <q-card-section>
+            <div class="text-h6">
+              PUE Inspection Alerts
+              <q-badge v-if="overdueInspectionsCount > 0" color="negative" class="q-ml-sm">
+                {{ overdueInspectionsCount }} overdue
+              </q-badge>
+              <q-badge v-if="dueSoonInspectionsCount > 0" color="warning" class="q-ml-sm">
+                {{ dueSoonInspectionsCount }} due soon
+              </q-badge>
+            </div>
+          </q-card-section>
+
+          <!-- Overdue Inspections -->
+          <q-card-section v-if="overdueInspections.length > 0">
+            <div class="text-subtitle2 text-negative q-mb-sm">Overdue Inspections</div>
+            <q-list separator bordered>
+              <q-item
+                v-for="pue in overdueInspections"
+                :key="pue.pue_id"
+                clickable
+                @click="$router.push({ name: 'pue' })"
+              >
+                <q-item-section avatar>
+                  <q-avatar color="negative" text-color="white" icon="fact_check" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>
+                    {{ pue.name || `PUE #${pue.pue_id}` }}
+                    <q-badge color="negative" class="q-ml-sm">
+                      Overdue
+                    </q-badge>
+                  </q-item-label>
+                  <q-item-label caption>
+                    <template v-if="pue.last_inspection_date">
+                      Last inspected: {{ formatDate(pue.last_inspection_date) }}
+                    </template>
+                    <template v-else>
+                      Never inspected
+                    </template>
+                  </q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <q-btn
+                    flat
+                    round
+                    dense
+                    icon="arrow_forward"
+                    color="primary"
+                    @click.stop="$router.push({ name: 'pue' })"
+                  />
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-card-section>
+
+          <!-- Due Soon Inspections -->
+          <q-card-section v-if="dueSoonInspections.length > 0">
+            <div class="text-subtitle2 text-warning q-mb-sm">Due Soon</div>
+            <q-list separator bordered>
+              <q-item
+                v-for="pue in dueSoonInspections"
+                :key="pue.pue_id"
+                clickable
+                @click="$router.push({ name: 'pue' })"
+              >
+                <q-item-section avatar>
+                  <q-avatar color="warning" text-color="white" icon="fact_check" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>
+                    {{ pue.name || `PUE #${pue.pue_id}` }}
+                    <q-badge color="warning" class="q-ml-sm">
+                      Due Soon
+                    </q-badge>
+                  </q-item-label>
+                  <q-item-label caption>
+                    Last inspected: {{ formatDate(pue.last_inspection_date) }}
+                  </q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <q-btn
+                    flat
+                    round
+                    dense
+                    icon="arrow_forward"
+                    color="primary"
+                    @click.stop="$router.push({ name: 'pue' })"
+                  />
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-card-section>
+
+          <q-card-section v-if="overdueInspections.length === 0 && dueSoonInspections.length === 0">
+            <div class="text-center text-grey-7 q-pa-md">
+              <q-icon name="check_circle" size="48px" color="positive" />
+              <div class="q-mt-sm">All PUE items are up to date with inspections!</div>
+            </div>
+          </q-card-section>
+        </q-card>
+      </div>
+
       <!-- Hub Summary -->
       <div class="col-12 col-md-8">
         <q-card>
@@ -320,7 +425,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { hubsAPI, analyticsAPI, rentalsAPI } from 'src/services/api'
+import { hubsAPI, analyticsAPI, batteryRentalsAPI, pueRentalsAPI } from 'src/services/api'
 import { useQuasar, date } from 'quasar'
 import HubFilter from 'src/components/HubFilter.vue'
 import { useHubSettingsStore } from 'stores/hubSettings'
@@ -344,8 +449,14 @@ const upcomingRentals = ref([])
 const showRentalDialog = ref(false)
 const selectedRental = ref(null)
 
+// PUE Inspection alerts
+const overdueInspections = ref([])
+const dueSoonInspections = ref([])
+
 const overdueCount = computed(() => overdueRentals.value.length)
 const upcomingCount = computed(() => upcomingRentals.value.length)
+const overdueInspectionsCount = computed(() => overdueInspections.value.length)
+const dueSoonInspectionsCount = computed(() => dueSoonInspections.value.length)
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
@@ -378,16 +489,24 @@ const loadDashboardData = async () => {
       0
     )
 
-    // Load active rentals count (active + overdue, excludes returned)
+    // Load active rentals count (active + overdue, excludes returned) - both battery and PUE rentals
     try {
       const rentalParams = { status: 'active' }
       if (selectedHub.value) {
         rentalParams.hub_id = selectedHub.value
       }
-      const activeRentalsResponse = await rentalsAPI.list(rentalParams)
-      // Count all batteries that are out (not returned) - includes both active and overdue
-      const batteriesOut = activeRentalsResponse.data.filter(r => r.status !== 'returned')
-      stats.value.activeRentals = batteriesOut.length
+
+      // Load both battery and PUE rentals in parallel
+      const [batteryResponse, pueResponse] = await Promise.all([
+        batteryRentalsAPI.list(rentalParams),
+        pueRentalsAPI.list(rentalParams)
+      ])
+
+      // Count all items that are out (not returned) - includes both active and overdue
+      const batteryRentalsOut = (batteryResponse.data || []).filter(r => r.status !== 'returned')
+      const pueRentalsOut = (pueResponse.data || []).filter(r => r.status !== 'returned')
+
+      stats.value.activeRentals = batteryRentalsOut.length + pueRentalsOut.length
     } catch (error) {
       console.error('Error loading active rentals:', error)
     }
@@ -422,6 +541,33 @@ const loadDashboardData = async () => {
       }
     } catch (error) {
       console.error('Error loading revenue:', error)
+    }
+
+    // Load PUE inspection alerts
+    try {
+      let allPUE = []
+
+      if (selectedHub.value) {
+        // Load PUE for selected hub only
+        const pueResponse = await hubsAPI.getPUE(selectedHub.value)
+        allPUE = pueResponse.data || []
+      } else {
+        // Load all hubs to get all PUE
+        const hubsResponse = await hubsAPI.list()
+        for (const hub of hubsResponse.data) {
+          const pueResponse = await hubsAPI.getPUE(hub.hub_id)
+          allPUE.push(...(pueResponse.data || []))
+        }
+      }
+
+      // Filter by inspection status
+      const overdue = allPUE.filter(pue => pue.inspection_status === 'overdue')
+      const dueSoon = allPUE.filter(pue => pue.inspection_status === 'due_soon')
+
+      overdueInspections.value = overdue
+      dueSoonInspections.value = dueSoon
+    } catch (error) {
+      console.error('Error loading PUE inspection alerts:', error)
     }
 
   } catch (error) {

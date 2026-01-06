@@ -411,7 +411,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useQuasar, date } from 'quasar'
-import { rentalsAPI } from 'src/services/api'
+import { batteryRentalsAPI, pueRentalsAPI } from 'src/services/api'
 import { useHubSettingsStore } from 'stores/hubSettings'
 
 const $q = useQuasar()
@@ -428,6 +428,20 @@ const props = defineProps({
     type: Object,
     default: null
   }
+})
+
+// Computed to determine rental type and select appropriate API
+const rentalType = computed(() => {
+  if (!props.rental) return 'battery' // default to battery
+  // Check if it's a PUE rental
+  if (props.rental.rental_type === 'pue' || props.rental.pue_rental_id || props.rental.pue_id) {
+    return 'pue'
+  }
+  return 'battery'
+})
+
+const rentalAPI = computed(() => {
+  return rentalType.value === 'pue' ? pueRentalsAPI : batteryRentalsAPI
 })
 
 const emit = defineEmits(['update:modelValue', 'returned'])
@@ -509,7 +523,7 @@ const fetchCostCalculation = async () => {
     }
 
     console.log('Calling API with params:', params)
-    const response = await rentalsAPI.calculateReturnCost(rentalId, params)
+    const response = await rentalAPI.value.calculateReturnCost(rentalId, params)
     console.log('Cost calculation response:', response.data)
     costCalculation.value = response.data
 
@@ -601,7 +615,8 @@ const onConfirm = async () => {
       returnPayload.payment_notes = formData.value.payment_notes
     }
 
-    await rentalsAPI.returnBattery(props.rental.rentral_id || props.rental.id, returnPayload)
+    const returnMethod = rentalType.value === 'pue' ? 'returnPUE' : 'returnBattery'
+    await rentalAPI.value[returnMethod](props.rental.rentral_id || props.rental.pue_rental_id || props.rental.id, returnPayload)
 
     $q.notify({
       type: 'positive',

@@ -669,6 +669,8 @@
                     {label: 'Per Hour', value: 'per_hour'},
                     {label: 'Per kWh', value: 'per_kwh'},
                     {label: 'Per Kg', value: 'per_kg'},
+                    {label: 'Per Recharge', value: 'per_recharge'},
+                    {label: 'One Time', value: 'one_time'},
                     {label: 'Fixed Fee', value: 'fixed'}
                   ]"
                   option-label="label"
@@ -1045,10 +1047,14 @@
             v-model="newPricing.unit_type"
             :options="[
               {label: 'Per Day', value: 'per_day'},
-              {label: 'Per Hour', value: 'per_hour'},
-              {label: 'Per Kg', value: 'per_kg'},
+              {label: 'Per Week', value: 'per_week'},
               {label: 'Per Month', value: 'per_month'},
-              {label: 'Per kWh', value: 'per_kwh'}
+              {label: 'Per Hour', value: 'per_hour'},
+              {label: 'Per kWh', value: 'per_kwh'},
+              {label: 'Per Kg', value: 'per_kg'},
+              {label: 'Per Recharge', value: 'per_recharge'},
+              {label: 'One Time', value: 'one_time'},
+              {label: 'Fixed Fee', value: 'fixed'}
             ]"
             option-label="label"
             option-value="value"
