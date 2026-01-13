@@ -1054,7 +1054,13 @@
               label="Quantity *"
               outlined
               min="1"
-              :rules="[val => val > 0 || 'Quantity must be greater than 0']"
+              :max="isPUEPayToOwn ? 1 : undefined"
+              :readonly="isPUEPayToOwn"
+              :rules="[
+                val => val > 0 || 'Quantity must be greater than 0',
+                val => !isPUEPayToOwn || val === 1 || 'Pay-to-own rentals must have quantity of 1'
+              ]"
+              :hint="isPUEPayToOwn ? 'Pay-to-own rentals can only be for a single item' : ''"
               class="q-mb-md"
             >
               <template v-slot:prepend>
@@ -1088,9 +1094,23 @@
               </template>
             </q-select>
 
-            <!-- Duration Selection -->
+            <!-- Pay-to-Own Banner -->
+            <q-banner v-if="isPUEPayToOwn" class="bg-purple-1 q-mb-md" rounded>
+              <template v-slot:avatar>
+                <q-icon name="account_balance" color="purple" />
+              </template>
+              <div class="text-h6">Pay to Own</div>
+              <div class="text-body2">
+                Total Item Cost: {{ currentCurrencySymbol}}{{ selectedPUECostStructureObject?.item_total_cost?.toFixed(2) || '0.00' }}
+              </div>
+              <div class="text-caption q-mt-xs">
+                This rental will allow the customer to gradually own this item through payments.
+              </div>
+            </q-banner>
+
+            <!-- Duration Selection (hidden for pay-to-own) -->
             <q-select
-              v-if="pueFormData.cost_structure_id"
+              v-if="pueFormData.cost_structure_id && !isPUEPayToOwn"
               v-model="pueFormData.duration_preset"
               :options="pueDurationOptions"
               option-value="value"
@@ -1833,6 +1853,18 @@ const isPUECustomDuration = computed(() => {
   return pueFormData.value.duration_preset === 'custom' ||
          pueFormData.value.duration_preset.toString().startsWith('custom-') ||
          pueDurationOptions.value.find(d => d.value === pueFormData.value.duration_preset)?.is_custom === true
+})
+
+// Computed property to check if selected cost structure is pay-to-own
+const isPUEPayToOwn = computed(() => {
+  if (!pueFormData.value.cost_structure_id) return false
+  const structure = availablePUECostStructures.value.find(s => s.structure_id === pueFormData.value.cost_structure_id)
+  return structure?.is_pay_to_own || false
+})
+
+const selectedPUECostStructureObject = computed(() => {
+  if (!pueFormData.value.cost_structure_id) return null
+  return availablePUECostStructures.value.find(s => s.structure_id === pueFormData.value.cost_structure_id)
 })
 
 // Payment method options
@@ -3758,6 +3790,13 @@ const onPUERentalCostStructureChange = async (structureId) => {
   // Load duration options from the selected cost structure
   const structure = availablePUECostStructures.value.find(s => s.structure_id === structureId)
 
+  // If pay-to-own, set quantity to 1 and skip duration loading
+  if (structure?.is_pay_to_own) {
+    pueFormData.value.quantity = 1
+    pueDurationOptions.value = [] // No duration options for pay-to-own
+    return
+  }
+
   if (structure && structure.duration_options && structure.duration_options.length > 0) {
     buildPUEDurationOptionsFromStructure(structure.duration_options)
   } else {
@@ -3929,13 +3968,15 @@ const savePUERental = async () => {
       pue_quantities: { [pueFormData.value.pue_id]: pueFormData.value.quantity },
       cost_structure_id: pueFormData.value.cost_structure_id,
       rental_start_date: new Date(pueFormData.value.rental_start_date).toISOString(),
-      due_date: new Date(pueFormData.value.due_date).toISOString(),
-      duration_value: durationValue,
-      duration_unit: durationUnit,
+      due_date: isPUEPayToOwn.value ? null : new Date(pueFormData.value.due_date).toISOString(),
+      duration_value: isPUEPayToOwn.value ? null : durationValue,
+      duration_unit: isPUEPayToOwn.value ? null : durationUnit,
       payment_method: pueFormData.value.payment_method,
       deposit_amount: pueFormData.value.deposit_amount || 0,
       amount_paid: pueFormData.value.amount_paid || 0,
-      credit_applied: pueFormData.value.credit_used || 0
+      credit_applied: pueFormData.value.credit_used || 0,
+      is_pay_to_own: isPUEPayToOwn.value,
+      pay_to_own_price: isPUEPayToOwn.value ? selectedPUECostStructureObject.value?.item_total_cost : null
     }
 
     // Create the PUE rental

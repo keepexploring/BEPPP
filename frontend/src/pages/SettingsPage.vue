@@ -668,10 +668,13 @@
             v-model="newStructure.is_pay_to_own"
             label="Enable Pay-to-Own"
             dense
+            :disable="!['pue_item', 'battery_item'].includes(newStructure.item_type)"
             @update:model-value="onPayToOwnToggle"
           >
             <q-tooltip>
-              When enabled, customers can gradually pay off the item to own it
+              {{['pue_item', 'battery_item'].includes(newStructure.item_type)
+                ? 'When enabled, customers can gradually pay off the item to own it'
+                : 'Only available for Specific PUE Item or Specific Battery'}}
             </q-tooltip>
           </q-checkbox>
 
@@ -2866,6 +2869,14 @@ const onStructureItemTypeChange = () => {
   } else {
     newStructure.value.item_reference = ''
   }
+
+  // Clear pay-to-own if item type doesn't support it
+  if (!['pue_item', 'battery_item'].includes(newStructure.value.item_type)) {
+    newStructure.value.is_pay_to_own = false
+    newStructure.value.item_total_cost = null
+    newStructure.value.allow_multiple_items = true
+  }
+
   // Load data for the active hub
   if (activeHubId.value) {
     onPricingHubChange(activeHubId.value)
