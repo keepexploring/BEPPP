@@ -305,20 +305,29 @@ class RentalPUEItem(Base):
 
 class PUERental(Base):
     __tablename__ = 'puerental'
-    
+
     pue_rental_id = Column(BigInteger, primary_key=True)
     pue_id = Column(BigInteger, ForeignKey('productiveuseequipment.pue_id'))
     user_id = Column(BigInteger, ForeignKey('user.user_id'))
     timestamp_taken = Column(DateTime)
     due_back = Column(DateTime)
     date_returned = Column(DateTime, nullable=True)
-    
+
     # Enhanced fields
     rental_cost = Column(Float, nullable=True)  # Actual cost paid
     deposit_amount = Column(Float, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
+    # Pay-to-own tracking fields (new design)
+    is_pay_to_own = Column(Boolean, server_default='false', nullable=False)
+    total_item_cost = Column(Numeric(10, 2), nullable=True)  # Total cost to own the item
+    total_paid_towards_ownership = Column(Numeric(10, 2), server_default='0.00', nullable=False)  # Equity payments
+    total_rental_fees_paid = Column(Numeric(10, 2), server_default='0.00', nullable=False)  # Non-equity fees
+    ownership_percentage = Column(Numeric(5, 2), server_default='0.00', nullable=False)  # % of ownership achieved
+    pay_to_own_status = Column(String(20), nullable=True)  # 'active', 'completed', 'returned'
+    ownership_completion_date = Column(DateTime, nullable=True)  # When 100% ownership achieved
+
     # Relations
     pue = relationship("ProductiveUseEquipment", back_populates="pue_rentals")
     user = relationship("User", back_populates="pue_rentals")
@@ -436,6 +445,12 @@ class CostStructure(Base):
     deposit_amount = Column(Float, server_default='0', nullable=False)  # Required deposit for this cost structure
     count_initial_checkout_as_recharge = Column(Boolean, server_default='false', nullable=False)  # If true, initial checkout counts as first recharge
     is_active = Column(Boolean, server_default='true', nullable=False)
+
+    # Pay-to-own fields
+    is_pay_to_own = Column(Boolean, server_default='false', nullable=False)  # Is this a pay-to-own structure
+    item_total_cost = Column(Numeric(10, 2), nullable=True)  # Total cost of item for pay-to-own
+    allow_multiple_items = Column(Boolean, server_default='true', nullable=False)  # False for pay-to-own
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -462,6 +477,11 @@ class CostComponent(Base):
     late_fee_action = Column(String(50), server_default='continue', nullable=False)  # 'continue', 'stop', 'daily_fine', 'weekly_fine'
     late_fee_rate = Column(Float, nullable=True)  # Rate for fines (only applicable for daily_fine/weekly_fine)
     late_fee_grace_days = Column(Integer, server_default='0', nullable=False)  # Grace period before late fees apply to this component
+
+    # Pay-to-own ownership tracking
+    contributes_to_ownership = Column(Boolean, server_default='true', nullable=False)  # Does payment build equity?
+    is_percentage_of_remaining = Column(Boolean, server_default='false', nullable=False)  # Calculate as % of remaining balance
+    percentage_value = Column(Numeric(5, 2), nullable=True)  # If percentage-based, what %
 
     # Relationships
     structure = relationship("CostStructure", back_populates="components")
