@@ -656,6 +656,52 @@
             </template>
           </q-select>
 
+          <q-separator class="q-my-md" />
+
+          <!-- Pay to Own Section -->
+          <div class="text-subtitle2 q-mt-md">Pay-to-Own Options</div>
+          <div class="text-caption text-grey-7 q-mb-sm">
+            Configure if this cost structure supports gradual ownership
+          </div>
+
+          <q-checkbox
+            v-model="newStructure.is_pay_to_own"
+            label="Enable Pay-to-Own"
+            dense
+            @update:model-value="onPayToOwnToggle"
+          >
+            <q-tooltip>
+              When enabled, customers can gradually pay off the item to own it
+            </q-tooltip>
+          </q-checkbox>
+
+          <q-input
+            v-if="newStructure.is_pay_to_own"
+            v-model.number="newStructure.item_total_cost"
+            type="number"
+            label="Total Item Cost *"
+            :prefix="currentCurrencySymbol"
+            step="0.01"
+            outlined
+            class="q-mt-md"
+            hint="The full price of the item to be owned"
+            :rules="[val => newStructure.is_pay_to_own ? (val > 0 || 'Item cost is required for pay-to-own') : true]"
+          />
+
+          <q-banner v-if="newStructure.is_pay_to_own" class="bg-purple-1 q-mt-md" rounded>
+            <template v-slot:avatar>
+              <q-icon name="info" color="purple" />
+            </template>
+            <div class="text-body2">
+              <strong>Pay-to-Own Constraints:</strong>
+              <ul class="q-ma-none q-pl-md">
+                <li>Only applies to single items (quantity = 1)</li>
+                <li>Duration options are not applicable</li>
+                <li>Cost components can contribute to ownership or be rental fees</li>
+              </ul>
+            </div>
+          </q-banner>
+
           <q-separator />
 
           <!-- Cost Components Section -->
@@ -736,6 +782,56 @@
                 />
               </div>
             </div>
+
+            <!-- Pay-to-Own Options (only shown when pay-to-own is enabled) -->
+            <div v-if="newStructure.is_pay_to_own" class="row q-gutter-md items-start q-mt-sm">
+              <div class="col-12">
+                <div class="text-caption text-purple-8 q-mb-xs">
+                  <q-icon name="account_balance" size="xs" /> Pay-to-Own Settings
+                </div>
+              </div>
+
+              <div class="col-3">
+                <q-checkbox
+                  v-model="component.contributes_to_ownership"
+                  label="Contributes to Ownership"
+                  dense
+                  color="purple"
+                >
+                  <q-tooltip>
+                    When checked, this payment builds equity toward ownership
+                  </q-tooltip>
+                </q-checkbox>
+              </div>
+
+              <div class="col-3">
+                <q-checkbox
+                  v-model="component.is_percentage_of_remaining"
+                  label="% of Remaining Balance"
+                  dense
+                  color="purple"
+                  :disable="!component.contributes_to_ownership"
+                >
+                  <q-tooltip>
+                    Calculate as percentage of remaining balance instead of fixed amount
+                  </q-tooltip>
+                </q-checkbox>
+              </div>
+
+              <div class="col-2" v-if="component.is_percentage_of_remaining">
+                <q-input
+                  v-model.number="component.percentage_value"
+                  type="number"
+                  label="Percentage"
+                  suffix="%"
+                  dense
+                  outlined
+                  min="0"
+                  max="100"
+                  step="0.1"
+                />
+              </div>
+            </div>
           </div>
 
           <!-- Add Component Button -->
@@ -765,12 +861,13 @@
             </q-checkbox>
           </template>
 
-          <!-- Duration Options Section -->
-          <q-separator class="q-my-md" />
-          <div class="text-subtitle2 q-mt-md">Duration Options</div>
-          <div class="text-caption text-grey-7 q-mb-sm">
-            Define how users will select rental duration (e.g., dropdown with 1, 2, 5 days or custom input)
-          </div>
+          <!-- Duration Options Section (hidden for pay-to-own) -->
+          <template v-if="!newStructure.is_pay_to_own">
+            <q-separator class="q-my-md" />
+            <div class="text-subtitle2 q-mt-md">Duration Options</div>
+            <div class="text-caption text-grey-7 q-mb-sm">
+              Define how users will select rental duration (e.g., dropdown with 1, 2, 5 days or custom input)
+            </div>
 
           <!-- Duration Option List -->
           <div v-for="(option, index) in newStructure.duration_options" :key="'dur-' + index" class="q-pa-md bg-grey-1 rounded-borders q-mb-sm">
@@ -931,6 +1028,7 @@
             color="primary"
             @click="addDurationOption"
           />
+          </template>
             </div>
           </q-tab-panel>
 
@@ -1695,7 +1793,10 @@ const newStructure = ref({
   item_reference: '',
   components: [],
   duration_options: [],
-  count_initial_checkout_as_recharge: false
+  count_initial_checkout_as_recharge: false,
+  is_pay_to_own: false,
+  item_total_cost: null,
+  allow_multiple_items: true
 })
 
 const structureColumns = [
@@ -2684,7 +2785,11 @@ const addComponent = () => {
     // Late fee defaults
     late_fee_action: 'continue',
     late_fee_rate: null,
-    late_fee_grace_days: 0
+    late_fee_grace_days: 0,
+    // Pay-to-own defaults
+    contributes_to_ownership: true,
+    is_percentage_of_remaining: false,
+    percentage_value: null
   }
   newStructure.value.components.push(newComponent)
 }
@@ -2764,6 +2869,18 @@ const onStructureItemTypeChange = () => {
   // Load data for the active hub
   if (activeHubId.value) {
     onPricingHubChange(activeHubId.value)
+  }
+}
+
+const onPayToOwnToggle = (value) => {
+  // When enabling pay-to-own, set constraints
+  if (value) {
+    newStructure.value.allow_multiple_items = false
+    // Clear duration options as they don't apply to pay-to-own
+    newStructure.value.duration_options = []
+  } else {
+    newStructure.value.allow_multiple_items = true
+    newStructure.value.item_total_cost = null
   }
 }
 
@@ -2847,7 +2964,10 @@ const editStructure = (structure) => {
     item_reference: structure.item_reference,
     components: JSON.parse(JSON.stringify(structure.components)), // Deep copy
     duration_options: durationOptions,
-    count_initial_checkout_as_recharge: structure.count_initial_checkout_as_recharge || false
+    count_initial_checkout_as_recharge: structure.count_initial_checkout_as_recharge || false,
+    is_pay_to_own: structure.is_pay_to_own || false,
+    item_total_cost: structure.item_total_cost || null,
+    allow_multiple_items: structure.allow_multiple_items !== undefined ? structure.allow_multiple_items : true
   }
   showAddStructureDialog.value = true
 }
@@ -2895,7 +3015,10 @@ const resetStructureForm = () => {
     item_reference: '',
     components: [],
     duration_options: [],
-    count_initial_checkout_as_recharge: false
+    count_initial_checkout_as_recharge: false,
+    is_pay_to_own: false,
+    item_total_cost: null,
+    allow_multiple_items: true
   }
 }
 

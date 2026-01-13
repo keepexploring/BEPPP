@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, BigInteger, String, Float, DateTime, ForeignKey, Table, Integer, func, Boolean, Text, Enum
+from sqlalchemy import create_engine, Column, BigInteger, String, Float, DateTime, ForeignKey, Table, Integer, func, Boolean, Text, Enum, Numeric
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime

@@ -26,6 +26,7 @@ from database import get_db, init_db
 from models import *
 from sqlalchemy import Table
 from api.app.utils.rental_id_generator import generate_rental_id
+from api.app.services.pay_to_own_service import PayToOwnService
 
 # Import configuration with safe defaults
 try:
@@ -536,6 +537,13 @@ class PUERentalPayment(BaseModel):
     payment_type: str = Field("Cash", description="Payment type: Cash, Mobile Money, etc.")
     notes: Optional[str] = Field(None, description="Payment notes")
     credit_applied: Optional[float] = Field(None, description="Account credit applied to payment", ge=0)
+
+class PayToOwnPaymentRequest(BaseModel):
+    """Process a pay-to-own payment"""
+    payment_amount: float = Field(..., description="Cash/card payment amount", ge=0)
+    payment_type: str = Field("cash", description="Payment type: cash, mobile_money, etc.")
+    notes: Optional[str] = Field(None, description="Payment notes")
+    credit_applied: float = Field(0, description="Amount of credit applied from user account", ge=0)
 
 class PUERentalConvertToRental(BaseModel):
     """Convert pay-to-own back to regular rental"""
@@ -6345,6 +6353,138 @@ async def get_pay_to_own_ledger(
         "ownership_transfer_date": ledger.ownership_transfer_date.isoformat() if ledger.ownership_transfer_date else None,
         "payment_progress_percentage": (float(ledger.amount_paid) / float(ledger.total_price) * 100) if ledger.total_price > 0 else 0,
         "transactions": transaction_list
+    }
+
+# ============================================================================
+# PAY-TO-OWN ENDPOINTS (NEW DESIGN)
+# ============================================================================
+
+@app.get("/pue-rentals/{rental_id}/ownership-status",
+    tags=["PUE Rentals - Pay to Own"],
+    summary="Get ownership status for pay-to-own rental")
+async def get_rental_ownership_status(
+    rental_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get current ownership status for a pay-to-own rental.
+    Shows total item cost, amount paid, remaining balance, and ownership percentage.
+    """
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot access rental ownership status")
+
+    # Fetch rental
+    rental = db.query(PUERental).filter(PUERental.pue_rental_id == rental_id).first()
+    if not rental:
+        raise HTTPException(status_code=404, detail="Rental not found")
+
+    # Use PayToOwnService to get ownership status
+    try:
+        ownership_status = PayToOwnService.get_ownership_status(rental)
+        return ownership_status
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving ownership status: {str(e)}")
+
+
+@app.post("/pue-rentals/{rental_id}/pay-to-own-payment",
+    tags=["PUE Rentals - Pay to Own"],
+    summary="Process pay-to-own payment")
+async def process_rental_pay_to_own_payment(
+    rental_id: int,
+    payment_data: PayToOwnPaymentRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Process a payment for a pay-to-own rental.
+
+    Calculates how much of the payment goes toward ownership vs rental fees
+    based on the cost structure components. Updates ownership tracking fields
+    and marks rental as completed if 100% ownership is reached.
+    """
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot process payments")
+
+    # Fetch rental
+    rental = db.query(PUERental).filter(PUERental.pue_rental_id == rental_id).first()
+    if not rental:
+        raise HTTPException(status_code=404, detail="Rental not found")
+
+    # Process payment using PayToOwnService
+    try:
+        result = PayToOwnService.process_payment(
+            db=db,
+            rental=rental,
+            payment_amount=payment_data.payment_amount,
+            payment_type=payment_data.payment_type,
+            notes=payment_data.notes,
+            credit_applied=payment_data.credit_applied
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing payment: {str(e)}")
+
+
+@app.get("/users/{user_id}/pay-to-own-items",
+    tags=["Users", "PUE Rentals - Pay to Own"],
+    summary="Get user's active pay-to-own items")
+async def get_user_pay_to_own_items(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get all active pay-to-own items for a user.
+
+    Returns list of pay-to-own rentals with ownership progress,
+    amount paid, and remaining balance for each item.
+    """
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot access user pay-to-own items")
+
+    # Verify user exists
+    user = db.query(BEPPPUser).filter(BEPPPUser.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Fetch active pay-to-own rentals
+    rentals = db.query(PUERental).filter(
+        PUERental.user_id == user_id,
+        PUERental.is_pay_to_own == True,
+        or_(
+            PUERental.pay_to_own_status == 'active',
+            PUERental.pay_to_own_status == None
+        )
+    ).all()
+
+    items = []
+    for rental in rentals:
+        # Get PUE item details
+        pue_item = db.query(BEPPPPUE).filter(BEPPPPUE.pue_id == rental.pue_id).first()
+
+        # Calculate remaining balance
+        remaining = float(rental.total_item_cost or 0) - float(rental.total_paid_towards_ownership)
+
+        items.append({
+            "rental_id": rental.pue_rental_id,
+            "rental_unique_id": getattr(rental, 'rental_unique_id', None),
+            "pue_id": rental.pue_id,
+            "pue_name": pue_item.name if pue_item else "Unknown",
+            "total_item_cost": float(rental.total_item_cost) if rental.total_item_cost else 0,
+            "total_paid_towards_ownership": float(rental.total_paid_towards_ownership),
+            "ownership_percentage": float(rental.ownership_percentage),
+            "remaining_balance": max(remaining, 0),
+            "pay_to_own_status": rental.pay_to_own_status,
+            "rental_start_date": rental.timestamp_taken.isoformat() if rental.timestamp_taken else None
+        })
+
+    return {
+        "user_id": user_id,
+        "total_pay_to_own_items": len(items),
+        "items": items
     }
 
 # ============================================================================
