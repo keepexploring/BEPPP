@@ -195,8 +195,8 @@
             </template>
           </q-input>
 
-          <!-- Payment Collection (if amount owed) -->
-          <div v-if="costCalculation && costCalculation.payment_status.amount_still_owed > 0">
+          <!-- Payment Collection -->
+          <div v-if="costCalculation">
             <q-separator class="q-my-md" />
             <div class="text-subtitle2 q-mb-md">Payment Collection</div>
 
@@ -243,8 +243,8 @@
             />
 
             <div v-if="formData.collectPayment" class="q-gutter-md">
-              <!-- Apply Credit Amount -->
-              <div v-if="costCalculation.payment_status.user_account_balance > 0">
+              <!-- Apply Credit Amount (always show, disabled if no credit) -->
+              <div>
                 <q-input
                   v-model.number="formData.credit_applied"
                   type="number"
@@ -252,12 +252,26 @@
                   outlined
                   step="0.01"
                   :prefix="currencySymbol"
+                  :disable="costCalculation.payment_status.user_account_balance <= 0"
                   :max="Math.min(costCalculation.payment_status.user_account_balance, costCalculation.payment_status.amount_still_owed)"
-                  :hint="`Max available: ${currencySymbol}${Math.min(costCalculation.payment_status.user_account_balance, costCalculation.payment_status.amount_still_owed).toFixed(2)}`"
+                  :hint="costCalculation.payment_status.user_account_balance > 0
+                    ? `Max available: ${currencySymbol}${Math.min(costCalculation.payment_status.user_account_balance, costCalculation.payment_status.amount_still_owed).toFixed(2)}`
+                    : 'User has no account credit'"
                   @update:model-value="onCreditAmountChange"
                 >
                   <template v-slot:prepend>
-                    <q-icon name="account_balance_wallet" color="positive" />
+                    <q-icon name="account_balance_wallet" :color="costCalculation.payment_status.user_account_balance > 0 ? 'positive' : 'grey'" />
+                  </template>
+                  <template v-slot:append>
+                    <q-btn
+                      flat
+                      dense
+                      color="positive"
+                      label="Use Max"
+                      size="sm"
+                      @click="onUseMaxCredit"
+                      :disable="costCalculation.payment_status.user_account_balance <= 0"
+                    />
                   </template>
                 </q-input>
               </div>
@@ -389,17 +403,68 @@
                 outlined
                 rows="2"
               />
+
+              <!-- Payment Confirmation -->
+              <q-separator class="q-my-md" />
+              <!-- Show confirmation checkbox only when actual payment is being collected -->
+              <div v-if="formData.payment_amount > 0 && formData.payment_type" class="bg-positive-1 q-pa-md rounded-borders">
+                <div class="text-weight-medium q-mb-sm">
+                  <q-icon name="check_circle" color="positive" class="q-mr-sm" />
+                  Payment Confirmation
+                </div>
+                <q-checkbox
+                  v-model="confirmPaymentReceived"
+                  color="positive"
+                >
+                  <template v-slot:default>
+                    <div class="text-body2">
+                      I confirm that <strong>{{ formData.payment_type }}</strong> payment of
+                      <strong>{{ currencySymbol }}{{ (formData.payment_amount || 0).toFixed(2) }}</strong> has been received<span v-if="formData.credit_applied > 0">, and <strong>{{ currencySymbol }}{{ formData.credit_applied.toFixed(2) }}</strong> will be taken from the user's account credit</span>
+                    </div>
+                  </template>
+                </q-checkbox>
+              </div>
+              <!-- When only credit is used, show informational message -->
+              <div v-else-if="formData.credit_applied > 0 && formData.payment_amount === 0 && formData.payment_type" class="bg-positive-1 q-pa-md rounded-borders">
+                <div class="text-weight-medium q-mb-sm">
+                  <q-icon name="account_balance_wallet" color="positive" class="q-mr-sm" />
+                  Credit Payment
+                </div>
+                <div class="text-body2">
+                  <strong>{{ currencySymbol }}{{ formData.credit_applied.toFixed(2) }}</strong> will be taken from the user's account credit to cover this payment.
+                </div>
+              </div>
+
+              <!-- Make Payment Button -->
+              <div class="q-mt-md">
+                <q-btn
+                  :label="formData.payment_amount > 0 ? 'Record Payment' : 'Apply Credit Payment'"
+                  color="positive"
+                  icon="payment"
+                  :disable="((formData.payment_amount || 0) + (formData.credit_applied || 0)) <= 0 || !formData.payment_type || (formData.payment_amount > 0 && !confirmPaymentReceived)"
+                  @click="recordPayment"
+                  class="full-width"
+                />
+              </div>
+
+              <!-- Payment Success Message -->
+              <div v-if="paymentReceived" class="q-mt-md bg-positive text-white q-pa-md rounded-borders">
+                <q-icon name="check_circle" size="sm" class="q-mr-sm" />
+                Payment recorded successfully! You can now confirm the return.
+              </div>
             </div>
           </div>
 
           <!-- Actions -->
+          <q-separator class="q-mt-lg" />
           <div class="row justify-end q-gutter-sm q-mt-md">
             <q-btn label="Cancel" flat @click="onCancel" />
             <q-btn
               label="Confirm Return"
-              type="submit"
               color="primary"
               :loading="saving"
+              :disable="formData.collectPayment && !paymentReceived"
+              @click="onConfirm"
             />
           </div>
         </q-form>
@@ -409,13 +474,15 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useQuasar, date } from 'quasar'
-import { batteryRentalsAPI, pueRentalsAPI } from 'src/services/api'
+import { batteryRentalsAPI, pueRentalsAPI, settingsAPI } from 'src/services/api'
 import { useHubSettingsStore } from 'stores/hubSettings'
+import { useAuthStore } from 'stores/auth'
 
 const $q = useQuasar()
 const hubSettingsStore = useHubSettingsStore()
+const authStore = useAuthStore()
 
 const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
@@ -454,25 +521,21 @@ const showDialog = computed({
 const costCalculation = ref(null)
 const loadingCost = ref(false)
 const saving = ref(false)
+const paymentReceived = ref(false)
+const confirmPaymentReceived = ref(false)
+const paymentTypeOptions = ref([])
 
 const formData = ref({
   kwhEndReading: null,
   actual_return_date: date.formatDate(new Date(), 'YYYY-MM-DDTHH:mm'),
   return_notes: '',
   collectPayment: false,
-  payment_type: 'cash',
+  payment_type: null,
   payment_amount: 0,
   credit_applied: 0,
   payment_notes: '',
   useAccountCredit: false
 })
-
-const paymentTypeOptions = [
-  { label: 'Cash', value: 'cash' },
-  { label: 'Mobile Money', value: 'mobile_money' },
-  { label: 'Bank Transfer', value: 'bank_transfer' },
-  { label: 'Card', value: 'card' }
-]
 
 // Watch for dialog opening
 watch(() => props.rental, async (newRental) => {
@@ -490,6 +553,8 @@ watch(() => props.rental, async (newRental) => {
       payment_notes: '',
       useAccountCredit: false
     }
+    paymentReceived.value = false
+    confirmPaymentReceived.value = false
 
     console.log('Fetching cost calculation for rental...')
     // Fetch cost calculation
@@ -497,15 +562,24 @@ watch(() => props.rental, async (newRental) => {
   }
 }, { immediate: true })
 
+// Watch collectPayment checkbox - reset payment received when unchecked
+watch(() => formData.value.collectPayment, (newValue) => {
+  if (!newValue) {
+    paymentReceived.value = false
+    confirmPaymentReceived.value = false
+  }
+})
+
 const fetchCostCalculation = async () => {
   if (!props.rental) {
     console.warn('No rental prop provided to fetchCostCalculation')
     return
   }
 
-  const rentalId = props.rental.rentral_id || props.rental.id
+  // Extract rental ID based on rental type
+  const rentalId = props.rental.rental_id || props.rental.rentral_id || props.rental.pue_rental_id || props.rental.id
   if (!rentalId) {
-    console.error('Rental object missing both rentral_id and id fields:', props.rental)
+    console.error('Rental object missing ID field. Checked: rental_id, rentral_id, pue_rental_id, id', props.rental)
     $q.notify({
       type: 'negative',
       message: 'Cannot calculate cost: rental ID is missing',
@@ -514,7 +588,7 @@ const fetchCostCalculation = async () => {
     return
   }
 
-  console.log('Fetching cost calculation for rental ID:', rentalId)
+  console.log('Fetching cost calculation for rental ID:', rentalId, 'Type:', rentalType.value)
   loadingCost.value = true
   try {
     const params = {}
@@ -588,9 +662,61 @@ const onCreditAmountChange = (value) => {
   formData.value.payment_amount = remaining
 }
 
-const onCashAmountChange = (value) => {
+const onUseMaxCredit = () => {
+  if (!costCalculation.value) return
+  const maxCredit = Math.min(
+    costCalculation.value.payment_status.user_account_balance,
+    costCalculation.value.payment_status.amount_still_owed
+  )
+  formData.value.credit_applied = maxCredit
+  // Trigger the credit change handler
+  onCreditAmountChange(maxCredit)
+}
+
+const onCashAmountChange = () => {
   // Allow any amount - overpayment will be added as credit to user's account
   // The remaining (if underpayment) will be tracked as debt
+}
+
+const recordPayment = () => {
+  const totalPayment = (formData.value.payment_amount || 0) + (formData.value.credit_applied || 0)
+
+  if (totalPayment <= 0) {
+    $q.notify({
+      type: 'warning',
+      message: 'Total payment (cash + credit) must be greater than 0',
+      position: 'top'
+    })
+    return
+  }
+
+  if (!formData.value.payment_type) {
+    $q.notify({
+      type: 'warning',
+      message: 'Please select a payment method',
+      position: 'top'
+    })
+    return
+  }
+
+  // Only require confirmation checkbox if actual cash/card payment is being collected
+  if (formData.value.payment_amount > 0 && !confirmPaymentReceived.value) {
+    $q.notify({
+      type: 'warning',
+      message: 'Please confirm that payment has been received',
+      position: 'top'
+    })
+    return
+  }
+
+  // Mark payment as received
+  paymentReceived.value = true
+
+  $q.notify({
+    type: 'positive',
+    message: `Payment of ${currencySymbol.value}${totalPayment.toFixed(2)} confirmed. You can now complete the return.`,
+    position: 'top'
+  })
 }
 
 const onConfirm = async () => {
@@ -616,7 +742,8 @@ const onConfirm = async () => {
     }
 
     const returnMethod = rentalType.value === 'pue' ? 'returnPUE' : 'returnBattery'
-    await rentalAPI.value[returnMethod](props.rental.rentral_id || props.rental.pue_rental_id || props.rental.id, returnPayload)
+    const rentalId = props.rental.rental_id || props.rental.rentral_id || props.rental.pue_rental_id || props.rental.id
+    await rentalAPI.value[returnMethod](rentalId, returnPayload)
 
     $q.notify({
       type: 'positive',
@@ -644,4 +771,36 @@ const onCancel = () => {
 const onHide = () => {
   costCalculation.value = null
 }
+
+const loadPaymentTypes = async () => {
+  const hubId = authStore.user?.hub_id
+  if (!hubId) return
+
+  try {
+    const response = await settingsAPI.getPaymentTypes({ hub_id: hubId, is_active: true })
+    paymentTypeOptions.value = response.data.payment_types.map(pt => ({
+      label: pt.type_name,
+      value: pt.type_name
+    }))
+
+    // Set default payment type if available
+    if (paymentTypeOptions.value.length > 0 && !formData.value.payment_type) {
+      formData.value.payment_type = paymentTypeOptions.value[0].value
+    }
+  } catch (error) {
+    console.error('Failed to load payment types:', error)
+    // Fallback to default options
+    paymentTypeOptions.value = [
+      { label: 'Cash', value: 'cash' },
+      { label: 'Mobile Money', value: 'mobile_money' },
+      { label: 'Bank Transfer', value: 'bank_transfer' },
+      { label: 'Card', value: 'card' }
+    ]
+    formData.value.payment_type = 'cash'
+  }
+}
+
+onMounted(() => {
+  loadPaymentTypes()
+})
 </script>

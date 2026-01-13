@@ -67,13 +67,32 @@
                 <q-tooltip>Add prepaid credit for future rentals</q-tooltip>
               </q-btn>
               <q-btn
+                color="positive"
+                label="Take Payment"
+                icon="payments"
+                @click="openTakePaymentDialog"
+              >
+                <q-tooltip>Record a payment from this user</q-tooltip>
+              </q-btn>
+              <q-btn
                 v-if="account.total_owed > 0"
                 color="orange"
                 label="Settle Debt"
-                icon="payments"
+                icon="account_balance"
                 @click="showPaymentDialog = true"
+                class="q-ml-sm"
               >
-                <q-tooltip>Record payment to settle existing charges</q-tooltip>
+                <q-tooltip>Advanced: Settle debt with credit options</q-tooltip>
+              </q-btn>
+              <q-btn
+                color="grey-7"
+                label="Manual Adjustment"
+                icon="edit"
+                @click="showManualAdjustmentDialog = true"
+                class="q-ml-sm"
+                outline
+              >
+                <q-tooltip>Make a manual journal entry to adjust balance</q-tooltip>
               </q-btn>
             </div>
           </div>
@@ -303,8 +322,10 @@
             indicator-color="primary"
             align="left"
           >
-            <q-tab name="battery" label="Battery Rentals" />
-            <q-tab name="pue" label="PUE Rentals" />
+            <q-tab name="battery" label="Active Battery Rentals" />
+            <q-tab name="pue" label="Active PUE Rentals" />
+            <q-tab name="battery-history" label="Battery History" />
+            <q-tab name="pue-history" label="PUE History" />
           </q-tabs>
 
           <q-separator />
@@ -341,7 +362,7 @@
                     <q-item-label caption class="q-mt-sm">
                       <div class="row q-col-gutter-md">
                         <div class="col-12 col-md-6">
-                          <div><strong>Batteries:</strong> {{ rental.items?.length || 0 }} item(s)</div>
+                          <div><strong>Batteries:</strong> {{ rental.battery_count || rental.items?.length || 0 }} item(s)</div>
                           <div v-if="rental.recharge_count !== undefined">
                             <strong>Recharges:</strong> {{ rental.recharge_count }}
                           </div>
@@ -481,6 +502,145 @@
                         @click="router.push(`/rentals/pue/${rental.rental_id}`)"
                       />
                     </div>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-tab-panel>
+
+            <!-- Battery Rental History Tab -->
+            <q-tab-panel name="battery-history">
+              <div v-if="batteryHistoryLoading" class="row justify-center q-pa-md">
+                <q-spinner color="primary" size="2em" />
+              </div>
+
+              <div v-else-if="batteryHistory.length === 0" class="text-grey-7 q-pa-md text-center">
+                <q-icon name="history" size="48px" class="q-mb-sm" />
+                <div>No battery rental history found</div>
+              </div>
+
+              <q-list v-else bordered separator>
+                <q-item v-for="rental in batteryHistory" :key="rental.rental_id" class="q-pa-md">
+                  <q-item-section>
+                    <q-item-label class="text-weight-medium">
+                      Battery Rental #{{ rental.rental_id }}
+                      <q-chip dense size="sm" :color="getRentalStatusColor(rental.status)" text-color="white" class="q-ml-sm">
+                        {{ rental.status }}
+                      </q-chip>
+                    </q-item-label>
+                    <q-item-label caption class="q-mt-sm">
+                      <div class="row q-col-gutter-md">
+                        <div class="col-12 col-md-4">
+                          <div><strong>Batteries:</strong> {{ rental.battery_count || rental.items?.length || 0 }} item(s)</div>
+                          <div v-if="rental.recharge_count !== undefined">
+                            <strong>Recharges:</strong> {{ rental.recharge_count }}
+                          </div>
+                          <div v-if="rental.cost_structure_name">
+                            <strong>Cost Structure:</strong> {{ rental.cost_structure_name }}
+                          </div>
+                        </div>
+                        <div class="col-12 col-md-4">
+                          <div><strong>Start Date:</strong> {{ formatTimestamp(rental.rental_start_date) }}</div>
+                          <div v-if="rental.due_date"><strong>Due Date:</strong> {{ formatTimestamp(rental.due_date) }}</div>
+                          <div v-if="rental.actual_return_date"><strong>Returned:</strong> {{ formatTimestamp(rental.actual_return_date) }}</div>
+                        </div>
+                        <div class="col-12 col-md-4">
+                          <div v-if="rental.deposit_amount">
+                            <strong>Deposit:</strong> {{ currencySymbol }}{{ rental.deposit_amount.toFixed(2) }}
+                          </div>
+                          <div v-if="rental.total_cost !== undefined && rental.total_cost !== null">
+                            <strong>Total Cost:</strong> {{ currencySymbol }}{{ rental.total_cost.toFixed(2) }}
+                          </div>
+                        </div>
+                      </div>
+                    </q-item-label>
+                  </q-item-section>
+
+                  <q-item-section side>
+                    <q-btn
+                      flat
+                      dense
+                      color="info"
+                      label="Details"
+                      icon="info"
+                      @click="router.push(`/rentals/battery/${rental.rental_id}`)"
+                    />
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-tab-panel>
+
+            <!-- PUE Rental History Tab -->
+            <q-tab-panel name="pue-history">
+              <div v-if="pueHistoryLoading" class="row justify-center q-pa-md">
+                <q-spinner color="primary" size="2em" />
+              </div>
+
+              <div v-else-if="pueHistory.length === 0" class="text-grey-7 q-pa-md text-center">
+                <q-icon name="history" size="48px" class="q-mb-sm" />
+                <div>No PUE rental history found</div>
+              </div>
+
+              <q-list v-else bordered separator>
+                <q-item v-for="rental in pueHistory" :key="rental.rental_id" class="q-pa-md">
+                  <q-item-section>
+                    <q-item-label class="text-weight-medium">
+                      PUE Rental #{{ rental.rental_id }}
+                      <q-chip dense size="sm" :color="getRentalStatusColor(rental.status)" text-color="white" class="q-ml-sm">
+                        {{ rental.status }}
+                      </q-chip>
+                      <q-chip
+                        v-if="rental.is_pay_to_own"
+                        dense
+                        size="sm"
+                        color="purple"
+                        text-color="white"
+                        class="q-ml-sm"
+                      >
+                        Pay-to-Own
+                      </q-chip>
+                    </q-item-label>
+                    <q-item-label caption class="q-mt-sm">
+                      <div class="row q-col-gutter-md">
+                        <div class="col-12 col-md-4">
+                          <div><strong>PUE:</strong> {{ rental.pue_name || `PUE ID ${rental.pue_id}` }}</div>
+                          <div v-if="rental.is_pay_to_own && rental.pay_to_own_price">
+                            <strong>Total Price:</strong> {{ currencySymbol }}{{ rental.pay_to_own_price.toFixed(2) }}
+                          </div>
+                          <div v-if="rental.is_pay_to_own && rental.amount_paid !== undefined">
+                            <strong>Paid:</strong> {{ currencySymbol }}{{ rental.amount_paid.toFixed(2) }}
+                            <q-linear-progress
+                              :value="rental.pay_to_own_price > 0 ? rental.amount_paid / rental.pay_to_own_price : 0"
+                              color="purple"
+                              class="q-mt-xs"
+                            />
+                          </div>
+                          <div v-if="rental.cost_structure_name">
+                            <strong>Cost Structure:</strong> {{ rental.cost_structure_name }}
+                          </div>
+                        </div>
+                        <div class="col-12 col-md-4">
+                          <div><strong>Start Date:</strong> {{ formatTimestamp(rental.rental_start_date) }}</div>
+                          <div v-if="rental.actual_return_date"><strong>Returned:</strong> {{ formatTimestamp(rental.actual_return_date) }}</div>
+                          <div v-if="rental.ownership_transferred_date"><strong>Ownership Transferred:</strong> {{ formatTimestamp(rental.ownership_transferred_date) }}</div>
+                        </div>
+                        <div class="col-12 col-md-4">
+                          <div v-if="rental.total_cost !== undefined && rental.total_cost !== null">
+                            <strong>Total Cost:</strong> {{ currencySymbol }}{{ rental.total_cost.toFixed(2) }}
+                          </div>
+                        </div>
+                      </div>
+                    </q-item-label>
+                  </q-item-section>
+
+                  <q-item-section side>
+                    <q-btn
+                      flat
+                      dense
+                      color="info"
+                      label="Details"
+                      icon="info"
+                      @click="router.push(`/rentals/pue/${rental.rental_id}`)"
+                    />
                   </q-item-section>
                 </q-item>
               </q-list>
@@ -746,6 +906,325 @@
       </q-card>
     </q-dialog>
 
+    <!-- Take Payment Dialog -->
+    <q-dialog v-model="showTakePaymentDialog">
+      <q-card style="min-width: 500px">
+        <q-card-section>
+          <div class="text-h6">Take Payment</div>
+          <div class="text-subtitle2">User: {{ user.Name || user.username || `User ${user.user_id}` }}</div>
+        </q-card-section>
+
+        <q-card-section>
+          <!-- Payment Summary -->
+          <q-banner class="bg-blue-1 q-mb-md">
+            <template v-slot:avatar>
+              <q-icon name="info" color="primary" />
+            </template>
+            <div class="text-body2">
+              <div class="text-weight-medium">Amount Owed: {{ currencySymbol }}{{ (account.total_owed || 0).toFixed(2) }}</div>
+              <div v-if="account.balance > 0" class="text-caption text-positive">
+                Available Credit: {{ currencySymbol }}{{ account.balance.toFixed(2) }}
+              </div>
+            </div>
+          </q-banner>
+
+          <!-- Rental Selection (if user has unpaid/partial rentals) -->
+          <q-select
+            v-model="selectedRentalForPayment"
+            :options="rentalPaymentOptions"
+            label="Apply Payment To"
+            outlined
+            class="q-mb-md"
+            option-value="value"
+            option-label="label"
+            emit-value
+            map-options
+            hint="Select which rental to apply this payment to, or choose General Payment"
+          >
+            <template v-slot:prepend>
+              <q-icon name="receipt" />
+            </template>
+            <template v-slot:option="scope">
+              <q-item v-bind="scope.itemProps">
+                <q-item-section>
+                  <q-item-label>{{ scope.opt.label }}</q-item-label>
+                  <q-item-label caption v-if="scope.opt.caption">{{ scope.opt.caption }}</q-item-label>
+                </q-item-section>
+                <q-item-section side v-if="scope.opt.amount_owed">
+                  <q-badge :color="scope.opt.payment_status === 'unpaid' ? 'negative' : 'warning'">
+                    {{ currencySymbol }}{{ scope.opt.amount_owed.toFixed(2) }}
+                  </q-badge>
+                </q-item-section>
+              </q-item>
+            </template>
+          </q-select>
+
+          <!-- Credit Application (show when paying to rental, disabled if no credit) -->
+          <div v-if="selectedRentalForPayment" class="q-mb-md">
+            <q-input
+              v-model.number="takePaymentCreditApplied"
+              type="number"
+              label="Apply Credit from Account"
+              :prefix="currencySymbol"
+              step="0.01"
+              outlined
+              :max="account.balance"
+              :disable="account.balance <= 0"
+              :hint="account.balance > 0 ? `Available credit: ${currencySymbol}${account.balance.toFixed(2)}` : 'User has no account credit'"
+              :rules="[
+                val => val >= 0 || 'Credit cannot be negative',
+                val => val <= account.balance || `Cannot exceed available credit (${currencySymbol}${account.balance.toFixed(2)})`
+              ]"
+            >
+              <template v-slot:prepend>
+                <q-icon name="account_balance_wallet" :color="account.balance > 0 ? 'positive' : 'grey'" />
+              </template>
+              <template v-slot:append>
+                <q-btn
+                  flat
+                  dense
+                  color="positive"
+                  label="Use Max"
+                  size="sm"
+                  @click="takePaymentCreditApplied = Math.min(account.balance, selectedRentalForPayment?.amount_owed || 0)"
+                  :disable="account.balance <= 0"
+                />
+              </template>
+            </q-input>
+          </div>
+
+          <!-- Payment Amount Input -->
+          <q-input
+            v-model.number="takePaymentAmount"
+            type="number"
+            label="Payment Amount"
+            :prefix="currencySymbol"
+            step="0.01"
+            outlined
+            autofocus
+            :rules="[val => ((val || 0) + (takePaymentCreditApplied || 0)) > 0 || 'Total payment (cash + credit) must be greater than 0']"
+          >
+            <template v-slot:append>
+              <q-btn
+                flat
+                dense
+                color="primary"
+                label="Full Amount"
+                size="sm"
+                @click="takePaymentAmount = account.total_owed || 0"
+                v-if="account.total_owed > 0"
+              />
+            </template>
+          </q-input>
+
+          <!-- Payment Method Selection -->
+          <q-select
+            v-model="takePaymentType"
+            :options="paymentTypeOptions"
+            label="Payment Method"
+            outlined
+            class="q-mt-md"
+            option-value="value"
+            option-label="label"
+            emit-value
+            map-options
+            :rules="[val => !!val || 'Payment method is required']"
+          >
+            <template v-slot:prepend>
+              <q-icon name="payment" />
+            </template>
+          </q-select>
+
+          <!-- Optional Description -->
+          <q-input
+            v-model="takePaymentDescription"
+            label="Notes (Optional)"
+            outlined
+            class="q-mt-md"
+            hint="Add any notes or reference number"
+          />
+
+          <!-- Confirmation -->
+          <q-separator class="q-mt-md" />
+          <!-- Show confirmation checkbox only when actual payment is being collected -->
+          <div v-if="takePaymentAmount > 0 && takePaymentType" class="bg-positive-1 q-pa-md rounded-borders q-mt-md">
+            <div class="text-weight-medium q-mb-sm">
+              <q-icon name="check_circle" color="positive" class="q-mr-sm" />
+              Payment Confirmation
+            </div>
+            <q-checkbox
+              v-model="confirmTakePaymentReceived"
+              color="positive"
+            >
+              <template v-slot:default>
+                <div class="text-body2">
+                  I confirm that <strong>{{ takePaymentType }}</strong> payment of
+                  <strong>{{ currencySymbol }}{{ (takePaymentAmount || 0).toFixed(2) }}</strong> has been received<span v-if="takePaymentCreditApplied > 0 && selectedRentalForPayment">, and <strong>{{ currencySymbol }}{{ takePaymentCreditApplied.toFixed(2) }}</strong> will be taken from the user's account credit</span>
+                </div>
+              </template>
+            </q-checkbox>
+          </div>
+          <!-- When only credit is used, show informational message -->
+          <div v-else-if="takePaymentCreditApplied > 0 && takePaymentAmount === 0 && selectedRentalForPayment" class="bg-positive-1 q-pa-md rounded-borders q-mt-md">
+            <div class="text-weight-medium q-mb-sm">
+              <q-icon name="account_balance_wallet" color="positive" class="q-mr-sm" />
+              Credit Payment
+            </div>
+            <div class="text-body2">
+              <strong>{{ currencySymbol }}{{ takePaymentCreditApplied.toFixed(2) }}</strong> will be taken from the user's account credit to cover this payment.
+            </div>
+          </div>
+
+          <!-- Payment Summary Preview -->
+          <q-card flat bordered class="q-mt-md bg-grey-2">
+            <q-card-section class="q-pa-sm">
+              <div class="text-caption text-weight-medium q-mb-xs">Payment Summary</div>
+              <div class="text-caption">
+                <div class="row justify-between">
+                  <span>Payment Amount:</span>
+                  <span class="text-weight-bold">{{ currencySymbol }}{{ (takePaymentAmount || 0).toFixed(2) }}</span>
+                </div>
+                <div class="row justify-between text-grey-7">
+                  <span>Current Debt:</span>
+                  <span>{{ currencySymbol }}{{ (account.total_owed || 0).toFixed(2) }}</span>
+                </div>
+                <q-separator class="q-my-xs" />
+                <div class="row justify-between text-weight-bold" :class="remainingDebt < 0 ? 'text-positive' : remainingDebt > 0 ? 'text-orange' : ''">
+                  <span>Remaining After Payment:</span>
+                  <span>{{ currencySymbol }}{{ Math.max(0, remainingDebt).toFixed(2) }}</span>
+                </div>
+                <div v-if="remainingDebt < 0" class="row justify-between text-positive q-mt-xs">
+                  <span>Overpayment (Added to Credit):</span>
+                  <span>+{{ currencySymbol }}{{ Math.abs(remainingDebt).toFixed(2) }}</span>
+                </div>
+              </div>
+            </q-card-section>
+          </q-card>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn
+            flat
+            :label="takePaymentAmount > 0 ? 'Confirm Payment Received' : 'Apply Credit Payment'"
+            color="positive"
+            icon="check"
+            @click="submitTakePayment"
+            :disable="((takePaymentAmount || 0) + (takePaymentCreditApplied || 0)) <= 0 || !takePaymentType || (takePaymentAmount > 0 && !confirmTakePaymentReceived)"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Manual Adjustment Dialog -->
+    <q-dialog v-model="showManualAdjustmentDialog">
+      <q-card style="min-width: 500px">
+        <q-card-section class="bg-warning text-white">
+          <div class="text-h6">
+            <q-icon name="warning" class="q-mr-sm" />
+            Manual Balance Adjustment
+          </div>
+          <div class="text-subtitle2">User: {{ user.Name || user.username || `User ${user.user_id}` }}</div>
+        </q-card-section>
+
+        <q-card-section>
+          <!-- Warning Banner -->
+          <q-banner class="bg-orange-1 q-mb-md">
+            <template v-slot:avatar>
+              <q-icon name="info" color="warning" />
+            </template>
+            <div class="text-body2">
+              <div class="text-weight-medium">Admin Action Required</div>
+              <div class="text-caption">This will create a manual journal entry in the accounting system.</div>
+            </div>
+          </q-banner>
+
+          <!-- Current Balance Display -->
+          <q-card flat bordered class="q-mb-md bg-grey-2">
+            <q-card-section class="q-pa-sm">
+              <div class="text-caption text-weight-medium q-mb-xs">Current Account Status</div>
+              <div class="text-caption">
+                <div class="row justify-between">
+                  <span>Current Balance:</span>
+                  <span class="text-weight-bold" :class="account.balance >= 0 ? 'text-positive' : 'text-negative'">
+                    {{ currencySymbol }}{{ (account.balance || 0).toFixed(2) }}
+                  </span>
+                </div>
+                <div class="row justify-between">
+                  <span>Amount Owed:</span>
+                  <span>{{ currencySymbol }}{{ (account.total_owed || 0).toFixed(2) }}</span>
+                </div>
+              </div>
+            </q-card-section>
+          </q-card>
+
+          <!-- Adjustment Amount Input -->
+          <q-input
+            v-model.number="manualAdjustmentAmount"
+            type="number"
+            label="Adjustment Amount"
+            :prefix="currencySymbol"
+            step="0.01"
+            outlined
+            autofocus
+            :rules="[val => val !== 0 || 'Adjustment amount cannot be zero']"
+            hint="Positive = increases balance (credit), Negative = decreases balance (debit)"
+          >
+            <template v-slot:prepend>
+              <q-icon name="edit" />
+            </template>
+          </q-input>
+
+          <!-- Reason Input -->
+          <q-input
+            v-model="manualAdjustmentReason"
+            label="Reason for Adjustment *"
+            outlined
+            class="q-mt-md"
+            type="textarea"
+            rows="3"
+            :rules="[val => !!val || 'Reason is required for audit trail']"
+            hint="Detailed explanation for this adjustment (required for compliance)"
+          />
+
+          <!-- Preview Card -->
+          <q-card flat bordered class="q-mt-md" :class="manualAdjustmentAmount >= 0 ? 'bg-positive-1' : 'bg-negative-1'">
+            <q-card-section class="q-pa-sm">
+              <div class="text-caption text-weight-medium q-mb-xs">Preview</div>
+              <div class="text-caption">
+                <div class="row justify-between">
+                  <span>Adjustment Type:</span>
+                  <span class="text-weight-bold">
+                    {{ manualAdjustmentAmount >= 0 ? 'Credit (+)' : 'Debit (-)' }}
+                  </span>
+                </div>
+                <div class="row justify-between">
+                  <span>Current Balance:</span>
+                  <span>{{ currencySymbol }}{{ (account.balance || 0).toFixed(2) }}</span>
+                </div>
+                <div class="row justify-between text-weight-bold" :class="(account.balance + (manualAdjustmentAmount || 0)) >= 0 ? 'text-positive' : 'text-negative'">
+                  <span>New Balance:</span>
+                  <span>{{ currencySymbol }}{{ ((account.balance || 0) + (manualAdjustmentAmount || 0)).toFixed(2) }}</span>
+                </div>
+              </div>
+            </q-card-section>
+          </q-card>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn
+            flat
+            label="Apply Adjustment"
+            color="warning"
+            icon="check"
+            @click="submitManualAdjustment"
+            :disable="!manualAdjustmentAmount || manualAdjustmentAmount === 0 || !manualAdjustmentReason"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
     <!-- Add Credit Dialog -->
     <q-dialog v-model="showAddCreditDialog">
       <q-card style="min-width: 450px">
@@ -1005,72 +1484,12 @@
       </q-card>
     </q-dialog>
 
-    <!-- Return Rental Dialog -->
-    <q-dialog v-model="showReturnDialog">
-      <q-card style="min-width: 500px">
-        <q-card-section>
-          <div class="text-h6">Return Rental</div>
-          <div class="text-subtitle2">Rental #{{ selectedRental?.rentral_id }}</div>
-        </q-card-section>
-
-        <q-card-section>
-          <q-banner class="bg-blue-1 q-mb-md">
-            <template v-slot:avatar>
-              <q-icon name="info" color="primary" />
-            </template>
-            <div class="text-body2">
-              <div><strong>Battery:</strong> {{ selectedRental?.battery_model || `Battery ID ${selectedRental?.battery_id}` }}</div>
-              <div><strong>Due Back:</strong> {{ formatTimestamp(selectedRental?.due_back) }}</div>
-            </div>
-          </q-banner>
-
-          <q-select
-            v-model="returnCondition"
-            :options="['good', 'fair', 'poor', 'damaged']"
-            label="Battery Condition"
-            outlined
-            :rules="[val => !!val || 'Condition is required']"
-          >
-            <template v-slot:prepend>
-              <q-icon name="battery_std" />
-            </template>
-          </q-select>
-
-          <q-input
-            v-model="returnNotes"
-            label="Return Notes"
-            type="textarea"
-            outlined
-            rows="3"
-            class="q-mt-md"
-            hint="Optional notes about the condition or any issues"
-          />
-
-          <div v-if="selectedRental?.deposit_amount && selectedRental?.deposit_amount > 0 && !selectedRental?.deposit_returned" class="q-mt-md">
-            <q-separator class="q-mb-md" />
-            <q-checkbox
-              v-model="returnDeposit"
-              :label="`Return deposit of ${currencySymbol}${selectedRental?.deposit_amount.toFixed(2)} to user`"
-              color="positive"
-            />
-            <div class="text-caption text-grey-7 q-ml-lg">
-              Deposit will be added to user's account credit
-            </div>
-          </div>
-        </q-card-section>
-
-        <q-card-actions align="right">
-          <q-btn flat label="Cancel" v-close-popup />
-          <q-btn
-            flat
-            label="Return Rental"
-            color="primary"
-            icon="assignment_return"
-            @click="submitReturnRental"
-          />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
+    <!-- Unified Rental Return Dialog -->
+    <RentalReturnDialog
+      v-model="showReturnDialog"
+      :rental="selectedRental"
+      @returned="onRentalReturned"
+    />
 
     <!-- Extend Rental Dialog -->
     <q-dialog v-model="showExtendDialog">
@@ -1165,12 +1584,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { usersAPI, accountsAPI, settingsAPI, subscriptionsAPI, rentalsAPI, batteryRentalsAPI, pueRentalsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
+import RentalReturnDialog from 'components/RentalReturnDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -1236,6 +1656,238 @@ const amountTowardsDebt = computed(() => {
   return Math.round(Math.min(totalPayment.value, debt) * 100) / 100
 })
 
+// Take Payment dialog (simplified)
+const showTakePaymentDialog = ref(false)
+const takePaymentAmount = ref(0)
+const takePaymentType = ref(null)
+const takePaymentDescription = ref('')
+const confirmTakePaymentReceived = ref(false)
+const takePaymentCreditApplied = ref(0)
+const selectedRentalForPayment = ref(null) // null = general payment, or rental_id
+const userRentals = ref([])
+const rentalPaymentOptions = ref([])
+
+const remainingDebt = computed(() => {
+  return Math.round(((account.value.total_owed || 0) - (takePaymentAmount.value || 0)) * 100) / 100
+})
+
+// Manual Adjustment Dialog
+const showManualAdjustmentDialog = ref(false)
+const manualAdjustmentAmount = ref(0)
+const manualAdjustmentReason = ref('')
+
+const openTakePaymentDialog = async () => {
+  // Load user's rentals to show outstanding payments
+  try {
+    const [batteryRentalsResponse, pueRentalsResponse] = await Promise.all([
+      batteryRentalsAPI.list({ user_id: userId.value }),
+      pueRentalsAPI.list({ user_id: userId.value })
+    ])
+
+    const allRentals = [
+      ...(batteryRentalsResponse.data || []).map(r => ({ ...r, rental_type: 'battery' })),
+      ...(pueRentalsResponse.data || []).map(r => ({ ...r, rental_type: 'pue' }))
+    ]
+
+    // Filter for rentals with outstanding payments (unpaid or partial)
+    const unpaidRentals = allRentals.filter(r =>
+      r.payment_status && ['unpaid', 'partial'].includes(r.payment_status) && r.amount_owed > 0
+    )
+
+    userRentals.value = unpaidRentals
+
+    // Build payment options
+    const options = [
+      {
+        label: 'General Payment (Account Credit)',
+        value: null,
+        caption: 'Add to account balance, not specific to any rental'
+      }
+    ]
+
+    unpaidRentals.forEach(rental => {
+      const rentalLabel = rental.rental_type === 'battery'
+        ? `Battery Rental #${rental.rental_id}`
+        : `PUE Rental #${rental.rental_id}`
+      const statusLabel = rental.payment_status === 'unpaid' ? 'Unpaid' : 'Partial Payment'
+
+      options.push({
+        label: `${rentalLabel} - ${statusLabel}`,
+        value: {rental_id: rental.rental_id, rental_type: rental.rental_type},
+        caption: `Owed: ${currencySymbol.value}${rental.amount_owed.toFixed(2)}`,
+        amount_owed: rental.amount_owed,
+        payment_status: rental.payment_status
+      })
+    })
+
+    rentalPaymentOptions.value = options
+    selectedRentalForPayment.value = null // Default to general payment
+  } catch (error) {
+    console.error('Failed to load rentals:', error)
+    // Still allow payment even if rentals fail to load
+    rentalPaymentOptions.value = [{
+      label: 'General Payment (Account Credit)',
+      value: null,
+      caption: 'Add to account balance'
+    }]
+    selectedRentalForPayment.value = null
+  }
+
+  // Default to full amount owed
+  takePaymentAmount.value = account.value.total_owed || 0
+  takePaymentType.value = null
+  takePaymentDescription.value = ''
+  confirmTakePaymentReceived.value = false
+  takePaymentCreditApplied.value = 0
+  showTakePaymentDialog.value = true
+}
+
+const submitTakePayment = async () => {
+  const totalPayment = (takePaymentAmount.value || 0) + (takePaymentCreditApplied.value || 0)
+  if (totalPayment <= 0) {
+    $q.notify({
+      type: 'warning',
+      message: 'Total payment (cash + credit) must be greater than 0',
+      position: 'top'
+    })
+    return
+  }
+
+  if (!takePaymentType.value) {
+    $q.notify({
+      type: 'warning',
+      message: 'Please select a payment method',
+      position: 'top'
+    })
+    return
+  }
+
+  // Only require confirmation checkbox if actual cash/card payment is being collected
+  if (takePaymentAmount.value > 0 && !confirmTakePaymentReceived.value) {
+    $q.notify({
+      type: 'warning',
+      message: 'Please confirm that payment has been received',
+      position: 'top'
+    })
+    return
+  }
+
+  try {
+    let response
+
+    if (selectedRentalForPayment.value && selectedRentalForPayment.value.rental_id) {
+      // Payment for specific rental
+      const rental = selectedRentalForPayment.value
+      const paymentData = {
+        payment_amount: takePaymentAmount.value,
+        payment_type: takePaymentType.value,
+        payment_notes: takePaymentDescription.value || null,
+        credit_applied: takePaymentCreditApplied.value || 0
+      }
+
+      if (rental.rental_type === 'battery') {
+        response = await batteryRentalsAPI.recordPayment(rental.rental_id, paymentData)
+      } else {
+        response = await pueRentalsAPI.recordPayment(rental.rental_id, paymentData)
+      }
+
+      const totalPayment = (takePaymentAmount.value || 0) + (takePaymentCreditApplied.value || 0)
+      $q.notify({
+        type: 'positive',
+        message: `Payment of ${currencySymbol.value}${totalPayment.toFixed(2)} recorded for ${rental.rental_type} rental #${rental.rental_id}${takePaymentCreditApplied.value > 0 ? ` (including ${currencySymbol.value}${takePaymentCreditApplied.value.toFixed(2)} credit)` : ''}`,
+        position: 'top',
+        timeout: 5000
+      })
+    } else {
+      // General payment to account
+      response = await accountsAPI.recordPayment(userId.value, {
+        amount: takePaymentAmount.value,
+        payment_type: takePaymentType.value,
+        description: takePaymentDescription.value || null
+      })
+
+      $q.notify({
+        type: 'positive',
+        message: `Payment of ${currencySymbol.value}${takePaymentAmount.value.toFixed(2)} recorded successfully. Received by ${response.data.received_by}`,
+        position: 'top',
+        timeout: 5000
+      })
+    }
+
+    showTakePaymentDialog.value = false
+
+    // Reset form
+    takePaymentAmount.value = 0
+    takePaymentType.value = null
+    takePaymentDescription.value = ''
+    confirmTakePaymentReceived.value = false
+    takePaymentCreditApplied.value = 0
+    selectedRentalForPayment.value = null
+
+    // Reload data
+    await loadAccount()
+    await loadTransactions()
+  } catch (error) {
+    console.error('Failed to record payment:', error)
+    $q.notify({
+      type: 'negative',
+      message: error.response?.data?.detail || 'Failed to record payment',
+      position: 'top'
+    })
+  }
+}
+
+const submitManualAdjustment = async () => {
+  if (!manualAdjustmentAmount.value || manualAdjustmentAmount.value === 0) {
+    $q.notify({
+      type: 'warning',
+      message: 'Adjustment amount cannot be zero',
+      position: 'top'
+    })
+    return
+  }
+
+  if (!manualAdjustmentReason.value) {
+    $q.notify({
+      type: 'warning',
+      message: 'Please provide a reason for this adjustment',
+      position: 'top'
+    })
+    return
+  }
+
+  try {
+    const response = await accountsAPI.createManualAdjustment(userId.value, {
+      amount: manualAdjustmentAmount.value,
+      reason: manualAdjustmentReason.value
+    })
+
+    $q.notify({
+      type: 'positive',
+      message: `Manual adjustment of ${currencySymbol.value}${Math.abs(manualAdjustmentAmount.value).toFixed(2)} applied successfully. ${response.data.adjustment_type} by ${response.data.created_by}`,
+      position: 'top',
+      timeout: 5000
+    })
+
+    showManualAdjustmentDialog.value = false
+
+    // Reset form
+    manualAdjustmentAmount.value = 0
+    manualAdjustmentReason.value = ''
+
+    // Reload data
+    await loadAccount()
+    await loadTransactions()
+  } catch (error) {
+    console.error('Failed to create manual adjustment:', error)
+    $q.notify({
+      type: 'negative',
+      message: error.response?.data?.detail || 'Failed to create manual adjustment',
+      position: 'top'
+    })
+  }
+}
+
 // Add Credit dialog
 const showAddCreditDialog = ref(false)
 const creditAmount = ref(0)
@@ -1283,6 +1935,12 @@ const pueRentalsLoading = ref(false)
 // Rental tab
 const rentalTab = ref('battery')
 
+// Rental History
+const batteryHistory = ref([])
+const batteryHistoryLoading = ref(false)
+const pueHistory = ref([])
+const pueHistoryLoading = ref(false)
+
 // Rental dialogs
 const showReturnDialog = ref(false)
 const showExtendDialog = ref(false)
@@ -1323,6 +1981,17 @@ const getRoleColor = (role) => {
     case 'ADMIN': return 'orange'
     case 'USER': return 'blue'
     default: return 'grey'
+  }
+}
+
+const getRentalStatusColor = (status) => {
+  switch (status?.toLowerCase()) {
+    case 'active': return 'positive'
+    case 'returned': return 'grey'
+    case 'completed': return 'blue'
+    case 'overdue': return 'negative'
+    case 'ownership_transferred': return 'purple'
+    default: return 'grey-7'
   }
 }
 
@@ -1863,9 +2532,6 @@ const loadPaymentTypes = async () => {
 const openReturnDialog = (rental, type = 'legacy') => {
   selectedRental.value = rental
   selectedRentalType.value = type
-  returnCondition.value = 'good'
-  returnNotes.value = ''
-  returnDeposit.value = rental.deposit_amount && rental.deposit_amount > 0 && !rental.deposit_returned
   showReturnDialog.value = true
 }
 
@@ -2042,13 +2708,77 @@ const loadPueRentals = async () => {
   }
 }
 
-// Refresh all rentals
+// Load battery rental history for this user (all statuses)
+const loadBatteryHistory = async () => {
+  try {
+    batteryHistoryLoading.value = true
+    // Fetch all battery rentals without status filter
+    const response = await batteryRentalsAPI.list({ user_id: userId.value })
+    batteryHistory.value = response.data || []
+  } catch (error) {
+    console.error('Failed to load battery rental history:', error)
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to load battery rental history',
+      position: 'top'
+    })
+  } finally {
+    batteryHistoryLoading.value = false
+  }
+}
+
+// Load PUE rental history for this user (all statuses)
+const loadPueHistory = async () => {
+  try {
+    pueHistoryLoading.value = true
+    // Fetch all PUE rentals without status filter
+    const response = await pueRentalsAPI.list({ user_id: userId.value })
+    pueHistory.value = response.data || []
+  } catch (error) {
+    console.error('Failed to load PUE rental history:', error)
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to load PUE rental history',
+      position: 'top'
+    })
+  } finally {
+    pueHistoryLoading.value = false
+  }
+}
+
+// Refresh all rentals (active and history)
 const refreshAllRentals = async () => {
   await Promise.all([
     loadBatteryRentals(),
-    loadPueRentals()
+    loadPueRentals(),
+    loadBatteryHistory(),
+    loadPueHistory()
   ])
 }
+
+// Watch credit applied to auto-adjust payment amount
+watch(() => takePaymentCreditApplied.value, (newCredit) => {
+  if (showTakePaymentDialog.value && selectedRentalForPayment.value) {
+    const amountOwed = selectedRentalForPayment.value.amount_owed || 0
+    const remaining = amountOwed - (newCredit || 0)
+    takePaymentAmount.value = Math.max(0, remaining)
+  }
+})
+
+// Watch rental selection to adjust payment amount
+watch(() => selectedRentalForPayment.value, (newRental) => {
+  if (showTakePaymentDialog.value) {
+    if (newRental && newRental.amount_owed) {
+      // Specific rental selected - set amount to what's owed minus any credit
+      const creditAmount = takePaymentCreditApplied.value || 0
+      takePaymentAmount.value = Math.max(0, newRental.amount_owed - creditAmount)
+    } else {
+      // General payment - reset to account total owed
+      takePaymentAmount.value = account.value.total_owed || 0
+      takePaymentCreditApplied.value = 0 // Reset credit for general payment
+    }
+  }
+})
 
 onMounted(async () => {
   loadHubSettings()

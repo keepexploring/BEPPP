@@ -14,10 +14,16 @@
           @click="showQuickReturnsDialog = true"
         />
         <q-btn
-          label="New Rental"
-          icon="add"
+          label="Rent a Battery"
+          icon="battery_charging_full"
           color="primary"
-          @click="showCreateDialog = true"
+          @click="openBatteryRentalDialog"
+        />
+        <q-btn
+          label="Rent a PUE"
+          icon="devices"
+          color="purple"
+          @click="openPUERentalDialog"
         />
       </div>
     </div>
@@ -93,9 +99,13 @@
           <template v-slot:body-cell-status="props">
             <q-td :props="props">
               <q-badge
-                :color="getStatusColor(props.row.status)"
-                :label="props.row.status"
-              />
+                :color="getStatusColor(props.row.status || props.row.rental_status)"
+                :label="props.row.status || props.row.rental_status"
+              >
+                <q-tooltip>
+                  {{ getStatusTooltip(props.row.status || props.row.rental_status) }}
+                </q-tooltip>
+              </q-badge>
             </q-td>
           </template>
 
@@ -310,7 +320,7 @@
                     <div class="text-caption text-grey-8">💰 Credit Available:</div>
                     <div class="text-body1 text-weight-bold" :class="userAccount.balance > 0 ? 'text-positive' : 'text-grey'">
                       {{ currentCurrencySymbol }}{{ Math.max(0, userAccount.balance || 0).toFixed(2) }}
-                      <span v-if="userAccount.balance > 0" class="text-caption">(can be applied below)</span>
+                      <span v-if="userAccount.balance > 0" class="text-caption text-grey-7">(apply at return/payment)</span>
                     </div>
                   </div>
                   <div v-if="userSubscriptions.length > 0" class="col-12 col-md-6">
@@ -354,16 +364,11 @@
                   </div>
                 </q-card-section>
 
-                <!-- Apply Credit Option -->
-                <q-card-section v-if="userAccount && userAccount.balance > 0" class="q-pt-none">
-                  <q-checkbox
-                    v-model="applyCreditToRental"
-                    label="Apply available credit to this rental"
-                    color="positive"
-                    @update:model-value="onApplyCreditChange"
-                  />
-                  <div v-if="applyCreditToRental" class="text-caption text-grey-7 q-mt-xs">
-                    Credit of {{ currentCurrencySymbol }}{{ Math.min(userAccount.balance, formData.total_cost || 0).toFixed(2) }} will be applied
+                <!-- Apply Credit Option - Only shown when collecting upfront payment -->
+                <q-card-section v-if="false" class="q-pt-none">
+                  <!-- Credit application is handled in the Payment Collection section below -->
+                  <div class="text-caption text-grey-7">
+                    💡 Tip: Credit can be applied in the Payment Collection section below
                   </div>
                 </q-card-section>
               </q-card>
@@ -721,9 +726,32 @@
                 </div>
               </div>
 
-              <!-- Account Credit Available -->
-              <div v-if="userAccount && userAccount.balance > 0" class="q-mt-md">
-                <q-separator class="q-my-sm" />
+            </div>
+
+            <!-- Payment Method -->
+            <q-separator class="q-my-md" />
+            <div v-if="!isSubscriptionRental">
+              <div class="text-subtitle2 q-mb-md">Payment Options</div>
+              <div class="row q-col-gutter-md q-mb-md">
+                <div class="col-12">
+                  <q-select
+                    v-model="formData.payment_method"
+                    :options="paymentMethodOptions"
+                    label="Payment Method"
+                    outlined
+                    emit-value
+                    map-options
+                    hint="How will the customer pay?"
+                  >
+                    <template v-slot:prepend>
+                      <q-icon name="payment" />
+                    </template>
+                  </q-select>
+                </div>
+              </div>
+
+              <!-- Account Credit Available - Only for upfront/partial payments -->
+              <div v-if="userAccount && userAccount.balance > 0 && (formData.payment_method === 'upfront' || formData.payment_method === 'partial')" class="q-mb-md">
                 <div class="bg-green-1 q-pa-md rounded-borders">
                   <div class="row items-center q-mb-sm">
                     <q-icon name="account_balance_wallet" color="positive" size="sm" class="q-mr-sm" />
@@ -758,29 +786,6 @@
                       </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Payment Method -->
-            <q-separator class="q-my-md" />
-            <div v-if="!isSubscriptionRental">
-              <div class="text-subtitle2 q-mb-md">Payment Options</div>
-              <div class="row q-col-gutter-md q-mb-md">
-                <div class="col-12">
-                  <q-select
-                    v-model="formData.payment_method"
-                    :options="paymentMethodOptions"
-                    label="Payment Method"
-                    outlined
-                    emit-value
-                    map-options
-                    hint="How will the customer pay?"
-                  >
-                    <template v-slot:prepend>
-                      <q-icon name="payment" />
-                    </template>
-                  </q-select>
                 </div>
               </div>
             </div>
@@ -826,9 +831,12 @@
                   <q-card flat bordered>
                     <q-card-section class="row items-center">
                       <div class="col">
-                        <div class="text-caption text-grey-7">Payment Amount</div>
+                        <div class="text-caption text-grey-7">Payment Collected</div>
                         <div class="text-h6 text-primary">
-                          {{ currentCurrencySymbol }}{{ formData.amount_paid?.toFixed(2) || '0.00' }}
+                          {{ currentCurrencySymbol }}{{ ((formData.amount_paid || 0) + (formData.credit_used || 0)).toFixed(2) }}
+                        </div>
+                        <div v-if="(formData.amount_paid || 0) + (formData.credit_used || 0) > 0" class="text-caption text-grey-7 q-mt-xs">
+                          Est. remaining at return: {{ currentCurrencySymbol }}{{ Math.max(0, costEstimate.total - (formData.amount_paid || 0) - (formData.credit_used || 0)).toFixed(2) }}
                         </div>
                       </div>
                       <div class="col-auto">
@@ -901,51 +909,131 @@
               </q-card>
             </div>
 
-            <q-separator class="q-my-md" />
+            <div class="row justify-end q-gutter-sm q-mt-md">
+              <q-btn label="Cancel" flat @click="closeDialog" />
+              <q-btn
+                label="Save"
+                type="submit"
+                color="primary"
+                :loading="saving"
+              />
+            </div>
+          </q-form>
+        </q-card-section>
+      </q-card>
+    </q-dialog>
 
-            <div class="text-subtitle2 q-mb-md">Add PUE Items (Optional)</div>
+    <!-- PUE Rental Dialog -->
+    <q-dialog v-model="showPUERentalDialog" persistent>
+      <q-card style="min-width: 700px; max-width: 900px">
+        <q-card-section>
+          <div class="text-h6">New PUE Rental</div>
+        </q-card-section>
 
-            <!-- Subscription PUE Info Banner -->
-            <div v-if="isSubscriptionRental && subscriptionAllowedPUE.length > 0" class="q-mb-md">
-              <q-banner dense class="bg-blue-1 text-dark">
+        <q-card-section class="q-pt-none" style="max-height: 70vh; overflow-y: auto">
+          <q-form @submit="savePUERental">
+            <!-- Hub Selection -->
+            <q-select
+              v-model="pueFormData.hub_id"
+              :options="hubOptions"
+              option-value="hub_id"
+              option-label="what_three_word_location"
+              emit-value
+              map-options
+              label="Hub *"
+              outlined
+              :rules="[val => !!val || 'Hub is required']"
+              @update:model-value="onPUEHubChange"
+              class="q-mb-md"
+            >
+              <template v-slot:prepend>
+                <q-icon name="store" />
+              </template>
+            </q-select>
+
+            <!-- User Selection -->
+            <q-select
+              v-model="pueFormData.user_id"
+              :options="filteredUsers"
+              option-value="user_id"
+              option-label="username"
+              emit-value
+              map-options
+              label="User *"
+              outlined
+              use-input
+              input-debounce="0"
+              @filter="filterUsers"
+              :rules="[val => !!val || 'User is required']"
+              @update:model-value="onPUEUserChange"
+              class="q-mb-md"
+            >
+              <template v-slot:prepend>
+                <q-icon name="person" />
+              </template>
+              <template v-slot:option="scope">
+                <q-item v-bind="scope.itemProps">
+                  <q-item-section>
+                    <q-item-label>{{ scope.opt.username }}</q-item-label>
+                    <q-item-label caption>{{ scope.opt.Name }} - {{ scope.opt.Phone_Number }}</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </template>
+            </q-select>
+
+            <!-- User Account Balance Display -->
+            <div v-if="pueUserAccount" class="q-mb-md">
+              <q-banner dense class="bg-green-1" v-if="pueUserAccount.balance > 0">
                 <template v-slot:avatar>
-                  <q-icon name="info" color="primary" />
+                  <q-icon name="account_balance_wallet" color="positive" />
                 </template>
                 <div class="text-body2">
-                  <strong>Subscription includes:</strong>
-                  <ul class="q-ma-none q-pl-md">
-                    <li v-for="allowedPUE in subscriptionAllowedPUE" :key="allowedPUE.pue_id">
-                      {{ availablePUE.find(p => p.pue_id === allowedPUE.pue_id)?.name || `PUE ID ${allowedPUE.pue_id}` }}
-                      (up to {{ allowedPUE.quantity_limit }} {{ allowedPUE.quantity_limit === 1 ? 'unit' : 'units' }})
-                    </li>
-                  </ul>
+                  User Selected: {{ userOptions.find(u => u.user_id === pueFormData.user_id)?.Name || `User ${pueFormData.user_id}` }}
+                </div>
+                <div class="row q-col-gutter-sm">
+                  <div class="col-12 col-md-6">
+                    <div class="text-caption text-grey-8">💰 Credit Available:</div>
+                    <div class="text-body1 text-weight-bold" :class="pueUserAccount.balance > 0 ? 'text-positive' : 'text-grey'">
+                      {{ currentCurrencySymbol }}{{ Math.max(0, pueUserAccount.balance || 0).toFixed(2) }}
+                      <span v-if="pueUserAccount.balance > 0" class="text-caption text-grey-7">(apply at return/payment)</span>
+                    </div>
+                  </div>
                 </div>
               </q-banner>
             </div>
 
+            <q-separator class="q-my-md" />
+
+            <!-- PUE Item Selection -->
+            <div class="text-subtitle2 q-mb-md">Equipment Selection</div>
+
             <q-select
-              v-model="selectedPUE"
+              v-model="pueFormData.pue_id"
               :options="filteredPUE"
               option-value="pue_id"
               option-label="name"
-              label="Select Equipment to Add"
+              emit-value
+              map-options
+              label="Select PUE Item *"
               outlined
               use-input
               input-debounce="0"
               @filter="filterPUE"
-              @update:model-value="addPUEToRental"
-              clearable
-              :disable="!formData.hub_id"
-              :hint="!formData.hub_id ? 'Select a hub first' : subscriptionHint"
+              :disable="!pueFormData.hub_id"
+              :hint="!pueFormData.hub_id ? 'Select a hub first' : ''"
+              :rules="[val => !!val || 'PUE item is required']"
+              @update:model-value="onPUEItemSelect"
               class="q-mb-md"
             >
+              <template v-slot:prepend>
+                <q-icon name="devices" />
+              </template>
               <template v-slot:option="scope">
                 <q-item v-bind="scope.itemProps">
                   <q-item-section>
                     <q-item-label>{{ scope.opt.name }} (ID: {{ scope.opt.pue_id }})</q-item-label>
                     <q-item-label caption>
-                      {{ currentCurrencySymbol }}{{ scope.opt.rental_cost || 0 }}/rental - {{ scope.opt.description || 'No description' }} -
-                      {{ scope.opt.status }}
+                      {{ scope.opt.description || 'No description' }} - {{ scope.opt.status }}
                     </q-item-label>
                   </q-item-section>
                 </q-item>
@@ -959,53 +1047,273 @@
               </template>
             </q-select>
 
-            <q-list v-if="pueItemsWithQuantity && pueItemsWithQuantity.length > 0" bordered separator class="q-mt-md q-mb-md">
-              <q-item v-for="(item, index) in pueItemsWithQuantity" :key="index">
-                <q-item-section>
-                  <q-item-label>{{ item.name }}</q-item-label>
-                  <q-item-label caption v-if="item.unitType">
-                    {{ item.unitType }} @ {{ currentCurrencySymbol }}{{ item.pricePerUnit.toFixed(2) }} each
-                  </q-item-label>
-                  <q-item-label caption v-else>
-                    {{ currentCurrencySymbol }}{{ item.pricePerUnit.toFixed(2) }} per item
-                  </q-item-label>
-                </q-item-section>
-                <q-item-section side style="min-width: 120px">
-                  <q-input
-                    v-model.number="item.quantity"
-                    type="number"
-                    min="1"
-                    dense
-                    outlined
-                    label="Quantity"
-                    @update:model-value="onPUEQuantityChange"
-                  />
-                </q-item-section>
-                <q-item-section side style="min-width: 100px">
-                  <div class="text-subtitle2 text-right">
-                    {{ currentCurrencySymbol }}{{ (item.pricePerUnit * item.quantity).toFixed(2) }}
+            <!-- Quantity Selection -->
+            <q-input
+              v-model.number="pueFormData.quantity"
+              type="number"
+              label="Quantity *"
+              outlined
+              min="1"
+              :rules="[val => val > 0 || 'Quantity must be greater than 0']"
+              class="q-mb-md"
+            >
+              <template v-slot:prepend>
+                <q-icon name="numbers" />
+              </template>
+            </q-input>
+
+            <q-separator class="q-my-md" />
+
+            <!-- Cost Structure Selection -->
+            <div class="text-subtitle2 q-mb-md">Pricing & Duration</div>
+
+            <q-select
+              v-model="pueFormData.cost_structure_id"
+              :options="availablePUECostStructures"
+              option-value="structure_id"
+              option-label="name"
+              emit-value
+              map-options
+              label="Cost Structure *"
+              outlined
+              :loading="loadingPUECostStructures"
+              @update:model-value="onPUERentalCostStructureChange"
+              :disable="!pueFormData.pue_id"
+              :hint="!pueFormData.pue_id ? 'Select a PUE item first' : 'Select a pricing template'"
+              :rules="[val => !!val || 'Cost structure is required']"
+              class="q-mb-md"
+            >
+              <template v-slot:prepend>
+                <q-icon name="receipt" />
+              </template>
+            </q-select>
+
+            <!-- Duration Selection -->
+            <q-select
+              v-if="pueFormData.cost_structure_id"
+              v-model="pueFormData.duration_preset"
+              :options="pueDurationOptions"
+              option-value="value"
+              option-label="label"
+              emit-value
+              map-options
+              label="Duration *"
+              outlined
+              @update:model-value="onPUERentalDurationChange"
+              :rules="[val => !!val || 'Duration is required']"
+              class="q-mb-md"
+            >
+              <template v-slot:prepend>
+                <q-icon name="schedule" />
+              </template>
+            </q-select>
+
+            <!-- Custom Duration Inputs (if custom selected) -->
+            <div v-if="isPUECustomDuration" class="row q-col-gutter-md q-mb-md">
+              <div class="col-6">
+                <q-input
+                  v-model.number="pueFormData.custom_duration_value"
+                  type="number"
+                  label="Duration Value"
+                  outlined
+                  min="1"
+                  @update:model-value="onPUERentalCustomDurationChange"
+                />
+              </div>
+              <div class="col-6">
+                <q-select
+                  v-model="pueFormData.custom_duration_unit"
+                  :options="['hours', 'days', 'weeks', 'months']"
+                  label="Duration Unit"
+                  outlined
+                  @update:model-value="onPUERentalCustomDurationChange"
+                />
+              </div>
+            </div>
+
+            <!-- Rental Dates -->
+            <div class="row q-col-gutter-md q-mb-md">
+              <div class="col-6">
+                <q-input
+                  v-model="pueFormData.rental_start_date"
+                  type="datetime-local"
+                  label="Rental Start"
+                  outlined
+                  :rules="[val => !!val || 'Start date is required']"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="event" />
+                  </template>
+                </q-input>
+              </div>
+              <div class="col-6">
+                <q-input
+                  v-model="pueFormData.due_date"
+                  type="datetime-local"
+                  label="Due Date"
+                  outlined
+                  readonly
+                  bg-color="grey-2"
+                  hint="Automatically calculated from duration"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="event_available" />
+                  </template>
+                </q-input>
+              </div>
+            </div>
+
+            <!-- Cost Estimate Display -->
+            <div v-if="pueCostEstimate" class="q-mb-md">
+              <q-card flat bordered class="bg-blue-1">
+                <q-card-section>
+                  <div class="text-subtitle2 q-mb-sm">Cost Estimate</div>
+                  <div class="row q-col-gutter-sm">
+                    <div class="col-6">
+                      <div class="text-caption text-grey-7">Subtotal:</div>
+                      <div class="text-body1">{{ currentCurrencySymbol }}{{ pueCostEstimate.subtotal?.toFixed(2) || '0.00' }}</div>
+                    </div>
+                    <div class="col-6">
+                      <div class="text-caption text-grey-7">VAT ({{ pueCostEstimate.vat_percentage || 0 }}%):</div>
+                      <div class="text-body1">{{ currentCurrencySymbol }}{{ pueCostEstimate.vat_amount?.toFixed(2) || '0.00' }}</div>
+                    </div>
+                    <div class="col-12">
+                      <q-separator class="q-my-xs" />
+                      <div class="text-caption text-grey-7">Total:</div>
+                      <div class="text-h6 text-primary">{{ currentCurrencySymbol }}{{ pueCostEstimate.total?.toFixed(2) || '0.00' }}</div>
+                    </div>
                   </div>
-                </q-item-section>
-                <q-item-section side>
-                  <q-btn
-                    flat
-                    round
-                    dense
-                    icon="close"
-                    color="negative"
-                    @click="removePUEItem(index)"
-                  />
-                </q-item-section>
-              </q-item>
-            </q-list>
+                </q-card-section>
+              </q-card>
+            </div>
+
+            <q-separator class="q-my-md" />
+
+            <!-- Payment Method -->
+            <div class="text-subtitle2 q-mb-md">Payment Options</div>
+            <div class="row q-col-gutter-md q-mb-md">
+              <div class="col-12">
+                <q-select
+                  v-model="pueFormData.payment_method"
+                  :options="paymentMethodOptions"
+                  label="Payment Method *"
+                  outlined
+                  emit-value
+                  map-options
+                  hint="How will the customer pay?"
+                  :rules="[val => !!val || 'Payment method is required']"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="payment" />
+                  </template>
+                </q-select>
+              </div>
+            </div>
+
+            <!-- Account Credit Available - Only for upfront/partial payments -->
+            <div v-if="pueUserAccount && pueUserAccount.balance > 0 && (pueFormData.payment_method === 'upfront' || pueFormData.payment_method === 'partial')" class="q-mb-md">
+              <div class="bg-green-1 q-pa-md rounded-borders">
+                <div class="row items-center q-mb-sm">
+                  <q-icon name="account_balance_wallet" color="positive" size="sm" class="q-mr-sm" />
+                  <div class="col">
+                    <div class="text-body2 text-weight-medium">Account Credit Available</div>
+                    <div class="text-h6 text-positive">
+                      {{ currentCurrencySymbol }}{{ pueUserAccount.balance.toFixed(2) }}
+                    </div>
+                  </div>
+                  <div class="col-auto">
+                    <q-btn
+                      color="positive"
+                      icon="add"
+                      label="Apply to Rental"
+                      @click="showPUEApplyCreditDialog = true"
+                      unelevated
+                      no-caps
+                    />
+                  </div>
+                </div>
+                <div v-if="pueFormData.credit_used && pueFormData.credit_used > 0" class="bg-white q-pa-sm rounded-borders">
+                  <div class="row items-center">
+                    <div class="col text-caption">Credit Applied:</div>
+                    <div class="col-auto text-body2 text-positive text-weight-medium">
+                      -{{ currentCurrencySymbol }}{{ pueFormData.credit_used.toFixed(2) }}
+                    </div>
+                  </div>
+                  <div class="row items-center q-mt-xs">
+                    <div class="col text-caption">Remaining to Pay:</div>
+                    <div class="col-auto text-body1 text-weight-bold">
+                      {{ currentCurrencySymbol }}{{ Math.max(0, (pueCostEstimate?.total || 0) - pueFormData.credit_used).toFixed(2) }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <q-separator class="q-my-md" />
+
+            <!-- Deposit & Payment Collection -->
+            <div class="q-mb-md">
+              <div class="text-subtitle2 q-mb-sm">Payment Collection</div>
+              <div class="row q-col-gutter-md">
+                <!-- Deposit Collection -->
+                <div class="col-12 col-md-6">
+                  <q-card flat bordered>
+                    <q-card-section class="row items-center">
+                      <div class="col">
+                        <div class="text-caption text-grey-7">Deposit Amount</div>
+                        <div class="text-h6 text-positive">
+                          {{ currentCurrencySymbol }}{{ pueFormData.deposit_amount?.toFixed(2) || '0.00' }}
+                        </div>
+                      </div>
+                      <div class="col-auto">
+                        <q-btn
+                          color="positive"
+                          icon="add_circle"
+                          label="Collect Deposit"
+                          @click="showPUEDepositDialog = true"
+                          flat
+                        />
+                      </div>
+                    </q-card-section>
+                  </q-card>
+                </div>
+
+                <!-- Payment Collection (show for upfront and partial only) -->
+                <div v-if="pueFormData.payment_method === 'upfront' || pueFormData.payment_method === 'partial'" class="col-12 col-md-6">
+                  <q-card flat bordered>
+                    <q-card-section class="row items-center">
+                      <div class="col">
+                        <div class="text-caption text-grey-7">Payment Collected</div>
+                        <div class="text-h6 text-primary">
+                          {{ currentCurrencySymbol }}{{ ((pueFormData.amount_paid || 0) + (pueFormData.credit_used || 0)).toFixed(2) }}
+                        </div>
+                        <div v-if="(pueFormData.amount_paid || 0) + (pueFormData.credit_used || 0) > 0" class="text-caption text-grey-7 q-mt-xs">
+                          Est. remaining at return: {{ currentCurrencySymbol }}{{ Math.max(0, (pueCostEstimate?.total || 0) - (pueFormData.amount_paid || 0) - (pueFormData.credit_used || 0)).toFixed(2) }}
+                        </div>
+                      </div>
+                      <div class="col-auto">
+                        <q-btn
+                          color="primary"
+                          icon="payments"
+                          label="Collect Payment"
+                          @click="showPUEPaymentCollectionDialog = true"
+                          flat
+                        />
+                      </div>
+                    </q-card-section>
+                  </q-card>
+                </div>
+              </div>
+            </div>
 
             <div class="row justify-end q-gutter-sm q-mt-md">
               <q-btn label="Cancel" flat @click="closeDialog" />
               <q-btn
-                label="Save"
+                label="Create Rental"
                 type="submit"
-                color="primary"
+                color="purple"
                 :loading="saving"
+                :disable="!pueFormData.pue_id || !pueFormData.cost_structure_id"
               />
             </div>
           </q-form>
@@ -1442,6 +1750,7 @@ const statusFilter = ref('all')
 const rentalTypeFilter = ref('all')
 const selectedHub = ref(null)
 const showCreateDialog = ref(false)
+const showPUERentalDialog = ref(false)
 const showReturnDialog = ref(false)
 const showQuickReturnsDialog = ref(false)
 const showDepositDialog = ref(false)
@@ -1495,6 +1804,37 @@ const pueDurationOptions = ref([{ label: 'Custom', value: 'custom' }])
 const pueQuantity = ref(1)
 const pueCostEstimate = ref(null)
 
+// PUE Rental Form Data (for separate PUE rental flow)
+const pueFormData = ref({
+  hub_id: null,
+  user_id: null,
+  pue_id: null,
+  quantity: 1,
+  cost_structure_id: null,
+  duration_preset: null,
+  custom_duration_value: 1,
+  custom_duration_unit: 'days',
+  rental_start_date: date.formatDate(new Date(), 'YYYY-MM-DDTHH:mm'),
+  due_date: null,
+  payment_method: null,
+  deposit_amount: 0,
+  amount_paid: 0,
+  credit_used: 0
+})
+
+const pueUserAccount = ref(null)
+const showPUEApplyCreditDialog = ref(false)
+const showPUEDepositDialog = ref(false)
+const showPUEPaymentCollectionDialog = ref(false)
+
+// Computed property for custom duration check
+const isPUECustomDuration = computed(() => {
+  if (!pueFormData.value.duration_preset) return false
+  return pueFormData.value.duration_preset === 'custom' ||
+         pueFormData.value.duration_preset.toString().startsWith('custom-') ||
+         pueDurationOptions.value.find(d => d.value === pueFormData.value.duration_preset)?.is_custom === true
+})
+
 // Payment method options
 const paymentMethodOptions = [
   { label: 'Pay Upfront', value: 'upfront' },
@@ -1537,8 +1877,14 @@ const selectedCostStructureObject = computed(() => {
 
 const requiresDuration = computed(() => {
   if (!selectedCostStructureObject.value) return true // Default to showing duration
+
+  // Check if cost structure has duration options configured
+  const hasDurationOptions = selectedCostStructureObject.value.duration_options &&
+                             selectedCostStructureObject.value.duration_options.length > 0
+  if (hasDurationOptions) return true
+
+  // Otherwise check if any component uses time-based units
   const components = selectedCostStructureObject.value.components || []
-  // Check if any component uses time-based units
   return components.some(c => ['per_day', 'per_hour', 'per_week', 'per_month'].includes(c.unit_type))
 })
 
@@ -1700,7 +2046,18 @@ const getStatusColor = (status) => {
   return colors[status] || 'grey'
 }
 
+const getStatusTooltip = (status) => {
+  const tooltips = {
+    active: 'Rental is currently active',
+    returned: 'All items have been returned',
+    overdue: 'Rental is past due date',
+    cancelled: 'Rental was cancelled'
+  }
+  return tooltips[status] || status
+}
+
 const getPaymentStatusColor = (status) => {
+  if (status === null || status === undefined) return 'grey'
   const colors = {
     paid: 'positive',
     partial: 'warning',
@@ -1712,6 +2069,7 @@ const getPaymentStatusColor = (status) => {
 }
 
 const getPaymentStatusLabel = (status) => {
+  if (status === null || status === undefined) return 'Pending'
   const labels = {
     paid: 'Paid in Full',
     partial: 'Partial',
@@ -1726,6 +2084,12 @@ const getPaymentStatusDescription = (rental) => {
   if (!rental) return ''
 
   const status = rental.payment_status
+
+  // For active rentals without calculated cost
+  if (status === null || status === undefined) {
+    return 'Cost will be calculated when rental is returned'
+  }
+
   const amountPaid = rental.amount_paid || 0
   const amountOwed = rental.amount_owed || 0
   const totalCost = rental.total_cost || 0
@@ -1876,8 +2240,12 @@ const buildDurationOptionsFromStructure = (structureDurationOptions) => {
     }
   })
 
-  // Duration options are now fully defined by the cost structure
-  // No need to add a generic "Custom" option
+  // Always add a "Custom" option at the end to allow manual entry
+  durationOptions.value.push({
+    label: 'Custom',
+    value: 'custom',
+    is_custom: true
+  })
 }
 
 const loadDurationPresets = async () => {
@@ -2436,19 +2804,6 @@ const loadCostStructures = async (hubId, batteryCapacity) => {
     const allBatteriesStructures = allBatteriesResponse.data.cost_structures || []
     availableCostStructures.value = [...capacityStructures, ...allBatteriesStructures]
 
-    console.log('=== LOADED COST STRUCTURES ===')
-    console.log('Total structures loaded:', availableCostStructures.value.length)
-    availableCostStructures.value.forEach(s => {
-      console.log(`Structure: ${s.name}`)
-      console.log('  - duration_options:', s.duration_options)
-      console.log('  - duration_options length:', s.duration_options?.length)
-      if (s.duration_options && s.duration_options.length > 0) {
-        s.duration_options.forEach(opt => {
-          console.log(`    * ${opt.label}: type=${opt.input_type}, dropdown_options=${opt.dropdown_options}`)
-        })
-      }
-    })
-
   } catch (error) {
     console.error('Failed to load cost structures:', error)
     availableCostStructures.value = []
@@ -2479,16 +2834,12 @@ const onCostStructureChange = async (structureId) => {
 
   // Load duration options from the selected cost structure
   const structure = availableCostStructures.value.find(s => s.structure_id === structureId)
-  console.log('Selected cost structure:', structure)
-  console.log('Duration options from structure:', structure?.duration_options)
 
   if (structure && structure.duration_options && structure.duration_options.length > 0) {
     buildDurationOptionsFromStructure(structure.duration_options)
-    console.log('Built duration options:', durationOptions.value)
   } else {
     // Fallback to custom only
     durationOptions.value = [{ label: 'Custom', value: 'custom' }]
-    console.log('No duration options found, using custom only')
   }
 
   // Only calculate estimate if duration is already selected
@@ -2843,53 +3194,6 @@ const onPUECostStructureChange = async (structureId) => {
   await calculatePUECostEstimate()
 }
 
-const buildPUEDurationOptionsFromStructure = (structureDurationOptions) => {
-  pueDurationOptions.value = []
-
-  structureDurationOptions.forEach((option) => {
-    if (option.input_type === 'dropdown' && option.dropdown_options) {
-      // Parse dropdown_options JSON
-      let choices = []
-      try {
-        choices = typeof option.dropdown_options === 'string'
-          ? JSON.parse(option.dropdown_options)
-          : option.dropdown_options
-      } catch (e) {
-        console.error('Failed to parse PUE dropdown_options:', e)
-        return
-      }
-
-      // Add each choice as a selectable option
-      choices.forEach((choice, choiceIndex) => {
-        pueDurationOptions.value.push({
-          label: choice.label,
-          value: `${option.option_id}-${choiceIndex}`,
-          duration_value: choice.value,
-          duration_unit: choice.unit,
-          option_id: option.option_id
-        })
-      })
-    } else if (option.input_type === 'custom') {
-      // For custom input, show the range as a custom option
-      pueDurationOptions.value.push({
-        label: `Custom (${option.min_value || 1}-${option.max_value || 99} ${option.custom_unit || 'days'})`,
-        value: `custom-${option.option_id}`,
-        is_custom: true,
-        custom_unit: option.custom_unit,
-        min_value: option.min_value,
-        max_value: option.max_value,
-        default_value: option.default_value,
-        option_id: option.option_id
-      })
-    }
-  })
-
-  // Always add a general custom option at the end
-  if (!pueDurationOptions.value.some(o => o.value === 'custom')) {
-    pueDurationOptions.value.push({ label: 'Custom', value: 'custom' })
-  }
-}
-
 const onPUEDurationChange = async () => {
   await calculatePUECostEstimate()
 }
@@ -3129,14 +3433,14 @@ const saveRental = async () => {
 const processSaveRental = async () => {
   saving.value = true
   try {
-    const rentalData = {
-      ...formData.value,
-      timestamp_taken: new Date(formData.value.timestamp_taken).toISOString(),
-      due_back: new Date(formData.value.due_back).toISOString(),
-      payment_status: computedPaymentStatus.value  // Use auto-calculated payment status
-    }
-
     if (editingRental.value) {
+      // Keep old update functionality for now (editing legacy rentals)
+      const rentalData = {
+        ...formData.value,
+        timestamp_taken: new Date(formData.value.timestamp_taken).toISOString(),
+        due_back: new Date(formData.value.due_back).toISOString(),
+        payment_status: computedPaymentStatus.value
+      }
       await rentalsAPI.update(editingRental.value.rentral_id, rentalData)
       $q.notify({
         type: 'positive',
@@ -3144,12 +3448,30 @@ const processSaveRental = async () => {
         position: 'top'
       })
     } else {
-      // For new rentals, remove auto-generated fields
-      const { rentral_id, rental_unique_id, ...createData } = rentalData
-      await rentalsAPI.create(createData)
+      // NEW RENTAL CREATION - Use new battery rentals API
+      if (!formData.value.battery_id) {
+        throw new Error('Battery selection is required')
+      }
+
+      if (!selectedCostStructure.value) {
+        throw new Error('Cost structure is required')
+      }
+
+      // Transform data to match BatteryRentalCreate schema
+      const batteryRentalData = {
+        user_id: formData.value.user_id,
+        battery_ids: [formData.value.battery_id], // Convert single battery to array
+        cost_structure_id: selectedCostStructure.value,
+        rental_start_date: new Date(formData.value.timestamp_taken).toISOString(),
+        due_date: new Date(formData.value.due_back).toISOString(),
+        deposit_amount: formData.value.deposit_paid || 0,
+        notes: formData.value.notes ? [formData.value.notes] : []
+      }
+
+      await batteryRentalsAPI.create(batteryRentalData)
       $q.notify({
         type: 'positive',
-        message: 'Rental created successfully',
+        message: 'Battery rental created successfully',
         position: 'top'
       })
     }
@@ -3159,7 +3481,7 @@ const processSaveRental = async () => {
   } catch (error) {
     $q.notify({
       type: 'negative',
-      message: error.response?.data?.detail || 'Failed to save rental',
+      message: error.response?.data?.detail || error.message || 'Failed to save rental',
       position: 'top'
     })
   } finally {
@@ -3210,6 +3532,16 @@ const fetchReturnCostCalculation = async () => {
 }
 
 const returnRental = async (rental) => {
+  // Prevent opening return dialog for already-returned rentals
+  if (rental.status === 'returned' || rental.actual_return_date) {
+    $q.notify({
+      type: 'warning',
+      message: 'This rental has already been returned',
+      position: 'top'
+    })
+    return
+  }
+
   returningRental.value = rental
   showReturnDialog.value = true
   // RentalReturnDialog component handles its own cost calculation
@@ -3278,8 +3610,361 @@ const confirmReturn = async () => {
   }
 }
 
+const openBatteryRentalDialog = () => {
+  resetForm()
+  showCreateDialog.value = true
+}
+
+const openPUERentalDialog = () => {
+  resetPUEForm()
+  showPUERentalDialog.value = true
+}
+
+// PUE Rental Form Handlers
+const resetPUEForm = () => {
+  pueFormData.value = {
+    hub_id: null,
+    user_id: null,
+    pue_id: null,
+    quantity: 1,
+    cost_structure_id: null,
+    duration_preset: null,
+    custom_duration_value: 1,
+    custom_duration_unit: 'days',
+    rental_start_date: date.formatDate(new Date(), 'YYYY-MM-DDTHH:mm'),
+    due_date: null,
+    payment_method: null,
+    deposit_amount: 0,
+    amount_paid: 0,
+    credit_used: 0
+  }
+  pueUserAccount.value = null
+  pueCostEstimate.value = null
+  availablePUECostStructures.value = []
+  pueDurationOptions.value = [{ label: 'Custom', value: 'custom' }]
+}
+
+const onPUEHubChange = async (hubId) => {
+  // Reset dependent fields when hub changes
+  pueFormData.value.user_id = null
+  pueFormData.value.pue_id = null
+  pueFormData.value.cost_structure_id = null
+  pueUserAccount.value = null
+
+  if (!hubId) return
+
+  try {
+    // Load available PUE for this hub
+    const pueResponse = await hubsAPI.getPUE(hubId)
+    availablePUE.value = pueResponse.data.filter(
+      p => p.status === 'available'
+    )
+    filteredPUE.value = availablePUE.value
+
+    // Load users for this hub
+    const usersResponse = await hubsAPI.getUsers(hubId)
+    userOptions.value = usersResponse.data
+    filteredUsers.value = userOptions.value
+
+  } catch (error) {
+    console.error('Failed to load hub data:', error)
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to load hub data for PUE rental',
+      position: 'top'
+    })
+  }
+}
+
+const onPUEUserChange = async (userId) => {
+  if (!userId) {
+    pueUserAccount.value = null
+    return
+  }
+
+  try {
+    const response = await accountsAPI.getUserAccount(userId)
+    pueUserAccount.value = response.data
+  } catch (error) {
+    console.error('Failed to load user account:', error)
+    pueUserAccount.value = null
+  }
+}
+
+const onPUEItemSelect = async (pueId) => {
+  if (!pueId) {
+    pueFormData.value.cost_structure_id = null
+    availablePUECostStructures.value = []
+    return
+  }
+
+  const pueItem = availablePUE.value.find(p => p.pue_id === pueId)
+  if (!pueItem) return
+
+  // Load cost structures for this PUE item
+  await loadPUECostStructuresForRental(pueId, pueItem.pue_type_id)
+}
+
+const loadPUECostStructuresForRental = async (pueId, pueTypeId) => {
+  if (!pueFormData.value.hub_id) return
+
+  try {
+    loadingPUECostStructures.value = true
+
+    // Load cost structures for specific PUE item
+    const itemResponse = await settingsAPI.getCostStructures({
+      hub_id: pueFormData.value.hub_id,
+      item_type: 'pue_item',
+      specific_item_id: pueId
+    })
+
+    // Load cost structures for PUE type
+    const typeResponse = pueTypeId ? await settingsAPI.getCostStructures({
+      hub_id: pueFormData.value.hub_id,
+      item_type: 'pue_type',
+      specific_item_id: pueTypeId
+    }) : { data: { cost_structures: [] } }
+
+    // Load cost structures that apply to "all PUE items"
+    const allPUEResponse = await settingsAPI.getCostStructures({
+      hub_id: pueFormData.value.hub_id,
+      item_type: 'pue',
+      is_active: true
+    })
+
+    const itemStructures = itemResponse.data.cost_structures || []
+    const typeStructures = typeResponse.data.cost_structures || []
+    const allPUEStructures = allPUEResponse.data.cost_structures || []
+    availablePUECostStructures.value = [...itemStructures, ...typeStructures, ...allPUEStructures]
+
+  } catch (error) {
+    console.error('Failed to load PUE cost structures:', error)
+    availablePUECostStructures.value = []
+  } finally {
+    loadingPUECostStructures.value = false
+  }
+}
+
+const onPUERentalCostStructureChange = async (structureId) => {
+  pueCostEstimate.value = null
+  pueFormData.value.duration_preset = null
+  pueFormData.value.due_date = null
+
+  if (!structureId) {
+    pueDurationOptions.value = [{ label: 'Custom', value: 'custom', is_custom: true }]
+    return
+  }
+
+  // Load duration options from the selected cost structure
+  const structure = availablePUECostStructures.value.find(s => s.structure_id === structureId)
+
+  if (structure && structure.duration_options && structure.duration_options.length > 0) {
+    buildPUEDurationOptionsFromStructure(structure.duration_options)
+  } else {
+    // Fallback to custom only
+    pueDurationOptions.value = [{ label: 'Custom', value: 'custom', is_custom: true }]
+  }
+}
+
+const buildPUEDurationOptionsFromStructure = (structureDurationOptions) => {
+  pueDurationOptions.value = []
+
+  structureDurationOptions.forEach((option, index) => {
+    if (option.input_type === 'dropdown' && option.dropdown_options) {
+      // Parse dropdown_options JSON
+      let choices = []
+      try {
+        choices = typeof option.dropdown_options === 'string'
+          ? JSON.parse(option.dropdown_options)
+          : option.dropdown_options
+      } catch (e) {
+        console.error('Failed to parse dropdown_options:', e)
+        return
+      }
+
+      // Add each choice as a selectable option
+      choices.forEach((choice, choiceIndex) => {
+        const durationValue = choice.value || choice.duration_value
+        const durationUnit = choice.unit || choice.duration_unit || 'days'
+
+        pueDurationOptions.value.push({
+          label: choice.label || `${durationValue} ${durationUnit}${durationValue > 1 ? 's' : ''}`,
+          value: `${option.option_id}-${choiceIndex}`,
+          duration_value: durationValue,
+          duration_unit: durationUnit,
+          option_id: option.option_id
+        })
+      })
+    } else if (option.input_type === 'custom') {
+      // For custom input, show the range as a custom option
+      pueDurationOptions.value.push({
+        label: `Custom (${option.min_value || 1}-${option.max_value || 99} ${option.custom_unit || 'days'})`,
+        value: `custom-${option.option_id}`,
+        is_custom: true,
+        custom_unit: option.custom_unit || 'days',
+        min_value: option.min_value,
+        max_value: option.max_value,
+        default_value: option.default_value,
+        option_id: option.option_id
+      })
+    }
+  })
+
+  // Always add a "Custom" option at the end to allow manual entry
+  pueDurationOptions.value.push({
+    label: 'Custom',
+    value: 'custom',
+    is_custom: true
+  })
+}
+
+const onPUERentalDurationChange = async (durationValue) => {
+  if (!durationValue || !pueFormData.value.cost_structure_id) return
+
+  let durationInDays = 0
+  let durationValueNum = 0
+  let durationUnit = ''
+
+  // Check if it's a custom duration
+  const selected = pueDurationOptions.value.find(d => d.value === durationValue)
+
+  if (!selected) return
+
+  if (selected.is_custom) {
+    // Use the custom values entered by user
+    durationValueNum = pueFormData.value.custom_duration_value
+    durationUnit = pueFormData.value.custom_duration_unit || selected.custom_unit || 'days'
+  } else {
+    // Use the preset values from the dropdown
+    durationValueNum = selected.duration_value
+    durationUnit = selected.duration_unit
+  }
+
+  if (!durationValueNum || !durationUnit) return
+
+  // Calculate duration in days
+  switch (durationUnit) {
+    case 'hours':
+      durationInDays = durationValueNum / 24
+      break
+    case 'days':
+      durationInDays = durationValueNum
+      break
+    case 'weeks':
+      durationInDays = durationValueNum * 7
+      break
+    case 'months':
+      durationInDays = durationValueNum * 30
+      break
+    default:
+      durationInDays = durationValueNum
+  }
+
+  // Calculate due date
+  const startDate = new Date(pueFormData.value.rental_start_date)
+  const dueDate = date.addToDate(startDate, { days: durationInDays })
+  pueFormData.value.due_date = date.formatDate(dueDate, 'YYYY-MM-DDTHH:mm')
+
+  // Fetch cost estimate
+  await calculatePUERentalCostEstimate(durationValueNum, durationUnit)
+}
+
+const onPUERentalCustomDurationChange = async () => {
+  if (!pueFormData.value.custom_duration_value || !pueFormData.value.custom_duration_unit) return
+  await onPUERentalDurationChange('custom')
+}
+
+const calculatePUERentalCostEstimate = async (durationValue, durationUnit) => {
+  if (!pueFormData.value.cost_structure_id || !durationValue || !durationUnit) return
+
+  try {
+    const params = {
+      duration_value: durationValue,
+      duration_unit: durationUnit,
+      quantity: pueFormData.value.quantity || 1
+    }
+
+    const response = await settingsAPI.estimateCost(pueFormData.value.cost_structure_id, params)
+    pueCostEstimate.value = response.data
+
+  } catch (error) {
+    console.error('Failed to calculate PUE cost estimate:', error)
+    $q.notify({ type: 'negative', message: 'Failed to calculate cost estimate', position: 'top' })
+  }
+}
+
+const savePUERental = async () => {
+  try {
+    saving.value = true
+
+    // Validate required fields
+    if (!pueFormData.value.hub_id || !pueFormData.value.user_id || !pueFormData.value.pue_id) {
+      throw new Error('Hub, User, and PUE item are required')
+    }
+
+    if (!pueFormData.value.cost_structure_id) {
+      throw new Error('Cost structure is required')
+    }
+
+    // Get duration info
+    let durationValue = 0
+    let durationUnit = ''
+
+    if (pueFormData.value.duration_preset === 'custom') {
+      durationValue = pueFormData.value.custom_duration_value
+      durationUnit = pueFormData.value.custom_duration_unit
+    } else {
+      const selected = pueDurationOptions.value.find(d => d.value === pueFormData.value.duration_preset)
+      if (selected) {
+        durationValue = selected.duration_value
+        durationUnit = selected.duration_unit
+      }
+    }
+
+    // Prepare rental data
+    const rentalData = {
+      hub_id: pueFormData.value.hub_id,
+      user_id: pueFormData.value.user_id,
+      pue_item_ids: [pueFormData.value.pue_id],
+      pue_quantities: { [pueFormData.value.pue_id]: pueFormData.value.quantity },
+      cost_structure_id: pueFormData.value.cost_structure_id,
+      rental_start_date: new Date(pueFormData.value.rental_start_date).toISOString(),
+      due_date: new Date(pueFormData.value.due_date).toISOString(),
+      duration_value: durationValue,
+      duration_unit: durationUnit,
+      payment_method: pueFormData.value.payment_method,
+      deposit_amount: pueFormData.value.deposit_amount || 0,
+      amount_paid: pueFormData.value.amount_paid || 0,
+      credit_applied: pueFormData.value.credit_used || 0
+    }
+
+    // Create the PUE rental
+    const response = await pueAPI.createPUERental(rentalData)
+
+    $q.notify({
+      type: 'positive',
+      message: 'PUE rental created successfully!',
+      position: 'top'
+    })
+
+    closeDialog()
+    await loadRentals()
+
+  } catch (error) {
+    console.error('Failed to create PUE rental:', error)
+    $q.notify({
+      type: 'negative',
+      message: error.response?.data?.detail || error.message || 'Failed to create PUE rental',
+      position: 'top'
+    })
+  } finally {
+    saving.value = false
+  }
+}
+
 const closeDialog = () => {
   showCreateDialog.value = false
+  showPUERentalDialog.value = false
   selectedPUE.value = null
   resetForm()
 }

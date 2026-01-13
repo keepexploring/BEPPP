@@ -45,6 +45,9 @@ services:
       - ./logs:/app/logs
       - ./api:/app/api
       - ./alembic:/app/alembic
+      - ./models.py:/app/models.py
+      - ./database.py:/app/database.py
+      - ./config.py:/app/config.py
     networks:
       - battery-hub-network
     restart: unless-stopped

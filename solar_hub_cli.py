@@ -17,6 +17,7 @@ import jwt
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 
+
 # Add project root to path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))

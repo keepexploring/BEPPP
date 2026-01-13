@@ -489,14 +489,27 @@ class BatteryRentalReturn(BaseModel):
     """Return batteries from a rental"""
     battery_ids: Optional[List[int]] = Field(None, description="Battery IDs to return (if None, return all)")
     return_date: Optional[datetime] = Field(None, description="Return date (defaults to now)")
+    actual_return_date: Optional[datetime] = Field(None, description="Actual return date (alias for return_date)")
     condition_notes: Optional[str] = Field(None, description="Notes about battery condition")
-    payment_amount: Optional[float] = Field(None, description="Payment collected on return")
-    payment_type: Optional[str] = Field(None, description="Payment type: Cash, Mobile Money, etc.")
+    return_notes: Optional[str] = Field(None, description="Return notes (alias for condition_notes)")
+    collect_payment: Optional[bool] = Field(False, description="Whether to collect payment")
+    payment_amount: Optional[float] = Field(None, description="Cash payment collected on return")
+    payment_type: Optional[str] = Field('cash', description="Payment type: cash, mobile_money, bank_transfer, card")
+    payment_notes: Optional[str] = Field(None, description="Payment notes")
+    credit_applied: Optional[float] = Field(None, description="Account credit applied to payment")
+    kwh_usage_end: Optional[float] = Field(None, description="Ending kWh reading")
 
 class BatteryRentalAddBattery(BaseModel):
     """Add batteries to existing rental"""
     battery_ids: List[int] = Field(..., description="Battery IDs to add")
     additional_cost: Optional[float] = Field(None, description="Additional cost for new batteries")
+
+class BatteryRentalPayment(BaseModel):
+    """Record payment for a battery rental"""
+    payment_amount: float = Field(..., description="Payment amount", ge=0)
+    payment_type: str = Field('cash', description="Payment type: cash, mobile_money, bank_transfer, card")
+    payment_notes: Optional[str] = Field(None, description="Payment notes")
+    credit_applied: Optional[float] = Field(None, description="Account credit applied to payment", ge=0)
 
 class BatteryRentalRecharge(BaseModel):
     """Record a battery recharge"""
@@ -518,10 +531,11 @@ class PUERentalCreateNew(BaseModel):
 
 class PUERentalPayment(BaseModel):
     """Record payment for PUE rental"""
-    payment_amount: float = Field(..., description="Payment amount")
+    payment_amount: float = Field(..., description="Payment amount", ge=0)
     payment_date: Optional[datetime] = Field(None, description="Payment date (defaults to now)")
     payment_type: str = Field("Cash", description="Payment type: Cash, Mobile Money, etc.")
     notes: Optional[str] = Field(None, description="Payment notes")
+    credit_applied: Optional[float] = Field(None, description="Account credit applied to payment", ge=0)
 
 class PUERentalConvertToRental(BaseModel):
     """Convert pay-to-own back to regular rental"""
@@ -546,6 +560,103 @@ class DataQuery(BaseModel):
     end_timestamp: Optional[datetime] = None
     fields: Optional[List[str]] = None
     format: ExportFormat = ExportFormat.json
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def record_rental_payment(
+    rental: "BatteryRental",
+    user_account: "UserAccount",
+    payment_amount: Optional[float],
+    credit_applied: Optional[float],
+    payment_type: str,
+    payment_notes: Optional[str],
+    db: Session
+) -> tuple[float, list[dict]]:
+    """
+    Helper function to record payment for a rental.
+    Updates user account and returns payment info.
+
+    Returns:
+        tuple: (total_payment_collected, payment_transactions_list)
+    """
+    total_payment_collected = 0
+    payment_transactions = []
+
+    # Apply account credit if specified
+    if credit_applied and credit_applied > 0:
+        # Create debit transaction (reduces account balance)
+        credit_description = f"Account credit applied to Battery Rental #{rental.rental_id}"
+        if payment_notes:
+            credit_description += f" - {payment_notes}"
+
+        user_account.balance -= credit_applied
+        credit_transaction = AccountTransaction(
+            account_id=user_account.account_id,
+            rental_id=None,
+            transaction_type='debit',
+            amount=credit_applied,
+            balance_after=user_account.balance,
+            description=credit_description
+        )
+        db.add(credit_transaction)
+        total_payment_collected += credit_applied
+        payment_transactions.append({
+            "type": "credit",
+            "amount": credit_applied,
+            "description": "Account credit applied"
+        })
+
+    # Record cash payment if specified
+    if payment_amount and payment_amount > 0:
+        # Create debit transaction (reduces debt/balance)
+        payment_description = f"Payment for Battery Rental #{rental.rental_id} ({payment_type})"
+        if payment_notes:
+            payment_description += f" - {payment_notes}"
+
+        user_account.balance -= payment_amount
+        payment_transaction = AccountTransaction(
+            account_id=user_account.account_id,
+            rental_id=None,
+            transaction_type='debit',
+            amount=payment_amount,
+            balance_after=user_account.balance,
+            description=payment_description,
+            payment_type=payment_type
+        )
+        db.add(payment_transaction)
+        total_payment_collected += payment_amount
+        payment_transactions.append({
+            "type": "cash",
+            "amount": payment_amount,
+            "payment_type": payment_type,
+            "description": f"Cash payment ({payment_type})"
+        })
+
+    return total_payment_collected, payment_transactions
+
+def update_rental_payment_status(rental: "BatteryRental", payment_collected: float = 0):
+    """
+    Helper function to update rental payment fields and status.
+    Call this after recording payment or calculating final cost.
+    """
+    # Update amount paid if payment was collected
+    if payment_collected > 0:
+        rental.amount_paid = (rental.amount_paid or 0) + payment_collected
+
+    # Calculate amount owed if final cost is available
+    if rental.final_cost_total is not None:
+        total_paid = (rental.amount_paid or 0) + (rental.deposit_amount or 0)
+        rental.amount_owed = max(0, rental.final_cost_total - total_paid)
+
+        # Update payment status
+        if rental.amount_owed == 0:
+            rental.payment_status = 'paid'
+        elif rental.amount_paid > 0:
+            rental.payment_status = 'partial'
+        else:
+            rental.payment_status = 'unpaid'
 
 # ============================================================================
 # FASTAPI APP INITIALIZATION
@@ -636,7 +747,7 @@ A comprehensive API for managing solar hubs, batteries, productive use equipment
 # In production, set CORS_ORIGINS env var to your domains (comma-separated)
 cors_origins_str = os.getenv(
     "CORS_ORIGINS",
-    "http://localhost:3000,http://localhost:8000,http://localhost:5100,http://localhost:9000"
+    "http://localhost:3000,http://localhost:8000,http://localhost:5100,http://localhost:9000,http://localhost:9001"
 )
 cors_origins = [origin.strip() for origin in cors_origins_str.split(",")]
 
@@ -4615,7 +4726,7 @@ async def create_battery_rental(
 
     try:
         # Verify user exists
-        user = db.query(BEPPPUser).filter(BEPPPUser.user_id == rental.user_id).first()
+        user = db.query(User).filter(User.user_id == rental.user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
@@ -4631,6 +4742,9 @@ async def create_battery_rental(
         if not cost_structure:
             raise HTTPException(status_code=404, detail="Cost structure not found")
 
+        # Determine initial recharge count based on cost structure setting
+        initial_recharges = 1 if cost_structure.count_initial_checkout_as_recharge else 0
+
         # Check all batteries exist and are available
         batteries = []
         for battery_id in rental.battery_ids:
@@ -4641,8 +4755,8 @@ async def create_battery_rental(
             # Check if battery is already in an active rental
             existing_rental = db.query(BatteryRentalItem).join(BatteryRental).filter(
                 BatteryRentalItem.battery_id == battery_id,
-                BatteryRentalItem.return_date.is_(None),
-                BatteryRental.rental_status == 'active'
+                BatteryRentalItem.returned_at.is_(None),
+                BatteryRental.status == 'active'
             ).first()
             if existing_rental:
                 raise HTTPException(status_code=409, detail=f"Battery {battery_id} is already rented")
@@ -4655,10 +4769,11 @@ async def create_battery_rental(
             user_id=rental.user_id,
             hub_id=user.hub_id,
             cost_structure_id=rental.cost_structure_id,
-            rental_start_date=rental_start,
-            rental_end_date=rental.due_date,
-            deposit_paid=rental.deposit_amount or 0.0,
-            rental_status='active'
+            start_date=rental_start,
+            end_date=rental.due_date,
+            deposit_amount=rental.deposit_amount or 0.0,
+            status='active',
+            recharges_used=initial_recharges  # Set based on cost structure setting
         )
         db.add(new_rental)
         db.flush()  # Get rental_id
@@ -4668,11 +4783,14 @@ async def create_battery_rental(
         for battery in batteries:
             item = BatteryRentalItem(
                 rental_id=new_rental.rental_id,
-                battery_id=battery.battery_id,
-                rental_start_date=rental_start
+                battery_id=battery.battery_id
+                # added_at will be set automatically by server default
             )
             db.add(item)
             rental_items.append(item)
+
+            # Mark battery as rented
+            battery.status = 'rented'
 
         # Add notes if provided
         if rental.notes:
@@ -4681,6 +4799,171 @@ async def create_battery_rental(
                 db.add(note)
                 db.flush()
                 new_rental.notes.append(note)
+
+        # Calculate estimated cost
+        estimated_subtotal = 0
+        estimated_breakdown = []
+
+        # Get cost components
+        components = db.query(CostComponent).filter(
+            CostComponent.structure_id == rental.cost_structure_id
+        ).order_by(CostComponent.sort_order).all()
+
+        # Calculate duration if we have an end date
+        if rental.due_date:
+            duration_delta = rental.due_date - rental_start
+            hours = duration_delta.total_seconds() / 3600
+            days = duration_delta.total_seconds() / 86400
+            weeks = days / 7
+            months = days / 30
+            years = days / 365
+
+            for component in components:
+                component_cost = 0
+                quantity = 0
+
+                if component.unit_type == 'flat':
+                    quantity = 1
+                    component_cost = component.rate
+                elif component.unit_type == 'per_hour':
+                    quantity = hours
+                    component_cost = component.rate * hours
+                elif component.unit_type == 'per_day':
+                    quantity = days
+                    component_cost = component.rate * days
+                elif component.unit_type == 'per_week':
+                    quantity = weeks
+                    component_cost = component.rate * weeks
+                elif component.unit_type == 'per_month':
+                    quantity = months
+                    component_cost = component.rate * months
+                elif component.unit_type == 'per_year':
+                    quantity = years
+                    component_cost = component.rate * years
+                elif component.unit_type == 'per_recharge':
+                    # Use initial recharge count
+                    quantity = initial_recharges
+                    component_cost = component.rate * initial_recharges
+                # per_kwh and per_charge can't be estimated
+
+                if component_cost > 0:
+                    estimated_breakdown.append({
+                        "component_name": component.component_name,
+                        "unit_type": component.unit_type,
+                        "rate": float(component.rate),
+                        "quantity": round(quantity, 2),
+                        "amount": round(component_cost, 2)
+                    })
+                    estimated_subtotal += component_cost
+
+            # Apply VAT
+            hub = db.query(SolarHub).filter(SolarHub.hub_id == user.hub_id).first()
+            vat_percentage = hub.vat_percentage if (hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None) else 0.0
+            estimated_vat = estimated_subtotal * (vat_percentage / 100)
+            estimated_total = estimated_subtotal + estimated_vat
+
+            # Save estimated costs to rental
+            new_rental.estimated_cost_before_vat = estimated_subtotal
+            new_rental.estimated_vat = estimated_vat
+            new_rental.estimated_cost_total = estimated_total
+
+        # Note: Upfront cost charging feature removed - costs are now calculated on return
+        # This can be re-implemented at the cost structure level if needed
+
+        upfront_total = 0
+        upfront_charges = []
+
+        if False:  # Disabled for now
+            # Calculate and charge known costs upfront
+            upfront_subtotal = 0
+
+            # Get cost components
+            components = db.query(CostComponent).filter(
+                CostComponent.structure_id == rental.cost_structure_id
+            ).all()
+
+            # Calculate duration if we have an end date
+            duration_known = rental.due_date is not None
+            if duration_known:
+                duration_delta = rental.due_date - rental_start
+                hours = duration_delta.total_seconds() / 3600
+                days = duration_delta.total_seconds() / 86400
+                weeks = days / 7
+                months = days / 30
+
+            for component in components:
+                component_cost = 0
+                quantity = 0
+                can_charge_now = False
+
+                if component.unit_type == 'fixed':
+                    # Fixed costs are always known
+                    quantity = 1
+                    component_cost = component.rate
+                    can_charge_now = True
+                elif duration_known:
+                    # Time-based costs can be charged if duration is known
+                    if component.unit_type == 'per_hour':
+                        quantity = hours
+                        component_cost = component.rate * hours
+                        can_charge_now = True
+                    elif component.unit_type == 'per_day':
+                        quantity = days
+                        component_cost = component.rate * days
+                        can_charge_now = True
+                    elif component.unit_type == 'per_week':
+                        quantity = weeks
+                        component_cost = component.rate * weeks
+                        can_charge_now = True
+                    elif component.unit_type == 'per_month':
+                        quantity = months
+                        component_cost = component.rate * months
+                        can_charge_now = True
+
+                # Per-recharge and per-kwh costs cannot be charged upfront
+                # They will be charged at return time
+
+                if can_charge_now and component_cost > 0:
+                    upfront_charges.append({
+                        "component_name": component.component_name,
+                        "unit_type": component.unit_type,
+                        "rate": float(component.rate),
+                        "quantity": round(quantity, 2),
+                        "amount": round(component_cost, 2)
+                    })
+                    upfront_subtotal += component_cost
+
+            # Apply VAT to upfront charges
+            hub = db.query(SolarHub).filter(SolarHub.hub_id == user.hub_id).first()
+            vat_percentage = hub.vat_percentage if (hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None) else 15.0
+            upfront_vat = upfront_subtotal * (vat_percentage / 100)
+            upfront_total = upfront_subtotal + upfront_vat
+
+            # Create charge transaction if there are upfront costs
+            if upfront_total > 0:
+                # Get or create user account
+                user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+                if not user_account:
+                    user_account = UserAccount(user_id=rental.user_id, balance=0)
+                    db.add(user_account)
+                    db.flush()
+
+                # Create charge description
+                charge_description = f"Battery Rental #{new_rental.rental_id} - Upfront charges"
+                if upfront_charges:
+                    charge_description += f" ({', '.join([c['component_name'] for c in upfront_charges])})"
+
+                # Create charge transaction (credit to account = debt owed)
+                user_account.balance += upfront_total  # Increase balance = increase debt
+                charge_transaction = AccountTransaction(
+                    account_id=user_account.account_id,
+                    rental_id=None,  # This is for old Rental model, not BatteryRental
+                    transaction_type='credit',
+                    amount=upfront_total,
+                    balance_after=user_account.balance,
+                    description=charge_description
+                )
+                db.add(charge_transaction)
 
         db.commit()
         db.refresh(new_rental)
@@ -4691,11 +4974,12 @@ async def create_battery_rental(
             "user_id": new_rental.user_id,
             "hub_id": new_rental.hub_id,
             "battery_ids": rental.battery_ids,
-            "rental_start_date": new_rental.rental_start_date.isoformat(),
-            "rental_end_date": new_rental.rental_end_date.isoformat() if new_rental.rental_end_date else None,
-            "status": new_rental.rental_status,
-            "deposit_paid": float(new_rental.deposit_paid),
-            "cost_structure_id": new_rental.cost_structure_id
+            "rental_start_date": new_rental.start_date.isoformat(),
+            "rental_end_date": new_rental.end_date.isoformat() if new_rental.end_date else None,
+            "status": new_rental.status,
+            "deposit_paid": float(new_rental.deposit_amount),
+            "cost_structure_id": new_rental.cost_structure_id,
+            "upfront_charges": None  # Upfront charging disabled
         }
 
     except HTTPException:
@@ -4703,6 +4987,67 @@ async def create_battery_rental(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Error creating battery rental: {str(e)}")
+
+@app.get("/battery-rentals",
+    tags=["Battery Rentals"],
+    summary="List Battery Rentals")
+async def list_battery_rentals(
+    user_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    hub_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """List battery rentals with optional filters"""
+    query = db.query(BatteryRental)
+
+    # Hub-based filtering (BatteryRental has hub_id directly)
+    if current_user.get('role') == UserRole.USER:
+        query = query.filter(BatteryRental.hub_id == current_user.get('hub_id'))
+    elif hub_id:
+        query = query.filter(BatteryRental.hub_id == hub_id)
+
+    # User filter
+    if user_id:
+        query = query.filter(BatteryRental.user_id == user_id)
+
+    # Status filter
+    if status:
+        query = query.filter(BatteryRental.status == status)
+
+    rentals = query.order_by(BatteryRental.start_date.desc()).all()
+
+    result = []
+    for rental in rentals:
+        user = db.query(User).filter(User.user_id == rental.user_id).first()
+        items = db.query(BatteryRentalItem).filter(BatteryRentalItem.rental_id == rental.rental_id).all()
+
+        result.append({
+            "rental_id": rental.rental_id,
+            "rentral_id": rental.rental_id,  # Legacy typo field for frontend compatibility
+            "user_id": rental.user_id,
+            "user_name": user.Name if user else None,
+            "hub_id": rental.hub_id,
+            "cost_structure_id": rental.cost_structure_id,
+            "rental_start_date": rental.start_date.isoformat(),
+            "rental_end_date": rental.end_date.isoformat() if rental.end_date else None,
+            "actual_return_date": rental.actual_return_date.isoformat() if rental.actual_return_date else None,
+            "timestamp_taken": rental.start_date.isoformat(),  # Legacy field mapping
+            "due_back": rental.end_date.isoformat() if rental.end_date else None,  # Legacy field mapping
+            "deposit_paid": float(rental.deposit_amount),
+            "total_cost_calculated": float(rental.final_cost_total) if rental.final_cost_total else (float(rental.estimated_cost_total) if rental.estimated_cost_total else None),
+            "total_cost": float(rental.final_cost_total) if rental.final_cost_total else (float(rental.estimated_cost_total) if rental.estimated_cost_total else 0.0),  # Legacy field
+            "amount_paid": float(rental.amount_paid) if rental.amount_paid else 0.0,
+            "amount_owed": float(rental.amount_owed) if rental.amount_owed is not None else None,
+            "payment_status": rental.payment_status if rental.final_cost_total is not None else None,  # Only show payment status for returned rentals with calculated cost
+            "rental_status": rental.status,
+            "status": rental.status,  # Add status field for frontend
+            "battery_id": items[0].battery_id if items else None,  # First battery for list view
+            "battery_count": len(items),
+            "rental_type": "battery"  # Add type for frontend routing
+        })
+
+    return result
 
 @app.get("/battery-rentals/{rental_id}",
     tags=["Battery Rentals"],
@@ -4719,7 +5064,7 @@ async def get_battery_rental(
 
     # Authorization check
     if current_user.get('role') == UserRole.USER:
-        user = db.query(BEPPPUser).filter(BEPPPUser.user_id == rental.user_id).first()
+        user = db.query(User).filter(User.user_id == rental.user_id).first()
         if user.hub_id != current_user.get('hub_id'):
             raise HTTPException(status_code=403, detail="Access denied")
 
@@ -4730,25 +5075,59 @@ async def get_battery_rental(
         battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == item.battery_id).first()
         batteries.append({
             "battery_id": battery.battery_id,
-            "serial_number": battery.serial_number,
-            "capacity": battery.capacity,
-            "rental_start_date": item.rental_start_date.isoformat(),
-            "return_date": item.return_date.isoformat() if item.return_date else None,
-            "recharge_count": item.recharge_count
+            "short_id": battery.short_id,
+            "capacity_wh": battery.battery_capacity_wh,
+            "status": battery.status,
+            "added_at": item.added_at.isoformat(),
+            "returned_at": item.returned_at.isoformat() if item.returned_at else None
         })
+
+    # Get cost structure details if available
+    cost_structure_data = None
+    if rental.cost_structure_id:
+        cost_structure = db.query(CostStructure).filter(
+            CostStructure.structure_id == rental.cost_structure_id
+        ).first()
+
+        if cost_structure:
+            # Get components for this structure
+            components = db.query(CostComponent).filter(
+                CostComponent.structure_id == cost_structure.structure_id
+            ).order_by(CostComponent.sort_order).all()
+
+            cost_structure_data = {
+                "structure_id": cost_structure.structure_id,
+                "name": cost_structure.name,
+                "description": cost_structure.description,
+                "components": [{
+                    "component_name": comp.component_name,
+                    "unit_type": comp.unit_type,
+                    "rate": float(comp.rate),
+                    "is_calculated_on_return": comp.is_calculated_on_return,
+                    "late_fee_action": comp.late_fee_action,
+                    "late_fee_rate": float(comp.late_fee_rate) if comp.late_fee_rate is not None else None,
+                    "late_fee_grace_days": comp.late_fee_grace_days
+                } for comp in components]
+            }
 
     return {
         "rental_id": rental.rental_id,
+        "rentral_id": rental.rental_id,  # Legacy typo field for frontend compatibility
         "user_id": rental.user_id,
         "hub_id": rental.hub_id,
         "cost_structure_id": rental.cost_structure_id,
-        "rental_start_date": rental.rental_start_date.isoformat(),
-        "rental_end_date": rental.rental_end_date.isoformat() if rental.rental_end_date else None,
+        "cost_structure": cost_structure_data,
+        "rental_start_date": rental.start_date.isoformat(),
+        "rental_end_date": rental.end_date.isoformat() if rental.end_date else None,
         "actual_return_date": rental.actual_return_date.isoformat() if rental.actual_return_date else None,
-        "deposit_paid": float(rental.deposit_paid),
-        "total_cost_calculated": float(rental.total_cost_calculated) if rental.total_cost_calculated else None,
-        "amount_paid": float(rental.amount_paid) if rental.amount_paid else None,
-        "rental_status": rental.rental_status,
+        "deposit_paid": float(rental.deposit_amount),
+        "deposit_amount": float(rental.deposit_amount),
+        "total_cost_calculated": float(rental.final_cost_total) if rental.final_cost_total else (float(rental.estimated_cost_total) if rental.estimated_cost_total else None),
+        "amount_paid": float(rental.amount_paid) if rental.amount_paid else 0.0,
+        "amount_owed": float(rental.amount_owed) if rental.amount_owed is not None else None,
+        "payment_status": rental.payment_status if rental.final_cost_total is not None else None,  # Only show payment status for returned rentals with calculated cost
+        "rental_status": rental.status,
+        "rental_type": "battery",
         "batteries": batteries
     }
 
@@ -4772,53 +5151,166 @@ async def return_batteries(
 
         # Authorization check
         if current_user.get('role') == UserRole.USER:
-            user = db.query(BEPPPUser).filter(BEPPPUser.user_id == rental.user_id).first()
+            user = db.query(User).filter(User.user_id == rental.user_id).first()
             if user.hub_id != current_user.get('hub_id'):
                 raise HTTPException(status_code=403, detail="Access denied")
 
-        return_date = return_data.return_date or datetime.now(timezone.utc)
+        # Use actual_return_date if provided, otherwise return_date, otherwise now
+        return_date = return_data.actual_return_date or return_data.return_date or datetime.now(timezone.utc)
 
         # Get items to return
         if return_data.battery_ids:
             items = db.query(BatteryRentalItem).filter(
                 BatteryRentalItem.rental_id == rental_id,
                 BatteryRentalItem.battery_id.in_(return_data.battery_ids),
-                BatteryRentalItem.return_date.is_(None)
+                BatteryRentalItem.returned_at.is_(None)
             ).all()
         else:
             # Return all unreturned batteries
             items = db.query(BatteryRentalItem).filter(
                 BatteryRentalItem.rental_id == rental_id,
-                BatteryRentalItem.return_date.is_(None)
+                BatteryRentalItem.returned_at.is_(None)
             ).all()
 
         if not items:
-            raise HTTPException(status_code=400, detail="No batteries to return")
+            # Check if rental has any items at all
+            all_items = db.query(BatteryRentalItem).filter(
+                BatteryRentalItem.rental_id == rental_id
+            ).all()
 
-        # Mark batteries as returned
+            if not all_items:
+                raise HTTPException(status_code=400, detail="This rental has no batteries associated with it")
+            else:
+                # All items have been returned
+                returned_count = len([item for item in all_items if item.returned_at is not None])
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"All batteries in this rental have already been returned ({returned_count} battery/batteries returned)"
+                )
+
+        # Mark batteries as returned and update battery status
         for item in items:
-            item.return_date = return_date
+            item.returned_at = return_date
+
+            # Mark battery as available again
+            battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == item.battery_id).first()
+            if battery:
+                battery.status = 'available'
+
+        # Flush changes so the database reflects updated returned_at values
+        db.flush()
 
         # Check if all batteries returned
         remaining = db.query(BatteryRentalItem).filter(
             BatteryRentalItem.rental_id == rental_id,
-            BatteryRentalItem.return_date.is_(None)
+            BatteryRentalItem.returned_at.is_(None)
         ).count()
 
         if remaining == 0:
             rental.actual_return_date = return_date
-            rental.rental_status = 'completed'
+            rental.status = 'returned'
 
-        # Record payment if provided
-        if return_data.payment_amount:
-            rental.amount_paid = (rental.amount_paid or 0) + return_data.payment_amount
+        # Handle payment recording
+        total_payment_collected = 0
+        payment_transactions = []
 
-        # Add condition notes
-        if return_data.condition_notes:
-            note = Note(content=f"Return notes: {return_data.condition_notes}")
+        if return_data.collect_payment or return_data.payment_amount or return_data.credit_applied:
+            # Get or create user account
+            user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+            if not user_account:
+                user_account = UserAccount(user_id=rental.user_id, balance=0)
+                db.add(user_account)
+                db.flush()
+
+            # Use helper function to record payment
+            total_payment_collected, payment_transactions = record_rental_payment(
+                rental=rental,
+                user_account=user_account,
+                payment_amount=return_data.payment_amount,
+                credit_applied=return_data.credit_applied,
+                payment_type=return_data.payment_type or 'cash',
+                payment_notes=return_data.payment_notes,
+                db=db
+            )
+
+        # Add condition/return notes
+        notes_content = return_data.return_notes or return_data.condition_notes
+        if notes_content:
+            note = Note(content=f"Return notes: {notes_content}")
             db.add(note)
             db.flush()
             rental.notes.append(note)
+
+        # Auto-calculate cost if all batteries returned and cost not yet calculated
+        if remaining == 0 and rental.final_cost_total is None:
+            # Calculate cost automatically
+            cost_structure = db.query(CostStructure).filter(
+                CostStructure.structure_id == rental.cost_structure_id
+            ).first()
+
+            if cost_structure:
+                # Calculate actual duration
+                start_date = rental.start_date
+                if isinstance(start_date, str):
+                    start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                elif start_date and not start_date.tzinfo:
+                    start_date = start_date.replace(tzinfo=timezone.utc)
+
+                return_date_for_calc = rental.actual_return_date
+                if isinstance(return_date_for_calc, str):
+                    return_date_for_calc = datetime.fromisoformat(return_date_for_calc.replace('Z', '+00:00'))
+                elif return_date_for_calc and not return_date_for_calc.tzinfo:
+                    return_date_for_calc = return_date_for_calc.replace(tzinfo=timezone.utc)
+
+                duration_delta = return_date_for_calc - start_date
+                actual_hours = duration_delta.total_seconds() / 3600
+                actual_days = duration_delta.total_seconds() / 86400
+                actual_weeks = actual_days / 7
+                actual_months = actual_days / 30
+                actual_years = actual_days / 365
+
+                # Get recharges used
+                total_recharges = rental.recharges_used or 0
+
+                # Calculate costs
+                subtotal = 0
+                components = db.query(CostComponent).filter(
+                    CostComponent.structure_id == rental.cost_structure_id
+                ).order_by(CostComponent.sort_order).all()
+
+                for comp in components:
+                    component_cost = 0
+
+                    if comp.unit_type == 'flat':
+                        component_cost = comp.rate
+                    elif comp.unit_type == 'per_hour':
+                        component_cost = comp.rate * actual_hours
+                    elif comp.unit_type == 'per_day':
+                        component_cost = comp.rate * actual_days
+                    elif comp.unit_type == 'per_week':
+                        component_cost = comp.rate * actual_weeks
+                    elif comp.unit_type == 'per_month':
+                        component_cost = comp.rate * actual_months
+                    elif comp.unit_type == 'per_year':
+                        component_cost = comp.rate * actual_years
+                    elif comp.unit_type == 'per_recharge':
+                        component_cost = comp.rate * total_recharges
+
+                    subtotal += component_cost
+
+                # Apply VAT
+                hub = db.query(SolarHub).filter(SolarHub.hub_id == rental.hub_id).first()
+                vat_percentage = hub.vat_percentage if (hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None) else 0.0
+                vat_amount = subtotal * (vat_percentage / 100)
+                total_cost = subtotal + vat_amount
+
+                # Save to rental
+                rental.final_cost_before_vat = subtotal
+                rental.final_vat = vat_amount
+                rental.final_cost_total = total_cost
+
+        # Update payment status using helper function
+        update_rental_payment_status(rental, total_payment_collected)
 
         db.commit()
 
@@ -4827,8 +5319,10 @@ async def return_batteries(
             "rental_id": rental_id,
             "returned_battery_ids": [item.battery_id for item in items],
             "return_date": return_date.isoformat(),
-            "rental_status": rental.rental_status,
-            "remaining_batteries": remaining
+            "rental_status": rental.status,
+            "remaining_batteries": remaining,
+            "payment_collected": total_payment_collected,
+            "payment_transactions": payment_transactions
         }
 
     except HTTPException:
@@ -4836,6 +5330,180 @@ async def return_batteries(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Error returning batteries: {str(e)}")
+
+@app.post("/battery-rentals/{rental_id}/payment",
+    tags=["Battery Rentals"],
+    summary="Record Payment for Battery Rental")
+async def record_battery_rental_payment(
+    rental_id: int,
+    payment_data: BatteryRentalPayment,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Record a payment for a battery rental (typically after return).
+    Updates amount_paid, amount_owed, and payment_status.
+    """
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot modify rentals")
+
+    try:
+        rental = db.query(BatteryRental).filter(BatteryRental.rental_id == rental_id).first()
+        if not rental:
+            raise HTTPException(status_code=404, detail="Rental not found")
+
+        # Authorization check
+        if current_user.get('role') == UserRole.USER:
+            user = db.query(User).filter(User.user_id == rental.user_id).first()
+            if user.hub_id != current_user.get('hub_id'):
+                raise HTTPException(status_code=403, detail="Access denied")
+
+        # Auto-calculate cost if not yet calculated (for rentals returned before this feature was added)
+        if rental.final_cost_total is None:
+            # Check if all batteries have been returned
+            all_items = db.query(BatteryRentalItem).filter(
+                BatteryRentalItem.rental_id == rental_id
+            ).all()
+
+            unreturned_items = [item for item in all_items if item.returned_at is None]
+
+            if unreturned_items:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot calculate cost: some batteries have not been returned yet"
+                )
+
+            # Calculate cost automatically
+            cost_structure = db.query(CostStructure).filter(
+                CostStructure.structure_id == rental.cost_structure_id
+            ).first()
+
+            if not cost_structure:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot calculate cost: no cost structure assigned to rental"
+                )
+
+            # Use the actual return date from the last returned item
+            return_dates = [item.returned_at for item in all_items if item.returned_at]
+            if not return_dates:
+                raise HTTPException(status_code=400, detail="No return dates found")
+
+            return_date_for_calc = max(return_dates)  # Use latest return date
+            if isinstance(return_date_for_calc, str):
+                return_date_for_calc = datetime.fromisoformat(return_date_for_calc.replace('Z', '+00:00'))
+            elif return_date_for_calc and not return_date_for_calc.tzinfo:
+                return_date_for_calc = return_date_for_calc.replace(tzinfo=timezone.utc)
+
+            # Calculate duration
+            start_date = rental.start_date
+            if isinstance(start_date, str):
+                start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            elif start_date and not start_date.tzinfo:
+                start_date = start_date.replace(tzinfo=timezone.utc)
+
+            duration_delta = return_date_for_calc - start_date
+            actual_hours = duration_delta.total_seconds() / 3600
+            actual_days = duration_delta.total_seconds() / 86400
+            actual_weeks = actual_days / 7
+            actual_months = actual_days / 30
+            actual_years = actual_days / 365
+
+            # Get recharges
+            total_recharges = rental.recharges_used or 0
+            if cost_structure.count_initial_checkout_as_recharge and total_recharges == 0:
+                total_recharges = 1
+
+            # Calculate costs
+            subtotal = 0
+            components = db.query(CostComponent).filter(
+                CostComponent.structure_id == rental.cost_structure_id
+            ).order_by(CostComponent.sort_order).all()
+
+            for comp in components:
+                component_cost = 0
+                if comp.unit_type == 'flat':
+                    component_cost = comp.rate
+                elif comp.unit_type == 'per_hour':
+                    component_cost = comp.rate * actual_hours
+                elif comp.unit_type == 'per_day':
+                    component_cost = comp.rate * actual_days
+                elif comp.unit_type == 'per_week':
+                    component_cost = comp.rate * actual_weeks
+                elif comp.unit_type == 'per_month':
+                    component_cost = comp.rate * actual_months
+                elif comp.unit_type == 'per_year':
+                    component_cost = comp.rate * actual_years
+                elif comp.unit_type == 'per_recharge':
+                    component_cost = comp.rate * total_recharges
+                elif comp.unit_type == 'per_kwh':
+                    kwh_used = rental.kwh_usage_end - rental.kwh_usage_start if (rental.kwh_usage_end and rental.kwh_usage_start) else 0
+                    component_cost = comp.rate * kwh_used
+
+                subtotal += component_cost
+
+            # Apply VAT
+            hub = db.query(SolarHub).filter(SolarHub.hub_id == rental.hub_id).first()
+            vat_percentage = hub.vat_percentage if (hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None) else 0.0
+            vat_amount = subtotal * (vat_percentage / 100)
+            total_cost = subtotal + vat_amount
+
+            # Save to rental
+            rental.final_cost_total = total_cost
+            rental.final_cost_subtotal = subtotal
+            rental.final_cost_vat = vat_amount
+            rental.final_cost_calculated_at = datetime.now(timezone.utc)
+            rental.actual_return_date = return_date_for_calc
+
+            db.flush()
+
+        # Get or create user account
+        user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+        if not user_account:
+            user_account = UserAccount(user_id=rental.user_id, balance=0)
+            db.add(user_account)
+            db.flush()
+
+        # Check credit balance if applying credit
+        if payment_data.credit_applied and payment_data.credit_applied > 0:
+            if user_account.balance < payment_data.credit_applied:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient account credit. Available: {user_account.balance}, Requested: {payment_data.credit_applied}"
+                )
+
+        # Use helper function to record payment
+        total_payment_collected, payment_transactions = record_rental_payment(
+            rental=rental,
+            user_account=user_account,
+            payment_amount=payment_data.payment_amount,
+            credit_applied=payment_data.credit_applied,
+            payment_type=payment_data.payment_type,
+            payment_notes=payment_data.payment_notes,
+            db=db
+        )
+
+        # Update payment status using helper function
+        update_rental_payment_status(rental, total_payment_collected)
+
+        db.commit()
+        db.refresh(rental)
+
+        return {
+            "message": "Payment recorded successfully",
+            "rental_id": rental_id,
+            "payment_collected": total_payment_collected,
+            "amount_paid": float(rental.amount_paid),
+            "amount_owed": float(rental.amount_owed) if rental.amount_owed is not None else None,
+            "payment_status": rental.payment_status,
+            "payment_transactions": payment_transactions
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Error recording payment: {str(e)}")
 
 @app.post("/battery-rentals/{rental_id}/add-battery",
     tags=["Battery Rentals"],
@@ -4867,7 +5535,7 @@ async def add_battery_to_rental(
             # Check availability
             existing = db.query(BatteryRentalItem).join(BatteryRental).filter(
                 BatteryRentalItem.battery_id == battery_id,
-                BatteryRentalItem.return_date.is_(None),
+                BatteryRentalItem.returned_at.is_(None),
                 BatteryRental.rental_status == 'active'
             ).first()
             if existing:
@@ -4946,6 +5614,339 @@ async def record_recharge(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Error recording recharge: {str(e)}")
+
+@app.get("/battery-rentals/{rental_id}/calculate-return-cost",
+    tags=["Battery Rentals"],
+    summary="Calculate Final Cost at Return",
+    description="Calculate the final cost for a battery rental based on actual usage (days, recharges, kWh, etc.)")
+async def calculate_battery_rental_return_cost(
+    rental_id: int,
+    actual_return_date: Optional[str] = Query(None, description="Actual return date (ISO format)"),
+    kwh_usage: Optional[float] = Query(None, description="Actual kWh used"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Calculate final cost for a battery rental at return time based on:
+    - Actual duration (rental start to return date)
+    - Number of recharges
+    - Actual kWh usage (if provided)
+    - Cost structure components (per_day, per_hour, per_recharge, per_kwh, fixed, etc.)
+
+    Returns breakdown of all cost components and final total.
+    """
+    rental = db.query(BatteryRental).filter(BatteryRental.rental_id == rental_id).first()
+    if not rental:
+        raise HTTPException(status_code=404, detail="Rental not found")
+
+    # Authorization check
+    if current_user.get('role') == UserRole.USER:
+        if rental.hub_id != current_user.get('hub_id'):
+            raise HTTPException(status_code=403, detail="Access denied")
+    elif current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot access rental details")
+
+    # Parse actual return date or use now
+    if actual_return_date:
+        try:
+            return_date = datetime.fromisoformat(actual_return_date.replace('Z', '+00:00'))
+        except:
+            return_date = datetime.now(timezone.utc)
+    else:
+        return_date = datetime.now(timezone.utc)
+
+    # Calculate actual duration
+    start_date = rental.start_date
+    if isinstance(start_date, str):
+        start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+    elif start_date and not start_date.tzinfo:
+        start_date = start_date.replace(tzinfo=timezone.utc)
+
+    duration_delta = return_date - start_date
+    actual_hours = duration_delta.total_seconds() / 3600
+    actual_days = duration_delta.total_seconds() / 86400
+    actual_weeks = actual_days / 7
+    actual_months = actual_days / 30  # Approximate
+
+    # Get all battery items in this rental
+    items = db.query(BatteryRentalItem).filter(
+        BatteryRentalItem.rental_id == rental_id
+    ).all()
+
+    # Get cost structure first (needed to determine recharge count)
+    cost_structure = None
+    if rental.cost_structure_id:
+        cost_structure = db.query(CostStructure).filter(
+            CostStructure.structure_id == rental.cost_structure_id
+        ).first()
+
+    # Get total recharges from the rental (tracked at rental level, not per item)
+    total_recharges = rental.recharges_used or 0
+
+    # If cost structure counts initial checkout as recharge and there are no recorded recharges,
+    # count it as 1 (handles rentals created before this setting was enabled)
+    if cost_structure and cost_structure.count_initial_checkout_as_recharge and total_recharges == 0:
+        total_recharges = 1
+
+    # Get cost structure and calculate costs
+    cost_breakdown = []
+    calculation_steps = []  # Detailed step-by-step explanations
+    subtotal = 0
+    cost_structure_info = None
+
+    if cost_structure:
+        # Store cost structure information for display
+        cost_structure_info = {
+            "structure_id": cost_structure.structure_id,
+            "name": cost_structure.name,
+            "description": cost_structure.description or "No description available",
+            "item_type": cost_structure.item_type,
+            "item_reference": cost_structure.item_reference,
+            "count_initial_checkout_as_recharge": cost_structure.count_initial_checkout_as_recharge
+        }
+
+        components = db.query(CostComponent).filter(
+            CostComponent.structure_id == cost_structure.structure_id
+        ).all()
+
+        for component in components:
+            component_cost = 0
+            quantity = 0
+            calculation_explanation = ""
+
+            if component.unit_type == 'per_hour':
+                quantity = actual_hours
+                component_cost = component.rate * actual_hours
+                calculation_explanation = f"{component.component_name}: {round(quantity, 2)} hours × R{component.rate:.2f}/hour = R{component_cost:.2f}"
+            elif component.unit_type == 'per_day':
+                quantity = actual_days
+                component_cost = component.rate * actual_days
+                calculation_explanation = f"{component.component_name}: {round(quantity, 2)} days × R{component.rate:.2f}/day = R{component_cost:.2f}"
+            elif component.unit_type == 'per_week':
+                quantity = actual_weeks
+                component_cost = component.rate * actual_weeks
+                calculation_explanation = f"{component.component_name}: {round(quantity, 2)} weeks × R{component.rate:.2f}/week = R{component_cost:.2f}"
+            elif component.unit_type == 'per_month':
+                quantity = actual_months
+                component_cost = component.rate * actual_months
+                calculation_explanation = f"{component.component_name}: {round(quantity, 2)} months × R{component.rate:.2f}/month = R{component_cost:.2f}"
+            elif component.unit_type == 'per_recharge':
+                quantity = total_recharges
+                component_cost = component.rate * total_recharges
+                # Add note if initial checkout counted as a recharge
+                recharge_note = ""
+                if cost_structure.count_initial_checkout_as_recharge and total_recharges >= 1:
+                    recharge_note = " (includes initial checkout)"
+                calculation_explanation = f"{component.component_name}: {int(quantity)} recharge(s){recharge_note} × R{component.rate:.2f}/recharge = R{component_cost:.2f}"
+            elif component.unit_type == 'per_kwh':
+                # Use provided kWh or try to calculate from battery data
+                kwh_used = kwh_usage
+                if kwh_used is None and len(items) > 0:
+                    # Try to get from first battery's latest data
+                    battery_id = items[0].battery_id
+                    latest_data = db.query(LiveData).filter(
+                        LiveData.battery_id == battery_id
+                    ).order_by(LiveData.timestamp.desc()).first()
+
+                    if latest_data and latest_data.amp_hours_consumed:
+                        voltage = latest_data.voltage or 48
+                        kwh_used = (latest_data.amp_hours_consumed * voltage) / 1000
+
+                if kwh_used is not None and kwh_used > 0:
+                    quantity = kwh_used
+                    component_cost = component.rate * kwh_used
+                    calculation_explanation = f"{component.component_name}: {round(quantity, 2)} kWh × R{component.rate:.2f}/kWh = R{component_cost:.2f}"
+            elif component.unit_type == 'fixed':
+                quantity = 1
+                component_cost = component.rate
+                calculation_explanation = f"{component.component_name}: Fixed charge = R{component_cost:.2f}"
+
+            if quantity > 0 or component.unit_type == 'fixed':
+                cost_breakdown.append({
+                    "component_name": component.component_name,
+                    "unit_type": component.unit_type,
+                    "rate": float(component.rate),
+                    "quantity": round(quantity, 2),
+                    "amount": round(component_cost, 2),
+                    "explanation": calculation_explanation
+                })
+
+                if calculation_explanation:
+                    calculation_steps.append(calculation_explanation)
+
+                subtotal += component_cost
+
+    # Get hub VAT
+    vat_percentage = 15.0
+    hub = db.query(SolarHub).filter(SolarHub.hub_id == rental.hub_id).first()
+    if hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None:
+        vat_percentage = hub.vat_percentage
+
+    vat_amount = subtotal * (vat_percentage / 100)
+    total = subtotal + vat_amount
+
+    # Get user account balance
+    user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+    account_balance = user_account.balance if user_account else 0
+
+    # Calculate amounts
+    deposit_paid = rental.deposit_amount or 0
+    amount_still_owed = max(0, total - deposit_paid)
+    amount_after_credit = max(0, amount_still_owed - account_balance)
+
+    # Ensure end_date is timezone-aware for comparison
+    end_date_aware = rental.end_date
+    if end_date_aware and not end_date_aware.tzinfo:
+        end_date_aware = end_date_aware.replace(tzinfo=timezone.utc)
+
+    return {
+        "rental_id": rental_id,
+        "rental_unique_id": rental_id,  # Use rental_id as the unique identifier for battery rentals
+        "cost_structure": cost_structure_info,  # Details about which cost structure is being used
+        "calculation_steps": calculation_steps,  # Step-by-step breakdown for customer
+        "duration": {
+            "start_date": start_date.isoformat(),
+            "return_date": return_date.isoformat(),
+            "actual_hours": round(actual_hours, 2),
+            "actual_days": round(actual_days, 2),
+            "scheduled_return_date": end_date_aware.isoformat() if end_date_aware else None,
+            "is_late": return_date > end_date_aware if end_date_aware else False
+        },
+        "kwh_usage": {
+            "start_reading": None,
+            "end_reading": kwh_usage,
+            "total_used": kwh_usage
+        },
+        "usage_stats": {
+            "total_recharges": total_recharges,
+            "battery_count": len(items)
+        },
+        "cost_breakdown": cost_breakdown,
+        "subtotal": round(subtotal, 2),
+        "vat_percentage": vat_percentage,
+        "vat_amount": round(vat_amount, 2),
+        "total": round(total, 2),
+        "original_estimate": 0,  # Not tracked for battery rentals
+        "cost_difference": round(total, 2),  # Difference from estimate (0)
+        "payment_status": {
+            "amount_paid_so_far": round(deposit_paid, 2),
+            "amount_still_owed": round(amount_still_owed, 2),
+            "user_account_balance": round(account_balance, 2),
+            "amount_after_credit": round(amount_after_credit, 2),
+            "can_pay_with_credit": account_balance >= amount_still_owed
+        },
+        "subscription": None  # Subscription support not yet implemented for battery rentals
+    }
+
+@app.post("/admin/battery-rentals/{rental_id}/recalculate-cost",
+    tags=["Battery Rentals", "Admin"],
+    summary="Recalculate Cost for Returned Rental (Admin Only)")
+async def recalculate_rental_cost(
+    rental_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Admin endpoint to recalculate and save the final cost for an already-returned rental.
+    Useful for fixing rentals that were returned before cost calculation was working properly.
+    """
+    # Only admins can recalculate costs
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can recalculate costs")
+
+    rental = db.query(BatteryRental).filter(BatteryRental.rental_id == rental_id).first()
+    if not rental:
+        raise HTTPException(status_code=404, detail="Rental not found")
+
+    # Must be a returned rental
+    if rental.status != 'returned' or not rental.actual_return_date:
+        raise HTTPException(status_code=400, detail="Rental must be returned to recalculate cost")
+
+    # Get cost structure
+    if not rental.cost_structure_id:
+        raise HTTPException(status_code=400, detail="Rental has no cost structure")
+
+    cost_structure = db.query(CostStructure).filter(
+        CostStructure.structure_id == rental.cost_structure_id
+    ).first()
+    if not cost_structure:
+        raise HTTPException(status_code=404, detail="Cost structure not found")
+
+    # Calculate actual duration
+    start_date = rental.start_date
+    if isinstance(start_date, str):
+        start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+    elif start_date and not start_date.tzinfo:
+        start_date = start_date.replace(tzinfo=timezone.utc)
+
+    return_date = rental.actual_return_date
+    if isinstance(return_date, str):
+        return_date = datetime.fromisoformat(return_date.replace('Z', '+00:00'))
+    elif return_date and not return_date.tzinfo:
+        return_date = return_date.replace(tzinfo=timezone.utc)
+
+    duration_delta = return_date - start_date
+    actual_hours = duration_delta.total_seconds() / 3600
+    actual_days = duration_delta.total_seconds() / 86400
+    actual_weeks = actual_days / 7
+    actual_months = actual_days / 30
+    actual_years = actual_days / 365
+
+    # Get recharges used
+    total_recharges = rental.recharges_used or 0
+
+    # Calculate costs
+    subtotal = 0
+    components = db.query(CostComponent).filter(
+        CostComponent.structure_id == rental.cost_structure_id
+    ).order_by(CostComponent.sort_order).all()
+
+    for comp in components:
+        component_cost = 0
+
+        if comp.unit_type == 'flat':
+            component_cost = comp.rate
+        elif comp.unit_type == 'per_hour':
+            component_cost = comp.rate * actual_hours
+        elif comp.unit_type == 'per_day':
+            component_cost = comp.rate * actual_days
+        elif comp.unit_type == 'per_week':
+            component_cost = comp.rate * actual_weeks
+        elif comp.unit_type == 'per_month':
+            component_cost = comp.rate * actual_months
+        elif comp.unit_type == 'per_year':
+            component_cost = comp.rate * actual_years
+        elif comp.unit_type == 'per_recharge':
+            component_cost = comp.rate * total_recharges
+
+        subtotal += component_cost
+
+    # Apply VAT
+    user = db.query(User).filter(User.user_id == rental.user_id).first()
+    hub = db.query(SolarHub).filter(SolarHub.hub_id == rental.hub_id).first()
+    vat_percentage = hub.vat_percentage if (hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None) else 0.0
+    vat_amount = subtotal * (vat_percentage / 100)
+    total = subtotal + vat_amount
+
+    # Save to rental
+    rental.final_cost_before_vat = subtotal
+    rental.final_vat = vat_amount
+    rental.final_cost_total = total
+
+    db.commit()
+    db.refresh(rental)
+
+    return {
+        "success": True,
+        "message": "Cost recalculated successfully",
+        "rental_id": rental_id,
+        "days_rented": round(actual_days, 2),
+        "recharges_used": total_recharges,
+        "subtotal": round(subtotal, 2),
+        "vat": round(vat_amount, 2),
+        "total": round(total, 2),
+        "vat_percentage": vat_percentage
+    }
 
 # ============================================================================
 # NEW PUE RENTAL ENDPOINTS
@@ -5072,6 +6073,77 @@ async def create_pue_rental(
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Error creating PUE rental: {str(e)}")
 
+@app.get("/pue-rentals",
+    tags=["PUE Rentals"],
+    summary="List PUE Rentals")
+async def list_pue_rentals(
+    user_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    hub_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """List PUE rentals with optional filters"""
+    query = db.query(PUERental)
+
+    # Hub-based filtering
+    if current_user.get('role') == UserRole.USER:
+        query = query.join(User, PUERental.user_id == User.user_id).filter(User.hub_id == current_user.get('hub_id'))
+    elif hub_id:
+        query = query.join(User, PUERental.user_id == User.user_id).filter(User.hub_id == hub_id)
+
+    # User filter
+    if user_id:
+        query = query.filter(PUERental.user_id == user_id)
+
+    # Status filter (PUERental uses is_active, not status)
+    if status:
+        if status == 'active':
+            query = query.filter(PUERental.is_active == True)
+        elif status == 'returned':
+            query = query.filter(PUERental.is_active == False)
+        # 'overdue' status not directly supported in PUERental model
+
+    rentals = query.order_by(PUERental.timestamp_taken.desc()).all()
+
+    result = []
+    for rental in rentals:
+        user = db.query(User).filter(User.user_id == rental.user_id).first()
+        pue = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == rental.pue_id).first()
+
+        # Get pay-to-own progress if applicable
+        pay_to_own_progress = None
+        if rental.is_pay_to_own:
+            ledger = db.query(PUEPayToOwnLedger).filter(
+                PUEPayToOwnLedger.pue_rental_id == rental.pue_rental_id
+            ).first()
+            if ledger:
+                pay_to_own_progress = {
+                    "total_price": float(ledger.total_price),
+                    "amount_paid": float(ledger.amount_paid),
+                    "remaining": float(ledger.total_price - ledger.amount_paid),
+                    "ownership_transferred": ledger.ownership_transferred
+                }
+
+        result.append({
+            "pue_rental_id": rental.pue_rental_id,
+            "user_id": rental.user_id,
+            "user_name": user.name if user else None,
+            "pue_id": rental.pue_id,
+            "pue_name": pue.name if pue else None,
+            "hub_id": rental.hub_id,
+            "cost_structure_id": rental.cost_structure_id,
+            "timestamp_taken": rental.timestamp_taken.isoformat(),
+            "timestamp_returned": rental.timestamp_returned.isoformat() if rental.timestamp_returned else None,
+            "is_pay_to_own": rental.is_pay_to_own,
+            "pay_to_own_price": float(rental.pay_to_own_price) if rental.pay_to_own_price else None,
+            "pay_to_own_paid_amount": float(rental.pay_to_own_paid_amount) if rental.pay_to_own_paid_amount else 0.0,
+            "status": rental.status,
+            "pay_to_own_progress": pay_to_own_progress
+        })
+
+    return result
+
 @app.get("/pue-rentals/{rental_id}",
     tags=["PUE Rentals"],
     summary="Get PUE Rental Details")
@@ -5141,6 +6213,25 @@ async def record_pue_payment(
 
         payment_date = payment.payment_date or datetime.now(timezone.utc)
 
+        # Get or create user account for credit handling
+        user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+        if not user_account:
+            user_account = UserAccount(user_id=rental.user_id, balance=0)
+            db.add(user_account)
+            db.flush()
+
+        # Check credit balance if applying credit
+        credit_to_apply = payment.credit_applied or 0
+        if credit_to_apply > 0:
+            if user_account.balance < credit_to_apply:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient account credit. Available: {user_account.balance}, Requested: {credit_to_apply}"
+                )
+
+        # Total payment is cash + credit
+        total_payment = payment.payment_amount + credit_to_apply
+
         # If pay-to-own, update ledger
         if rental.is_pay_to_own:
             ledger = db.query(PUEPayToOwnLedger).filter(
@@ -5154,14 +6245,18 @@ async def record_pue_payment(
             transaction = PUEPayToOwnTransaction(
                 ledger_id=ledger.ledger_id,
                 payment_date=payment_date,
-                payment_amount=payment.payment_amount,
+                payment_amount=total_payment,
                 payment_type=payment.payment_type,
                 notes=payment.notes
             )
             db.add(transaction)
 
+            # Deduct credit from user account if applicable
+            if credit_to_apply > 0:
+                user_account.balance -= credit_to_apply
+
             # Update ledger
-            ledger.amount_paid = (ledger.amount_paid or 0) + payment.payment_amount
+            ledger.amount_paid = (ledger.amount_paid or 0) + total_payment
             ledger.remaining_balance = ledger.total_price - ledger.amount_paid
 
             # Check if fully paid
@@ -5177,10 +6272,14 @@ async def record_pue_payment(
                     pue.owner_user_id = rental.user_id
         else:
             # Regular rental payment
-            rental.pay_to_own_paid_amount = (rental.pay_to_own_paid_amount or 0) + payment.payment_amount
+            rental.pay_to_own_paid_amount = (rental.pay_to_own_paid_amount or 0) + total_payment
+
+            # Deduct credit from user account if applicable
+            if credit_to_apply > 0:
+                user_account.balance -= credit_to_apply
 
         # Update rental
-        rental.pay_to_own_paid_amount = (rental.pay_to_own_paid_amount or 0) + payment.payment_amount
+        rental.pay_to_own_paid_amount = (rental.pay_to_own_paid_amount or 0) + total_payment
 
         db.commit()
 
@@ -5188,6 +6287,8 @@ async def record_pue_payment(
             "message": "Payment recorded successfully",
             "pue_rental_id": rental_id,
             "payment_amount": float(payment.payment_amount),
+            "credit_applied": float(credit_to_apply) if credit_to_apply > 0 else 0,
+            "total_payment": float(total_payment),
             "total_paid": float(rental.pay_to_own_paid_amount),
             "payment_date": payment_date.isoformat()
         }
@@ -6682,18 +7783,16 @@ async def get_pricing_configs(
 
     configs = query.all()
 
-    return {
-        "pricing_configs": [{
-            "pricing_id": c.pricing_id,
-            "item_type": c.item_type,
-            "item_reference": c.item_reference,
-            "unit_type": c.unit_type,
-            "price": float(c.price) if c.price else 0,
-            "hub_id": c.hub_id,
-            "is_active": c.is_active,
-            "created_at": c.created_at
-        } for c in configs]
-    }
+    return [{
+        "pricing_id": c.pricing_id,
+        "item_type": c.item_type,
+        "item_reference": c.item_reference,
+        "unit_type": c.unit_type,
+        "price": float(c.price) if c.price else 0,
+        "hub_id": c.hub_id,
+        "is_active": c.is_active,
+        "created_at": c.created_at
+    } for c in configs]
 
 @app.post("/settings/pricing", tags=["Settings"])
 async def create_pricing_config(
@@ -6975,6 +8074,7 @@ async def get_cost_structures(
             "item_type": structure.item_type,
             "item_reference": structure.item_reference,
             "is_active": structure.is_active,
+            "count_initial_checkout_as_recharge": structure.count_initial_checkout_as_recharge,
             "created_at": structure.created_at,
             "updated_at": structure.updated_at,
             "components": [{
@@ -6983,7 +8083,10 @@ async def get_cost_structures(
                 "unit_type": comp.unit_type,
                 "rate": float(comp.rate),
                 "is_calculated_on_return": comp.is_calculated_on_return,
-                "sort_order": comp.sort_order
+                "sort_order": comp.sort_order,
+                "late_fee_action": comp.late_fee_action,
+                "late_fee_rate": float(comp.late_fee_rate) if comp.late_fee_rate is not None else None,
+                "late_fee_grace_days": comp.late_fee_grace_days
             } for comp in components],
             "duration_options": [{
                 "option_id": opt.option_id,
@@ -6993,7 +8096,7 @@ async def get_cost_structures(
                 "default_value": opt.default_value,
                 "min_value": opt.min_value,
                 "max_value": opt.max_value,
-                "dropdown_options": opt.dropdown_options,
+                "dropdown_options": json.loads(opt.dropdown_options) if opt.dropdown_options else None,
                 "sort_order": opt.sort_order
             } for opt in duration_opts]
         })
@@ -7009,6 +8112,7 @@ async def create_cost_structure(
     item_reference: str = Query(...),
     components: str = Query(...),  # JSON string of components array
     duration_options: Optional[str] = Query(None),  # JSON string of duration options array
+    count_initial_checkout_as_recharge: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -7063,6 +8167,7 @@ async def create_cost_structure(
         description=description,
         item_type=item_type,
         item_reference=item_reference,
+        count_initial_checkout_as_recharge=count_initial_checkout_as_recharge,
         is_active=True
     )
     db.add(structure)
@@ -7076,7 +8181,10 @@ async def create_cost_structure(
             unit_type=comp_data.get('unit_type'),
             rate=float(comp_data.get('rate', 0)),
             is_calculated_on_return=comp_data.get('is_calculated_on_return', False),
-            sort_order=comp_data.get('sort_order', idx)
+            sort_order=comp_data.get('sort_order', idx),
+            late_fee_action=comp_data.get('late_fee_action', 'continue'),
+            late_fee_rate=comp_data.get('late_fee_rate'),
+            late_fee_grace_days=comp_data.get('late_fee_grace_days', 0)
         )
         db.add(component)
 
@@ -7115,6 +8223,7 @@ async def create_cost_structure(
         "item_type": structure.item_type,
         "item_reference": structure.item_reference,
         "is_active": structure.is_active,
+        "count_initial_checkout_as_recharge": structure.count_initial_checkout_as_recharge,
         "created_at": structure.created_at,
         "updated_at": structure.updated_at,
         "components": [{
@@ -7123,7 +8232,10 @@ async def create_cost_structure(
             "unit_type": comp.unit_type,
             "rate": float(comp.rate),
             "is_calculated_on_return": comp.is_calculated_on_return,
-            "sort_order": comp.sort_order
+            "sort_order": comp.sort_order,
+            "late_fee_action": comp.late_fee_action,
+            "late_fee_rate": float(comp.late_fee_rate) if comp.late_fee_rate is not None else None,
+            "late_fee_grace_days": comp.late_fee_grace_days
         } for comp in components],
         "duration_options": [{
             "option_id": opt.option_id,
@@ -7146,6 +8258,7 @@ async def update_cost_structure(
     is_active: Optional[bool] = Query(None),
     components: Optional[str] = Query(None),  # JSON string of components array
     duration_options: Optional[str] = Query(None),  # JSON string of duration options array
+    count_initial_checkout_as_recharge: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -7165,6 +8278,8 @@ async def update_cost_structure(
         structure.description = description
     if is_active is not None:
         structure.is_active = is_active
+    if count_initial_checkout_as_recharge is not None:
+        structure.count_initial_checkout_as_recharge = count_initial_checkout_as_recharge
 
     # Update components if provided
     if components is not None:
@@ -7185,7 +8300,10 @@ async def update_cost_structure(
                 unit_type=comp_data.get('unit_type'),
                 rate=float(comp_data.get('rate', 0)),
                 is_calculated_on_return=comp_data.get('is_calculated_on_return', False),
-                sort_order=comp_data.get('sort_order', idx)
+                sort_order=comp_data.get('sort_order', idx),
+                late_fee_action=comp_data.get('late_fee_action', 'continue'),
+                late_fee_rate=comp_data.get('late_fee_rate'),
+                late_fee_grace_days=comp_data.get('late_fee_grace_days', 0)
             )
             db.add(component)
 
@@ -7237,6 +8355,7 @@ async def update_cost_structure(
         "item_type": structure.item_type,
         "item_reference": structure.item_reference,
         "is_active": structure.is_active,
+        "count_initial_checkout_as_recharge": structure.count_initial_checkout_as_recharge,
         "created_at": structure.created_at,
         "updated_at": structure.updated_at,
         "components": [{
@@ -7245,7 +8364,10 @@ async def update_cost_structure(
             "unit_type": comp.unit_type,
             "rate": float(comp.rate),
             "is_calculated_on_return": comp.is_calculated_on_return,
-            "sort_order": comp.sort_order
+            "sort_order": comp.sort_order,
+            "late_fee_action": comp.late_fee_action,
+            "late_fee_rate": float(comp.late_fee_rate) if comp.late_fee_rate is not None else None,
+            "late_fee_grace_days": comp.late_fee_grace_days
         } for comp in components_list],
         "duration_options": [{
             "option_id": opt.option_id,
@@ -7377,9 +8499,13 @@ async def estimate_rental_cost(
             amount = quantity * comp.rate
 
         elif comp.unit_type == 'per_recharge':
-            # Estimate based on expected recharges (will be 0 in estimate, calculated on return)
-            quantity = 0
-            amount = 0
+            # If cost structure counts initial checkout as recharge, start with 1
+            if structure.count_initial_checkout_as_recharge:
+                quantity = 1
+                amount = quantity * comp.rate
+            else:
+                quantity = 0
+                amount = 0
 
         elif comp.unit_type == 'one_time':
             # One-time fee charged once regardless of duration
@@ -8273,6 +9399,174 @@ async def get_user_account_summary(
         raise HTTPException(status_code=404, detail=summary["error"])
 
     return summary
+
+@app.post("/accounts/user/{user_id}/payment", tags=["Accounts"])
+async def record_payment(
+    user_id: int,
+    amount: float = Query(..., description="Payment amount"),
+    payment_type: str = Query(..., description="Payment method: cash, mobile_money, bank_transfer, card"),
+    description: Optional[str] = Query(None, description="Optional payment notes"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Record a payment from a user (reduces their debt).
+    Tracks who received the payment for audit purposes.
+    """
+    if current_user.get('role') not in [UserRole.USER, UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only authorized staff can record payments")
+
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Payment amount must be positive")
+
+    # Get or create user account
+    account = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
+    if not account:
+        account = UserAccount(user_id=user_id, balance=0, total_spent=0, total_owed=0)
+        db.add(account)
+        db.flush()
+
+    # Get user info for audit trail
+    receiver_user = db.query(User).filter(User.user_id == current_user.get('user_id')).first()
+    receiver_name = receiver_user.Name if receiver_user and receiver_user.Name else "Unknown"
+
+    # Store old balance for response
+    old_balance = float(account.balance)
+
+    # Update account balance (payment increases balance, reduces debt)
+    account.balance += amount
+    account.total_owed = max(0, account.total_owed - amount)
+
+    # Build description with receiver info
+    payment_desc = f"{payment_type.replace('_', ' ').title()} payment received by {receiver_name}"
+    if description:
+        payment_desc += f" - {description}"
+
+    # Create transaction record
+    transaction = AccountTransaction(
+        account_id=account.account_id,
+        rental_id=None,
+        transaction_type='debit',  # Payment reduces debt
+        amount=amount,
+        balance_after=account.balance,
+        description=payment_desc,
+        payment_type=payment_type,
+        created_by=current_user.get('user_id')
+    )
+    db.add(transaction)
+    db.flush()  # Flush to get transaction_id before creating ledger entries
+
+    # Create double-entry ledger entries
+    try:
+        from api.app.utils.accounting import create_ledger_entries
+        ledger_entries = create_ledger_entries(
+            db=db,
+            transaction_id=transaction.transaction_id,
+            transaction_type='payment',
+            amount=amount,
+            description=payment_desc
+        )
+    except Exception as e:
+        # Log error but don't fail transaction
+        print(f"Warning: Failed to create ledger entries: {e}")
+
+    db.commit()
+    db.refresh(account)
+
+    return {
+        "success": True,
+        "message": f"Payment of {amount} recorded successfully",
+        "transaction_id": transaction.transaction_id,
+        "old_balance": old_balance,
+        "new_balance": float(account.balance),
+        "amount_paid": amount,
+        "payment_type": payment_type,
+        "received_by": receiver_name,
+        "timestamp": transaction.created_at.isoformat() if transaction.created_at else None
+    }
+
+@app.post("/accounts/user/{user_id}/manual-adjustment", tags=["Accounts"])
+async def create_manual_adjustment(
+    user_id: int,
+    amount: float = Query(..., description="Adjustment amount (positive increases balance, negative decreases)"),
+    reason: str = Query(..., description="Reason for manual adjustment"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create a manual journal entry to adjust a user's balance.
+    Logs the adjustment with the administrator who made it.
+    """
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Only admins can make manual adjustments")
+
+    if amount == 0:
+        raise HTTPException(status_code=400, detail="Adjustment amount cannot be zero")
+
+    # Get or create user account
+    account = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
+    if not account:
+        account = UserAccount(user_id=user_id, balance=0, total_spent=0, total_owed=0)
+        db.add(account)
+        db.flush()
+
+    # Get admin user info for audit trail
+    admin_user = db.query(User).filter(User.user_id == current_user.get('user_id')).first()
+    admin_name = admin_user.Name if admin_user and admin_user.Name else "Unknown Admin"
+
+    # Store old balance
+    old_balance = float(account.balance)
+
+    # Apply adjustment
+    account.balance += amount
+
+    # Build description
+    adjustment_type = "Credit" if amount > 0 else "Debit"
+    description = f"Manual {adjustment_type} Adjustment by {admin_name}: {reason}"
+
+    # Create transaction record
+    transaction = AccountTransaction(
+        account_id=account.account_id,
+        rental_id=None,
+        transaction_type='manual_adjustment',
+        amount=abs(amount),
+        balance_after=account.balance,
+        description=description,
+        payment_type='manual_journal_entry',
+        created_by=current_user.get('user_id')
+    )
+    db.add(transaction)
+    db.flush()
+
+    # Create double-entry ledger entries
+    try:
+        from api.app.utils.accounting import create_ledger_entries
+        ledger_entries = create_ledger_entries(
+            db=db,
+            transaction_id=transaction.transaction_id,
+            transaction_type='manual_adjustment',
+            amount=abs(amount),
+            description=description
+        )
+    except Exception as e:
+        # Log error but don't fail transaction
+        print(f"Warning: Failed to create ledger entries: {e}")
+
+    db.commit()
+    db.refresh(account)
+
+    return {
+        "success": True,
+        "message": f"Manual adjustment of {amount} applied successfully",
+        "transaction_id": transaction.transaction_id,
+        "old_balance": old_balance,
+        "new_balance": float(account.balance),
+        "adjustment_amount": amount,
+        "adjustment_type": adjustment_type,
+        "reason": reason,
+        "created_by": admin_name,
+        "timestamp": transaction.created_at.isoformat() if transaction.created_at else None
+    }
 
 @app.get("/accounts/financial-report", tags=["Accounts"])
 async def get_financial_report(

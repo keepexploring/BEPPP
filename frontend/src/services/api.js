@@ -149,10 +149,16 @@ export const batteryRentalsAPI = {
   create: (data) => api.post('/battery-rentals', data),
   return: (rentalId, data) =>
     api.post(`/battery-rentals/${rentalId}/return`, data),
+  returnBattery: (rentalId, data) =>
+    api.post(`/battery-rentals/${rentalId}/return`, data),
   addBattery: (rentalId, batteryId) =>
     api.post(`/battery-rentals/${rentalId}/add-battery`, { battery_id: batteryId }),
   recordRecharge: (rentalId, data) =>
-    api.post(`/battery-rentals/${rentalId}/recharge`, data)
+    api.post(`/battery-rentals/${rentalId}/recharge`, data),
+  calculateReturnCost: (rentalId, params) =>
+    api.get(`/battery-rentals/${rentalId}/calculate-return-cost`, { params }),
+  recordPayment: (rentalId, data) =>
+    api.post(`/battery-rentals/${rentalId}/payment`, data)
 }
 
 // PUE Rentals
@@ -309,6 +315,10 @@ export const accountsAPI = {
     api.get(`/accounts/user/${userId}`),
   createTransaction: (userId, data) =>
     api.post(`/accounts/user/${userId}/transaction`, null, { params: data }),
+  recordPayment: (userId, data) =>
+    api.post(`/accounts/user/${userId}/payment`, null, { params: data }),
+  createManualAdjustment: (userId, data) =>
+    api.post(`/accounts/user/${userId}/manual-adjustment`, null, { params: data }),
   getUserTransactions: (userId, params) =>
     api.get(`/accounts/user/${userId}/transactions`, { params }),
 

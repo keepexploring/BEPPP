@@ -480,13 +480,31 @@
 
     <!-- Add/Edit Cost Structure Dialog -->
     <q-dialog v-model="showAddStructureDialog" persistent>
-      <q-card style="min-width: 700px; max-width: 900px">
+      <q-card style="min-width: 700px; max-width: 900px; max-height: 90vh">
         <q-card-section>
           <div class="text-h6">{{ editingStructure ? 'Edit' : 'Create' }} Cost Structure</div>
         </q-card-section>
 
-        <q-card-section class="q-gutter-md">
-          <!-- Structure Name -->
+        <!-- Tabs for Basic Setup and Late Fee Configuration -->
+        <q-tabs
+          v-model="structureTab"
+          dense
+          class="text-grey"
+          active-color="primary"
+          indicator-color="primary"
+          align="justify"
+        >
+          <q-tab name="basic" label="Basic Setup" icon="settings" />
+          <q-tab name="latefees" label="Late Fee Configuration" icon="schedule" :disable="newStructure.components.length === 0" />
+        </q-tabs>
+
+        <q-separator />
+
+        <q-tab-panels v-model="structureTab" animated style="max-height: 60vh; overflow-y: auto">
+          <!-- Basic Setup Tab -->
+          <q-tab-panel name="basic">
+            <div class="q-gutter-md">
+              <!-- Structure Name -->
           <q-input
             v-model="newStructure.name"
             label="Structure Name"
@@ -649,16 +667,7 @@
           <!-- Component List -->
           <div v-for="(component, index) in newStructure.components" :key="index" class="q-pa-md bg-grey-1 rounded-borders q-mb-sm">
             <div class="row q-gutter-md items-start">
-              <div class="col-3">
-                <q-input
-                  v-model="component.component_name"
-                  label="Component Name"
-                  dense
-                  outlined
-                  hint="e.g., 'Daily Rate'"
-                />
-              </div>
-
+              <!-- Unit Type First -->
               <div class="col-2">
                 <q-select
                   v-model="component.unit_type"
@@ -680,6 +689,18 @@
                   label="Unit Type"
                   dense
                   outlined
+                  @update:model-value="onUnitTypeChange(component)"
+                />
+              </div>
+
+              <!-- Component Name Second (auto-populated but editable) -->
+              <div class="col-3">
+                <q-input
+                  v-model="component.component_name"
+                  label="Component Name"
+                  dense
+                  outlined
+                  hint="Auto-filled, but editable"
                 />
               </div>
 
@@ -725,6 +746,24 @@
             color="primary"
             @click="addComponent"
           />
+
+          <!-- Recharge Settings (only shown if per_recharge component exists) -->
+          <template v-if="hasPerRechargeComponent">
+            <q-separator class="q-my-md" />
+            <div class="text-subtitle2 q-mt-md">Recharge Settings</div>
+            <div class="text-caption text-grey-7 q-mb-sm">
+              Configure how initial checkout is counted for recharge-based pricing
+            </div>
+            <q-checkbox
+              v-model="newStructure.count_initial_checkout_as_recharge"
+              label="Count initial checkout as first recharge"
+              dense
+            >
+              <q-tooltip>
+                When enabled, rentals start with recharges_used=1. Useful when you want to charge for the initial battery checkout as the first recharge.
+              </q-tooltip>
+            </q-checkbox>
+          </template>
 
           <!-- Duration Options Section -->
           <q-separator class="q-my-md" />
@@ -892,7 +931,108 @@
             color="primary"
             @click="addDurationOption"
           />
-        </q-card-section>
+            </div>
+          </q-tab-panel>
+
+          <!-- Late Fee Configuration Tab -->
+          <q-tab-panel name="latefees">
+            <div class="text-caption text-grey-7 q-mb-md">
+              Configure what happens to each cost component when a rental becomes overdue. You can set grace periods and penalty fees per component.
+            </div>
+
+            <div v-if="newStructure.components.length === 0" class="text-center q-pa-lg text-grey-7">
+              <q-icon name="info" size="lg" class="q-mb-sm" />
+              <div>No components added yet. Add components in the Basic Setup tab first.</div>
+            </div>
+
+            <!-- Late Fee Configuration for Each Component -->
+            <div v-for="(component, index) in newStructure.components" :key="'latefee-' + index" class="q-mb-md">
+              <q-card flat bordered>
+                <q-card-section class="bg-blue-grey-1">
+                  <div class="row items-center">
+                    <q-icon name="attach_money" class="q-mr-sm" />
+                    <div class="text-weight-medium">{{ component.component_name }}</div>
+                    <q-chip dense size="sm" class="q-ml-sm">{{ component.unit_type }}</q-chip>
+                  </div>
+                </q-card-section>
+
+                <q-card-section>
+                  <div class="q-gutter-md">
+                    <!-- Late Fee Action -->
+                    <q-select
+                      v-model="component.late_fee_action"
+                      :options="[
+                        {label: 'Continue Billing (Default)', value: 'continue', description: 'Keep billing this component after due date'},
+                        {label: 'Stop Billing', value: 'stop', description: 'Stop billing this component after due date (e.g., for per_kwh)'},
+                        {label: 'Add Daily Fine', value: 'daily_fine', description: 'Add a daily penalty fee after grace period'},
+                        {label: 'Add Weekly Fine', value: 'weekly_fine', description: 'Add a weekly penalty fee after grace period'}
+                      ]"
+                      option-label="label"
+                      option-value="value"
+                      emit-value
+                      map-options
+                      label="Late Fee Action"
+                      outlined
+                      dense
+                    >
+                      <template v-slot:option="scope">
+                        <q-item v-bind="scope.itemProps">
+                          <q-item-section>
+                            <q-item-label>{{ scope.opt.label }}</q-item-label>
+                            <q-item-label caption>{{ scope.opt.description }}</q-item-label>
+                          </q-item-section>
+                        </q-item>
+                      </template>
+                    </q-select>
+
+                    <!-- Grace Period -->
+                    <q-input
+                      v-model.number="component.late_fee_grace_days"
+                      type="number"
+                      label="Grace Period (Days)"
+                      outlined
+                      dense
+                      min="0"
+                      hint="Number of days after due date before late fees apply"
+                    />
+
+                    <!-- Fine Rate (only show for daily_fine and weekly_fine) -->
+                    <q-input
+                      v-if="component.late_fee_action === 'daily_fine' || component.late_fee_action === 'weekly_fine'"
+                      v-model.number="component.late_fee_rate"
+                      type="number"
+                      :label="component.late_fee_action === 'daily_fine' ? 'Fine per Day' : 'Fine per Week'"
+                      outlined
+                      dense
+                      :prefix="currentCurrencySymbol"
+                      step="0.01"
+                      hint="Amount to charge for each late period"
+                    />
+
+                    <!-- Example Calculation -->
+                    <q-banner dense class="bg-amber-1 text-grey-8" v-if="component.late_fee_action !== 'continue'">
+                      <template v-slot:avatar>
+                        <q-icon name="info" color="amber-8" />
+                      </template>
+                      <div class="text-caption">
+                        <strong>Example:</strong>
+                        <span v-if="component.late_fee_action === 'stop'">
+                          After {{ component.late_fee_grace_days }} days past due date, "{{ component.component_name }}" will stop being charged.
+                        </span>
+                        <span v-else-if="component.late_fee_action === 'daily_fine'">
+                          After {{ component.late_fee_grace_days }} days past due date, a fine of {{ currentCurrencySymbol }}{{ component.late_fee_rate || 0 }}/day will be added.
+                        </span>
+                        <span v-else-if="component.late_fee_action === 'weekly_fine'">
+                          After {{ component.late_fee_grace_days }} days past due date, a fine of {{ currentCurrencySymbol }}{{ component.late_fee_rate || 0 }}/week will be added.
+                        </span>
+                      </div>
+                    </q-banner>
+                  </div>
+                </q-card-section>
+              </q-card>
+            </div>
+          </q-tab-panel>
+        </q-tab-panels>
 
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup @click="cancelStructureEdit" />
@@ -1546,6 +1686,7 @@ const costStructures = ref([])
 const costStructureSearch = ref('')
 const subscriptionSearch = ref('')
 const showAddStructureDialog = ref(false)
+const structureTab = ref('basic')  // Tab state for cost structure dialog
 const editingStructure = ref(null)
 const newStructure = ref({
   name: '',
@@ -1553,7 +1694,8 @@ const newStructure = ref({
   item_type: 'battery_capacity',
   item_reference: '',
   components: [],
-  duration_options: []
+  duration_options: [],
+  count_initial_checkout_as_recharge: false
 })
 
 const structureColumns = [
@@ -1605,6 +1747,11 @@ const filteredCostStructures = computed(() => {
 
     return false
   })
+})
+
+// Check if the current structure has any per_recharge components
+const hasPerRechargeComponent = computed(() => {
+  return newStructure.value.components.some(comp => comp.unit_type === 'per_recharge')
 })
 
 // Filtered subscription packages based on search
@@ -2528,13 +2675,18 @@ const loadCostStructures = async () => {
 }
 
 const addComponent = () => {
-  newStructure.value.components.push({
-    component_name: '',
+  const newComponent = {
+    component_name: 'Daily Rate',  // Default name for default unit_type
     unit_type: 'per_day',
     rate: 0,
     is_calculated_on_return: false,
-    sort_order: newStructure.value.components.length
-  })
+    sort_order: newStructure.value.components.length,
+    // Late fee defaults
+    late_fee_action: 'continue',
+    late_fee_rate: null,
+    late_fee_grace_days: 0
+  }
+  newStructure.value.components.push(newComponent)
 }
 
 const removeComponent = (index) => {
@@ -2543,6 +2695,27 @@ const removeComponent = (index) => {
   newStructure.value.components.forEach((comp, idx) => {
     comp.sort_order = idx
   })
+}
+
+const onUnitTypeChange = (component) => {
+  // Auto-populate component name based on unit type, but only if empty or matches a previous unit type name
+  const unitTypeLabels = {
+    'per_day': 'Daily Rate',
+    'per_week': 'Weekly Rate',
+    'per_month': 'Monthly Rate',
+    'per_hour': 'Hourly Rate',
+    'per_kwh': 'kWh Usage',
+    'per_kg': 'Weight Charge',
+    'per_recharge': 'Recharge Fee',
+    'one_time': 'One-Time Fee',
+    'fixed': 'Fixed Fee'
+  }
+
+  // Only auto-populate if the name is empty or matches one of the standard names
+  const standardNames = Object.values(unitTypeLabels)
+  if (!component.component_name || standardNames.includes(component.component_name)) {
+    component.component_name = unitTypeLabels[component.unit_type] || ''
+  }
 }
 
 const addDurationOption = () => {
@@ -2624,7 +2797,8 @@ const saveStructure = async () => {
       item_type: newStructure.value.item_type,
       item_reference: String(newStructure.value.item_reference),
       components: JSON.stringify(newStructure.value.components),
-      duration_options: processedDurationOptions.length > 0 ? JSON.stringify(processedDurationOptions) : undefined
+      duration_options: processedDurationOptions.length > 0 ? JSON.stringify(processedDurationOptions) : undefined,
+      count_initial_checkout_as_recharge: newStructure.value.count_initial_checkout_as_recharge
     }
 
     if (editingStructure.value) {
@@ -2672,7 +2846,8 @@ const editStructure = (structure) => {
     item_type: structure.item_type,
     item_reference: structure.item_reference,
     components: JSON.parse(JSON.stringify(structure.components)), // Deep copy
-    duration_options: durationOptions
+    duration_options: durationOptions,
+    count_initial_checkout_as_recharge: structure.count_initial_checkout_as_recharge || false
   }
   showAddStructureDialog.value = true
 }
@@ -2707,17 +2882,20 @@ const deleteStructure = async (structure) => {
 
 const cancelStructureEdit = () => {
   editingStructure.value = null
+  structureTab.value = 'basic'  // Reset to basic tab
   resetStructureForm()
 }
 
 const resetStructureForm = () => {
+  structureTab.value = 'basic'  // Reset to basic tab
   newStructure.value = {
     name: '',
     description: '',
     item_type: 'battery_capacity',
     item_reference: '',
     components: [],
-    duration_options: []
+    duration_options: [],
+    count_initial_checkout_as_recharge: false
   }
 }
 

@@ -434,6 +434,7 @@ class CostStructure(Base):
     item_type = Column(String(50), nullable=False)  # 'battery_capacity', 'pue_item', 'pue_type'
     item_reference = Column(String(100), nullable=False)  # e.g., "1000" for 1000Wh, or pue_id
     deposit_amount = Column(Float, server_default='0', nullable=False)  # Required deposit for this cost structure
+    count_initial_checkout_as_recharge = Column(Boolean, server_default='false', nullable=False)  # If true, initial checkout counts as first recharge
     is_active = Column(Boolean, server_default='true', nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -456,6 +457,11 @@ class CostComponent(Base):
     is_calculated_on_return = Column(Boolean, default=False)  # True for kWh (calculated on actual usage)
     sort_order = Column(Integer, server_default='0', nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Late fee configuration - What happens to this component when rental is overdue
+    late_fee_action = Column(String(50), server_default='continue', nullable=False)  # 'continue', 'stop', 'daily_fine', 'weekly_fine'
+    late_fee_rate = Column(Float, nullable=True)  # Rate for fines (only applicable for daily_fine/weekly_fine)
+    late_fee_grace_days = Column(Integer, server_default='0', nullable=False)  # Grace period before late fees apply to this component
 
     # Relationships
     structure = relationship("CostStructure", back_populates="components")

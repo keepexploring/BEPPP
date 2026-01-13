@@ -96,7 +96,7 @@
               :columns="debtColumns"
               row-key="user_id"
               :loading="loading"
-              :pagination="{ rowsPerPage: 10 }"
+              :pagination="{ rowsPerPage: hubSettingsStore.currentTableRowsPerPage }"
             >
               <template v-slot:body-cell-balance="props">
                 <q-td :props="props">
@@ -320,10 +320,12 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { accountsAPI, hubsAPI, settingsAPI } from 'src/services/api'
 import { useQuasar } from 'quasar'
 import { useAuthStore } from 'stores/auth'
+import { useHubSettingsStore } from 'stores/hubSettings'
 import { useRouter } from 'vue-router'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
+const hubSettingsStore = useHubSettingsStore()
 const router = useRouter()
 const hubId = authStore.user?.hub_id
 
