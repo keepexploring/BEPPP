@@ -331,11 +331,14 @@ const saveBattery = async () => {
         position: 'top'
       })
     } else {
-      await batteriesAPI.create(formData.value)
+      const result = await batteriesAPI.create(formData.value)
       $q.notify({
         type: 'positive',
-        message: 'Battery created successfully',
-        position: 'top'
+        message: result.short_id
+          ? `Battery created successfully! ID: ${result.short_id}`
+          : 'Battery created successfully',
+        position: 'top',
+        timeout: 5000
       })
     }
     showCreateDialog.value = false

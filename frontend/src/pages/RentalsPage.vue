@@ -1047,27 +1047,6 @@
               </template>
             </q-select>
 
-            <!-- Quantity Selection -->
-            <q-input
-              v-model.number="pueFormData.quantity"
-              type="number"
-              label="Quantity *"
-              outlined
-              min="1"
-              :max="isPUEPayToOwn ? 1 : undefined"
-              :readonly="isPUEPayToOwn"
-              :rules="[
-                val => val > 0 || 'Quantity must be greater than 0',
-                val => !isPUEPayToOwn || val === 1 || 'Pay-to-own rentals must have quantity of 1'
-              ]"
-              :hint="isPUEPayToOwn ? 'Pay-to-own rentals can only be for a single item' : ''"
-              class="q-mb-md"
-            >
-              <template v-slot:prepend>
-                <q-icon name="numbers" />
-              </template>
-            </q-input>
-
             <q-separator class="q-my-md" />
 
             <!-- Cost Structure Selection -->
@@ -1107,6 +1086,18 @@
                 This rental will allow the customer to gradually own this item through payments.
               </div>
             </q-banner>
+
+            <!-- Recurring Payment Option -->
+            <q-checkbox
+              v-model="pueFormData.has_recurring_payment"
+              label="Set up recurring payment"
+              dense
+              class="q-mb-md"
+            >
+              <q-tooltip>
+                Enable this if the customer will make regular payments according to the cost structure (e.g., monthly). This is useful for pay-to-own items or long-term rentals.
+              </q-tooltip>
+            </q-checkbox>
 
             <!-- Duration Selection (hidden for pay-to-own) -->
             <q-select
@@ -1839,7 +1830,8 @@ const pueFormData = ref({
   payment_method: null,
   deposit_amount: 0,
   amount_paid: 0,
-  credit_used: 0
+  credit_used: 0,
+  has_recurring_payment: false
 })
 
 const pueUserAccount = ref(null)
@@ -3668,7 +3660,8 @@ const resetPUEForm = () => {
     payment_method: null,
     deposit_amount: 0,
     amount_paid: 0,
-    credit_used: 0
+    credit_used: 0,
+    has_recurring_payment: false
   }
   pueUserAccount.value = null
   pueCostEstimate.value = null
@@ -3960,6 +3953,24 @@ const savePUERental = async () => {
       }
     }
 
+    // Determine recurring payment frequency from cost structure
+    let recurringFrequency = null
+    if (pueFormData.value.has_recurring_payment && selectedPUECostStructureObject.value) {
+      const components = selectedPUECostStructureObject.value.components || []
+      // Find the primary recurring component (per_month, per_week, per_day)
+      const recurringComponent = components.find(c =>
+        ['per_month', 'per_week', 'per_day'].includes(c.unit_type)
+      )
+      if (recurringComponent) {
+        const frequencyMap = {
+          'per_month': 'monthly',
+          'per_week': 'weekly',
+          'per_day': 'daily'
+        }
+        recurringFrequency = frequencyMap[recurringComponent.unit_type]
+      }
+    }
+
     // Prepare rental data
     const rentalData = {
       hub_id: pueFormData.value.hub_id,
@@ -3976,7 +3987,9 @@ const savePUERental = async () => {
       amount_paid: pueFormData.value.amount_paid || 0,
       credit_applied: pueFormData.value.credit_used || 0,
       is_pay_to_own: isPUEPayToOwn.value,
-      pay_to_own_price: isPUEPayToOwn.value ? selectedPUECostStructureObject.value?.item_total_cost : null
+      pay_to_own_price: isPUEPayToOwn.value ? selectedPUECostStructureObject.value?.item_total_cost : null,
+      has_recurring_payment: pueFormData.value.has_recurring_payment,
+      recurring_payment_frequency: recurringFrequency
     }
 
     // Create the PUE rental

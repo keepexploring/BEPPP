@@ -598,11 +598,14 @@ const savePUE = async () => {
         position: 'top'
       })
     } else {
-      await pueAPI.create(formData.value)
+      const result = await pueAPI.create(formData.value)
       $q.notify({
         type: 'positive',
-        message: 'Equipment created successfully',
-        position: 'top'
+        message: result.short_id
+          ? `Equipment created successfully! ID: ${result.short_id}`
+          : 'Equipment created successfully',
+        position: 'top',
+        timeout: 5000
       })
     }
     showCreateDialog.value = false

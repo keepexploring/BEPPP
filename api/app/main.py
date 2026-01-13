@@ -3137,7 +3137,7 @@ async def create_pue_item(
     
     try:
         pue_data = pue.model_dump()
-        
+
         # Validate usage_location against enum values
         if 'usage_location' in pue_data and pue_data['usage_location']:
             # Convert to uppercase to match database enum
@@ -3145,15 +3145,20 @@ async def create_pue_item(
                 pue_data['usage_location'] = pue_data['usage_location'].upper()
             elif pue_data['usage_location'].lower() in ["hub_only", "battery_only", "both"]:
                 pue_data['usage_location'] = pue_data['usage_location'].upper()
-            
+
             if pue_data['usage_location'] not in ["HUB_ONLY", "BATTERY_ONLY", "BOTH"]:
                 raise HTTPException(
-                    status_code=400, 
+                    status_code=400,
                     detail="Invalid usage_location. Must be one of: hub_only, battery_only, both"
                 )
-        
+
         db_pue = ProductiveUseEquipment(**pue_data)
         db.add(db_pue)
+        db.flush()  # Flush to get the ID before committing
+
+        # Generate short_id for QR codes
+        db_pue.short_id = f"PUE-{str(db_pue.pue_id).zfill(4)}"
+
         db.commit()
         db.refresh(db_pue)
         return db_pue
@@ -8215,6 +8220,9 @@ async def get_cost_structures(
             "item_reference": structure.item_reference,
             "is_active": structure.is_active,
             "count_initial_checkout_as_recharge": structure.count_initial_checkout_as_recharge,
+            "is_pay_to_own": structure.is_pay_to_own,
+            "item_total_cost": float(structure.item_total_cost) if structure.item_total_cost is not None else None,
+            "allow_multiple_items": structure.allow_multiple_items,
             "created_at": structure.created_at,
             "updated_at": structure.updated_at,
             "components": [{
@@ -8226,7 +8234,10 @@ async def get_cost_structures(
                 "sort_order": comp.sort_order,
                 "late_fee_action": comp.late_fee_action,
                 "late_fee_rate": float(comp.late_fee_rate) if comp.late_fee_rate is not None else None,
-                "late_fee_grace_days": comp.late_fee_grace_days
+                "late_fee_grace_days": comp.late_fee_grace_days,
+                "contributes_to_ownership": comp.contributes_to_ownership,
+                "is_percentage_of_remaining": comp.is_percentage_of_remaining,
+                "percentage_value": float(comp.percentage_value) if comp.percentage_value is not None else None
             } for comp in components],
             "duration_options": [{
                 "option_id": opt.option_id,
@@ -8253,6 +8264,9 @@ async def create_cost_structure(
     components: str = Query(...),  # JSON string of components array
     duration_options: Optional[str] = Query(None),  # JSON string of duration options array
     count_initial_checkout_as_recharge: bool = Query(False),
+    is_pay_to_own: bool = Query(False),
+    item_total_cost: Optional[float] = Query(None),
+    allow_multiple_items: bool = Query(True),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -8308,6 +8322,9 @@ async def create_cost_structure(
         item_type=item_type,
         item_reference=item_reference,
         count_initial_checkout_as_recharge=count_initial_checkout_as_recharge,
+        is_pay_to_own=is_pay_to_own,
+        item_total_cost=item_total_cost,
+        allow_multiple_items=allow_multiple_items,
         is_active=True
     )
     db.add(structure)
@@ -8324,7 +8341,10 @@ async def create_cost_structure(
             sort_order=comp_data.get('sort_order', idx),
             late_fee_action=comp_data.get('late_fee_action', 'continue'),
             late_fee_rate=comp_data.get('late_fee_rate'),
-            late_fee_grace_days=comp_data.get('late_fee_grace_days', 0)
+            late_fee_grace_days=comp_data.get('late_fee_grace_days', 0),
+            contributes_to_ownership=comp_data.get('contributes_to_ownership', True),
+            is_percentage_of_remaining=comp_data.get('is_percentage_of_remaining', False),
+            percentage_value=comp_data.get('percentage_value')
         )
         db.add(component)
 
@@ -8399,6 +8419,9 @@ async def update_cost_structure(
     components: Optional[str] = Query(None),  # JSON string of components array
     duration_options: Optional[str] = Query(None),  # JSON string of duration options array
     count_initial_checkout_as_recharge: Optional[bool] = Query(None),
+    is_pay_to_own: Optional[bool] = Query(None),
+    item_total_cost: Optional[float] = Query(None),
+    allow_multiple_items: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -8420,6 +8443,12 @@ async def update_cost_structure(
         structure.is_active = is_active
     if count_initial_checkout_as_recharge is not None:
         structure.count_initial_checkout_as_recharge = count_initial_checkout_as_recharge
+    if is_pay_to_own is not None:
+        structure.is_pay_to_own = is_pay_to_own
+    if item_total_cost is not None:
+        structure.item_total_cost = item_total_cost
+    if allow_multiple_items is not None:
+        structure.allow_multiple_items = allow_multiple_items
 
     # Update components if provided
     if components is not None:
@@ -8443,7 +8472,10 @@ async def update_cost_structure(
                 sort_order=comp_data.get('sort_order', idx),
                 late_fee_action=comp_data.get('late_fee_action', 'continue'),
                 late_fee_rate=comp_data.get('late_fee_rate'),
-                late_fee_grace_days=comp_data.get('late_fee_grace_days', 0)
+                late_fee_grace_days=comp_data.get('late_fee_grace_days', 0),
+                contributes_to_ownership=comp_data.get('contributes_to_ownership', True),
+                is_percentage_of_remaining=comp_data.get('is_percentage_of_remaining', False),
+                percentage_value=comp_data.get('percentage_value')
             )
             db.add(component)
 

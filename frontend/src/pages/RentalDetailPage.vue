@@ -42,7 +42,13 @@
       <div class="col-12 col-md-6">
         <q-card>
           <q-card-section>
-            <div class="text-h6">Rental Information</div>
+            <div class="text-h6">
+              Rental Information
+              <q-badge v-if="isPayToOwn" color="purple" class="q-ml-sm">
+                <q-icon name="account_balance" size="xs" class="q-mr-xs" />
+                Pay to Own
+              </q-badge>
+            </div>
           </q-card-section>
           <q-separator />
           <q-card-section class="q-gutter-sm">
@@ -96,7 +102,7 @@
               </q-badge>
             </div>
             <div><strong>Rental Date:</strong> {{ formatDate(rentalData?.rental_date) }}</div>
-            <div><strong>Expected Return:</strong> {{ formatDate(rentalData?.expected_return_date) }}</div>
+            <div v-if="!isPayToOwn"><strong>Expected Return:</strong> {{ formatDate(rentalData?.expected_return_date) }}</div>
             <div v-if="rentalData?.actual_return_date">
               <strong>Actual Return:</strong> {{ formatDate(rentalData?.actual_return_date) }}
             </div>
@@ -217,6 +223,125 @@
                 <div class="col-auto">{{ userData.Name || userData.username || `User #${userData.user_id}` }}</div>
               </div>
             </div>
+          </q-card-section>
+        </q-card>
+      </div>
+
+      <!-- Pay-to-Own Ownership Progress -->
+      <div class="col-12" v-if="isPayToOwn">
+        <q-card>
+          <q-card-section class="bg-purple-1">
+            <div class="text-h6">
+              <q-icon name="account_balance" color="purple" class="q-mr-sm" />
+              Ownership Progress
+            </div>
+          </q-card-section>
+          <q-separator />
+          <q-card-section v-if="loadingOwnership" class="flex flex-center q-pa-xl">
+            <q-spinner color="purple" size="40px" />
+          </q-card-section>
+          <q-card-section v-else-if="ownershipStatus">
+            <!-- Progress Bar -->
+            <div class="q-mb-md">
+              <div class="row items-center q-mb-sm">
+                <div class="col text-weight-medium">Ownership Progress</div>
+                <div class="col-auto text-h6 text-purple">
+                  {{ ownershipStatus.ownership_percentage?.toFixed(1) || 0 }}%
+                </div>
+              </div>
+              <q-linear-progress
+                :value="(ownershipStatus.ownership_percentage || 0) / 100"
+                size="20px"
+                color="purple"
+                class="rounded-borders"
+              >
+                <div class="absolute-full flex flex-center">
+                  <q-badge
+                    color="white"
+                    text-color="purple"
+                    :label="`${ownershipStatus.ownership_percentage?.toFixed(1) || 0}% Owned`"
+                  />
+                </div>
+              </q-linear-progress>
+            </div>
+
+            <q-separator class="q-my-md" />
+
+            <!-- Financial Breakdown -->
+            <div class="row q-col-gutter-md">
+              <div class="col-12 col-sm-6 col-md-3">
+                <q-card flat bordered class="bg-blue-1">
+                  <q-card-section class="q-pa-md">
+                    <div class="text-caption text-grey-7">Total Item Cost</div>
+                    <div class="text-h6 text-primary">
+                      {{ currencySymbol }}{{ ownershipStatus.total_item_cost?.toFixed(2) || '0.00' }}
+                    </div>
+                  </q-card-section>
+                </q-card>
+              </div>
+              <div class="col-12 col-sm-6 col-md-3">
+                <q-card flat bordered class="bg-positive-1">
+                  <q-card-section class="q-pa-md">
+                    <div class="text-caption text-grey-7">Paid Towards Ownership</div>
+                    <div class="text-h6 text-positive">
+                      {{ currencySymbol }}{{ ownershipStatus.total_paid_towards_ownership?.toFixed(2) || '0.00' }}
+                    </div>
+                  </q-card-section>
+                </q-card>
+              </div>
+              <div class="col-12 col-sm-6 col-md-3">
+                <q-card flat bordered class="bg-orange-1">
+                  <q-card-section class="q-pa-md">
+                    <div class="text-caption text-grey-7">Rental Fees Paid</div>
+                    <div class="text-h6 text-orange">
+                      {{ currencySymbol }}{{ ownershipStatus.total_rental_fees_paid?.toFixed(2) || '0.00' }}
+                    </div>
+                  </q-card-section>
+                </q-card>
+              </div>
+              <div class="col-12 col-sm-6 col-md-3">
+                <q-card flat bordered class="bg-purple-1">
+                  <q-card-section class="q-pa-md">
+                    <div class="text-caption text-grey-7">Remaining Balance</div>
+                    <div class="text-h6 text-purple">
+                      {{ currencySymbol }}{{ ownershipStatus.remaining_balance?.toFixed(2) || '0.00' }}
+                    </div>
+                  </q-card-section>
+                </q-card>
+              </div>
+            </div>
+
+            <!-- Ownership Status Banner -->
+            <q-banner
+              v-if="ownershipStatus.ownership_percentage >= 100"
+              class="bg-positive text-white q-mt-md"
+              rounded
+            >
+              <template v-slot:avatar>
+                <q-icon name="check_circle" />
+              </template>
+              <div class="text-weight-medium">Ownership Complete!</div>
+              <div class="text-caption">
+                This item is now fully owned by the customer.
+                <span v-if="ownershipStatus.ownership_completion_date">
+                  Completed on {{ formatDate(ownershipStatus.ownership_completion_date) }}
+                </span>
+              </div>
+            </q-banner>
+            <q-banner
+              v-else-if="ownershipStatus.remaining_balance > 0"
+              class="bg-info text-white q-mt-md"
+              rounded
+            >
+              <template v-slot:avatar>
+                <q-icon name="info" />
+              </template>
+              <div class="text-caption">
+                The customer still needs to pay
+                <strong>{{ currencySymbol }}{{ ownershipStatus.remaining_balance?.toFixed(2) }}</strong>
+                to fully own this item.
+              </div>
+            </q-banner>
           </q-card-section>
         </q-card>
       </div>
@@ -543,6 +668,8 @@ const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 const rental = ref(null)
 const loading = ref(true)
 const paymentHistory = ref([])
+const ownershipStatus = ref(null)
+const loadingOwnership = ref(false)
 
 // Computed properties to normalize data structure across rental types
 const rentalData = computed(() => {
@@ -668,6 +795,15 @@ const canCollectPayment = computed(() => {
   return isReturned && hasBalance && hasCost
 })
 
+// Computed property to check if this is a pay-to-own rental
+const isPayToOwn = computed(() => {
+  if (!rental.value) return false
+  if (route.name === 'pue-rental-detail') {
+    return rental.value.is_pay_to_own || false
+  }
+  return false
+})
+
 const showReturnDialog = ref(false)
 const showPaymentDialog = ref(false)
 const paymentAmount = ref(0)
@@ -771,6 +907,11 @@ const loadRentalDetails = async () => {
     }
 
     rental.value = response.data
+
+    // If this is a pay-to-own rental, load ownership status
+    if (response.data.is_pay_to_own) {
+      await loadOwnershipStatus()
+    }
   } catch (error) {
     console.error('Failed to load rental:', error)
     $q.notify({
@@ -780,6 +921,21 @@ const loadRentalDetails = async () => {
     })
   } finally {
     loading.value = false
+  }
+}
+
+const loadOwnershipStatus = async () => {
+  if (!isPayToOwn.value) return
+
+  loadingOwnership.value = true
+  try {
+    const rentalId = route.params.id
+    const response = await api.get(`/pue-rentals/${rentalId}/ownership-status`)
+    ownershipStatus.value = response.data
+  } catch (error) {
+    console.error('Failed to load ownership status:', error)
+  } finally {
+    loadingOwnership.value = false
   }
 }
 

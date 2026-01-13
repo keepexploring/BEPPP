@@ -280,6 +280,93 @@
         </q-card-section>
       </q-card>
 
+      <!-- Pay-to-Own Items -->
+      <q-card v-if="payToOwnItems.length > 0 || payToOwnLoading" class="q-mb-md">
+        <q-card-section>
+          <div class="row items-center q-mb-md">
+            <div class="col">
+              <div class="text-h6">
+                <q-icon name="account_balance" color="purple" class="q-mr-sm" />
+                Pay-to-Own Items
+              </div>
+              <div class="text-caption text-grey-7">Items being purchased through payment plans</div>
+            </div>
+            <div class="col-auto">
+              <q-btn flat label="Refresh" icon="refresh" @click="loadPayToOwnItems" />
+            </div>
+          </div>
+
+          <div v-if="payToOwnLoading" class="row justify-center q-pa-md">
+            <q-spinner color="purple" size="2em" />
+          </div>
+
+          <div v-else-if="payToOwnItems.length === 0" class="text-grey-7 q-pa-md text-center">
+            <q-icon name="account_balance" size="48px" class="q-mb-sm text-grey-5" />
+            <div>No active pay-to-own items</div>
+          </div>
+
+          <q-list v-else bordered separator>
+            <q-item v-for="item in payToOwnItems" :key="item.rental_id" class="q-pa-md">
+              <q-item-section>
+                <q-item-label class="text-weight-medium">
+                  {{ item.pue_name }}
+                  <q-chip dense size="sm" color="purple" text-color="white" class="q-ml-sm">
+                    Pay to Own
+                  </q-chip>
+                </q-item-label>
+                <q-item-label caption class="q-mt-xs">
+                  Rental #{{ item.rental_id }}
+                </q-item-label>
+              </q-item-section>
+
+              <q-item-section>
+                <div class="row items-center q-gutter-sm">
+                  <!-- Circular Progress Indicator -->
+                  <q-circular-progress
+                    :value="item.ownership_percentage"
+                    size="60px"
+                    :thickness="0.15"
+                    color="purple"
+                    track-color="grey-3"
+                    class="q-mr-sm"
+                  >
+                    <div class="text-caption text-center">
+                      <div class="text-weight-bold">{{ item.ownership_percentage?.toFixed(0) }}%</div>
+                      <div class="text-grey-7" style="font-size: 0.6em;">OWNED</div>
+                    </div>
+                  </q-circular-progress>
+
+                  <!-- Financial Details -->
+                  <div>
+                    <div class="text-caption text-grey-7">Total Cost</div>
+                    <div class="text-weight-medium text-primary">
+                      {{ currencySymbol }}{{ item.total_item_cost?.toFixed(2) }}
+                    </div>
+                    <div class="text-caption text-positive q-mt-xs">
+                      Paid: {{ currencySymbol }}{{ item.total_paid_towards_ownership?.toFixed(2) }}
+                    </div>
+                    <div class="text-caption text-purple">
+                      Remaining: {{ currencySymbol }}{{ item.remaining_balance?.toFixed(2) }}
+                    </div>
+                  </div>
+                </div>
+              </q-item-section>
+
+              <q-item-section side>
+                <q-btn
+                  flat
+                  dense
+                  color="primary"
+                  label="View Details"
+                  icon="visibility"
+                  :to="{ name: 'pue-rental-detail', params: { id: item.rental_id } }"
+                />
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-card-section>
+      </q-card>
+
       <!-- Rentals (Tabbed View) -->
       <q-card class="q-mb-md">
         <q-card-section>
@@ -1941,6 +2028,10 @@ const batteryHistoryLoading = ref(false)
 const pueHistory = ref([])
 const pueHistoryLoading = ref(false)
 
+// Pay-to-Own Items
+const payToOwnItems = ref([])
+const payToOwnLoading = ref(false)
+
 // Rental dialogs
 const showReturnDialog = ref(false)
 const showExtendDialog = ref(false)
@@ -2708,6 +2799,19 @@ const loadPueRentals = async () => {
   }
 }
 
+const loadPayToOwnItems = async () => {
+  try {
+    payToOwnLoading.value = true
+    const response = await api.get(`/users/${userId.value}/pay-to-own-items`)
+    payToOwnItems.value = response.data?.items || []
+  } catch (error) {
+    console.error('Failed to load pay-to-own items:', error)
+    payToOwnItems.value = []
+  } finally {
+    payToOwnLoading.value = false
+  }
+}
+
 // Load battery rental history for this user (all statuses)
 const loadBatteryHistory = async () => {
   try {
@@ -2752,7 +2856,8 @@ const refreshAllRentals = async () => {
     loadBatteryRentals(),
     loadPueRentals(),
     loadBatteryHistory(),
-    loadPueHistory()
+    loadPueHistory(),
+    loadPayToOwnItems()
   ])
 }
 

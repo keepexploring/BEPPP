@@ -2926,7 +2926,10 @@ const saveStructure = async () => {
       item_reference: String(newStructure.value.item_reference),
       components: JSON.stringify(newStructure.value.components),
       duration_options: processedDurationOptions.length > 0 ? JSON.stringify(processedDurationOptions) : undefined,
-      count_initial_checkout_as_recharge: newStructure.value.count_initial_checkout_as_recharge
+      count_initial_checkout_as_recharge: newStructure.value.count_initial_checkout_as_recharge,
+      is_pay_to_own: newStructure.value.is_pay_to_own,
+      item_total_cost: newStructure.value.item_total_cost,
+      allow_multiple_items: newStructure.value.allow_multiple_items
     }
 
     if (editingStructure.value) {
@@ -2968,15 +2971,23 @@ const editStructure = (structure) => {
     return parsed
   })
 
+  // Ensure components have pay-to-own defaults
+  const components = (structure.components || []).map(comp => ({
+    ...comp,
+    contributes_to_ownership: comp.contributes_to_ownership !== undefined ? comp.contributes_to_ownership : true,
+    is_percentage_of_remaining: comp.is_percentage_of_remaining !== undefined ? comp.is_percentage_of_remaining : false,
+    percentage_value: comp.percentage_value || null
+  }))
+
   newStructure.value = {
     name: structure.name,
     description: structure.description || '',
     item_type: structure.item_type,
     item_reference: structure.item_reference,
-    components: JSON.parse(JSON.stringify(structure.components)), // Deep copy
+    components: components,
     duration_options: durationOptions,
-    count_initial_checkout_as_recharge: structure.count_initial_checkout_as_recharge || false,
-    is_pay_to_own: structure.is_pay_to_own || false,
+    count_initial_checkout_as_recharge: structure.count_initial_checkout_as_recharge !== undefined ? structure.count_initial_checkout_as_recharge : false,
+    is_pay_to_own: structure.is_pay_to_own !== undefined ? structure.is_pay_to_own : false,
     item_total_cost: structure.item_total_cost || null,
     allow_multiple_items: structure.allow_multiple_items !== undefined ? structure.allow_multiple_items : true
   }

@@ -137,19 +137,20 @@ class BEPPPBattery(Base):
 
 class ProductiveUseEquipment(Base):
     __tablename__ = 'productiveuseequipment'
-    
+
     pue_id = Column(BigInteger, primary_key=True)
     hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id'))
     name = Column(String(255), nullable=False)
     description = Column(Text)
-    
+
     # *** ENHANCED PUE FIELDS ***
     power_rating_watts = Column(Float, nullable=True)  # Power consumption in watts
     usage_location = Column(Enum(PUEUsageLocation), default=PUEUsageLocation.BOTH)  # Where it can be used: hub_only, battery_only, both
     storage_location = Column(String(255), nullable=True)  # Physical storage location
     suggested_cost_per_day = Column(Float, nullable=True)  # Suggested daily rental cost
     pue_type_id = Column(Integer, ForeignKey('pue_types.type_id', ondelete='SET NULL'), nullable=True)  # Optional type classification
-    
+    short_id = Column(String(20), unique=True, index=True, nullable=True)  # QR code ID (e.g., PUE-0001)
+
     # Existing fields
     rental_cost = Column(Float)  # Actual rental cost (can differ from suggested)
     status = Column(String, default="available")
@@ -327,6 +328,12 @@ class PUERental(Base):
     ownership_percentage = Column(Numeric(5, 2), server_default='0.00', nullable=False)  # % of ownership achieved
     pay_to_own_status = Column(String(20), nullable=True)  # 'active', 'completed', 'returned'
     ownership_completion_date = Column(DateTime, nullable=True)  # When 100% ownership achieved
+
+    # Recurring payment tracking
+    has_recurring_payment = Column(Boolean, server_default='false', nullable=False)  # Is this a recurring payment rental
+    recurring_payment_frequency = Column(String(50), nullable=True)  # 'monthly', 'weekly', 'daily'
+    next_payment_due_date = Column(DateTime(timezone=True), nullable=True)  # When next payment is due
+    last_payment_date = Column(DateTime(timezone=True), nullable=True)  # When last payment was made
 
     # Relations
     pue = relationship("ProductiveUseEquipment", back_populates="pue_rentals")

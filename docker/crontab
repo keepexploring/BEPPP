@@ -1,6 +1,10 @@
 # Subscription Billing Cron Job
 # Runs daily at 2:00 AM server time
-0 2 * * * cd /app && python process_subscription_billing.py >> /var/log/cron.log 2>&1
+0 2 * * * cd /app && python scripts/process_subscription_billing.py >> /var/log/cron.log 2>&1
+
+# Recurring PUE Payment Processor
+# Runs daily at 3:00 AM server time
+0 3 * * * cd /app && python scripts/process_recurring_pue_payments.py >> /var/log/cron.log 2>&1
 
 # Keep container alive
 # This prevents the container from exiting after cron starts
