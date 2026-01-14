@@ -59,7 +59,7 @@
                 dense
                 icon="edit"
                 color="warning"
-                @click="editHub(props.row)"
+                @click.stop="editHub(props.row)"
               />
               <q-btn
                 v-if="authStore.isSuperAdmin"

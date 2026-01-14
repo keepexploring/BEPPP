@@ -60,7 +60,7 @@
                 dense
                 icon="edit"
                 color="warning"
-                @click="editUser(props.row)"
+                @click.stop="editUser(props.row)"
               />
               <q-btn
                 v-if="authStore.isSuperAdmin"
@@ -69,7 +69,7 @@
                 dense
                 icon="delete"
                 color="negative"
-                @click="deleteUser(props.row)"
+                @click.stop="deleteUser(props.row)"
               />
               <q-btn
                 flat
@@ -77,7 +77,7 @@
                 dense
                 icon="key"
                 color="info"
-                @click="manageHubAccess(props.row)"
+                @click.stop="manageHubAccess(props.row)"
               >
                 <q-tooltip>Manage Hub Access</q-tooltip>
               </q-btn>
