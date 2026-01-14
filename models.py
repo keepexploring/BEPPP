@@ -319,6 +319,7 @@ class PUERental(Base):
     deposit_amount = Column(Float, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    cost_structure_id = Column(Integer, ForeignKey('cost_structures.structure_id', ondelete='SET NULL'), nullable=True)
 
     # Pay-to-own tracking fields (new design)
     is_pay_to_own = Column(Boolean, server_default='false', nullable=False)
@@ -489,6 +490,10 @@ class CostComponent(Base):
     contributes_to_ownership = Column(Boolean, server_default='true', nullable=False)  # Does payment build equity?
     is_percentage_of_remaining = Column(Boolean, server_default='false', nullable=False)  # Calculate as % of remaining balance
     percentage_value = Column(Numeric(5, 2), nullable=True)  # If percentage-based, what %
+
+    # Recurring payment configuration
+    is_recurring_payment = Column(Boolean, server_default='false', nullable=False)  # Should this component be charged recursively
+    recurring_interval = Column(Numeric(5, 2), nullable=True)  # e.g., 1.0, 2.0, 0.5 (custom frequency multiplier)
 
     # Relationships
     structure = relationship("CostStructure", back_populates="components")

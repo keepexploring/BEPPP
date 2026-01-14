@@ -1,10 +1,10 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="row items-center q-mb-md">
-      <div class="col">
-        <div class="text-h4">Rentals</div>
+    <div class="row items-center q-mb-md q-col-gutter-sm">
+      <div class="col-12 col-sm-auto">
+        <div class="text-h5">Rentals</div>
       </div>
-      <div class="col-auto row items-center q-gutter-sm">
+      <div class="col-12 col-sm row items-center q-gutter-sm">
         <HubFilter v-model="selectedHub" @change="onHubChange" />
         <q-btn
           label="Returns"
@@ -12,18 +12,24 @@
           color="positive"
           outline
           @click="showQuickReturnsDialog = true"
+          size="sm"
+          class="col-12 col-sm-auto"
         />
         <q-btn
           label="Rent a Battery"
           icon="battery_charging_full"
           color="primary"
           @click="openBatteryRentalDialog"
+          size="sm"
+          class="col-12 col-sm-auto"
         />
         <q-btn
           label="Rent a PUE"
           icon="devices"
           color="purple"
           @click="openPUERentalDialog"
+          size="sm"
+          class="col-12 col-sm-auto"
         />
       </div>
     </div>
@@ -71,6 +77,8 @@
           :filter="filter"
           @row-click="onRowClick"
           class="cursor-pointer"
+          :pagination="{ rowsPerPage: 50 }"
+          :rows-per-page-options="[10, 25, 50, 100, 0]"
           :no-data-label="selectedHub ? 'No rentals found for this hub' : 'No rentals available yet - create your first rental!'"
         >
           <template v-slot:top-right>
@@ -176,8 +184,28 @@
           <template v-slot:body-cell-battery="props">
             <q-td :props="props">
               <div class="row items-center no-wrap">
-                <span>{{ props.row.battery?.short_id || `Battery ${props.row.battery_id}` }}</span>
+                <span v-if="props.row.rental_type === 'pue'">
+                  {{ props.row.pue_name || `PUE ${props.row.pue_id}` }}
+                </span>
+                <span v-else>
+                  {{ props.row.battery?.short_id || `Battery ${props.row.battery_id}` }}
+                </span>
                 <q-btn
+                  v-if="props.row.rental_type === 'pue' && props.row.pue_rental_id"
+                  flat
+                  round
+                  dense
+                  size="sm"
+                  icon="open_in_new"
+                  color="primary"
+                  :to="{ name: 'pue-rental-detail', params: { id: props.row.pue_rental_id } }"
+                  class="q-ml-xs"
+                  @click="console.log('PUE Rental Row:', props.row)"
+                >
+                  <q-tooltip>View PUE Rental Details</q-tooltip>
+                </q-btn>
+                <q-btn
+                  v-else-if="props.row.rental_type === 'battery' && props.row.battery_id"
                   flat
                   round
                   dense
@@ -189,6 +217,9 @@
                 >
                   <q-tooltip>View Battery Details</q-tooltip>
                 </q-btn>
+                <div v-else-if="props.row.rental_type === 'pue'" class="text-caption text-orange">
+                  Debug: ID={{ props.row.pue_rental_id }} Type={{ props.row.rental_type }}
+                </div>
               </div>
             </q-td>
           </template>
@@ -1093,6 +1124,7 @@
               label="Set up recurring payment"
               dense
               class="q-mb-md"
+              @update:model-value="onRecurringPaymentToggle"
             >
               <q-tooltip>
                 Enable this if the customer will make regular payments according to the cost structure (e.g., monthly). This is useful for pay-to-own items or long-term rentals.
@@ -1178,11 +1210,17 @@
             <div v-if="pueCostEstimate" class="q-mb-md">
               <q-card flat bordered class="bg-blue-1">
                 <q-card-section>
-                  <div class="text-subtitle2 q-mb-sm">Cost Estimate</div>
+                  <div class="text-subtitle2 q-mb-sm">
+                    Cost Estimate
+                    <span v-if="recurringFrequencyDisplay" class="text-caption text-purple-8 q-ml-sm">({{ recurringFrequencyDisplay }})</span>
+                  </div>
                   <div class="row q-col-gutter-sm">
                     <div class="col-6">
                       <div class="text-caption text-grey-7">Subtotal:</div>
-                      <div class="text-body1">{{ currentCurrencySymbol }}{{ pueCostEstimate.subtotal?.toFixed(2) || '0.00' }}</div>
+                      <div class="text-body1">
+                        {{ currentCurrencySymbol }}{{ pueCostEstimate.subtotal?.toFixed(2) || '0.00' }}
+                        <span v-if="recurringFrequencyDisplay" class="text-caption text-grey-7">/{{ recurringFrequencyDisplay.replace('per ', '') }}</span>
+                      </div>
                     </div>
                     <div class="col-6">
                       <div class="text-caption text-grey-7">VAT ({{ pueCostEstimate.vat_percentage || 0 }}%):</div>
@@ -1191,7 +1229,10 @@
                     <div class="col-12">
                       <q-separator class="q-my-xs" />
                       <div class="text-caption text-grey-7">Total:</div>
-                      <div class="text-h6 text-primary">{{ currentCurrencySymbol }}{{ pueCostEstimate.total?.toFixed(2) || '0.00' }}</div>
+                      <div class="text-h6 text-primary">
+                        {{ currentCurrencySymbol }}{{ pueCostEstimate.total?.toFixed(2) || '0.00' }}
+                        <span v-if="recurringFrequencyDisplay" class="text-body2 text-purple-8">/{{ recurringFrequencyDisplay.replace('per ', '') }}</span>
+                      </div>
                     </div>
                   </div>
                 </q-card-section>
@@ -1413,7 +1454,10 @@
 
           <!-- Cost Estimate Display -->
           <div v-if="pueCostEstimate" class="q-pa-md bg-grey-1 rounded-borders">
-            <div class="text-caption text-grey-7 q-mb-sm">Cost Breakdown:</div>
+            <div class="text-caption text-grey-7 q-mb-sm">
+              Cost Breakdown
+              <span v-if="recurringFrequencyDisplay" class="text-purple-8 q-ml-xs">({{ recurringFrequencyDisplay }})</span>:
+            </div>
             <div v-for="item in pueCostEstimate.breakdown" :key="item.name" class="row items-center q-mb-xs">
               <div class="col">
                 {{ item.name }}
@@ -1424,7 +1468,10 @@
             <q-separator class="q-my-sm" />
             <div class="row items-center q-mb-xs">
               <div class="col text-weight-medium">Subtotal</div>
-              <div class="col-auto text-weight-medium">{{ currentCurrencySymbol}}{{ pueCostEstimate.subtotal.toFixed(2) }}</div>
+              <div class="col-auto text-weight-medium">
+                {{ currentCurrencySymbol}}{{ pueCostEstimate.subtotal.toFixed(2) }}
+                <span v-if="recurringFrequencyDisplay" class="text-caption text-grey-7">/{{ recurringFrequencyDisplay.replace('per ', '') }}</span>
+              </div>
             </div>
             <div class="row items-center q-mb-xs" v-if="pueCostEstimate.vat_amount > 0">
               <div class="col">VAT ({{ pueCostEstimate.vat_percentage }}%)</div>
@@ -1433,7 +1480,10 @@
             <q-separator class="q-my-sm" />
             <div class="row items-center">
               <div class="col text-h6 text-primary">Total</div>
-              <div class="col-auto text-h6 text-primary">{{ currentCurrencySymbol}}{{ pueCostEstimate.total.toFixed(2) }}</div>
+              <div class="col-auto text-h6 text-primary">
+                {{ currentCurrencySymbol}}{{ pueCostEstimate.total.toFixed(2) }}
+                <span v-if="recurringFrequencyDisplay" class="text-body2 text-purple-8">/{{ recurringFrequencyDisplay.replace('per ', '') }}</span>
+              </div>
             </div>
           </div>
         </q-card-section>
@@ -1463,29 +1513,76 @@
       <q-card style="min-width: 600px; max-width: 800px">
         <q-card-section>
           <div class="text-h6">Quick Returns</div>
-          <div class="text-caption text-grey-7">Select a rental to return</div>
+          <div class="text-caption text-grey-7">Search and select a rental to return</div>
         </q-card-section>
 
-        <q-card-section>
-          <q-list bordered separator>
+        <q-card-section class="q-pt-none">
+          <div class="row q-col-gutter-md q-mb-md">
+            <div class="col-12 col-md-6">
+              <q-input
+                v-model="quickReturnsUserSearch"
+                label="Search by user, item name, or ID"
+                outlined
+                dense
+                clearable
+              >
+                <template v-slot:prepend>
+                  <q-icon name="search" />
+                </template>
+              </q-input>
+            </div>
+            <div class="col-12 col-md-6">
+              <q-select
+                v-model="quickReturnsTypeFilter"
+                :options="[
+                  { label: 'All', value: 'all' },
+                  { label: 'Batteries Only', value: 'battery' },
+                  { label: 'PUE Items Only', value: 'pue' }
+                ]"
+                label="Filter by type"
+                outlined
+                dense
+                emit-value
+                map-options
+                option-label="label"
+                option-value="value"
+              >
+                <template v-slot:prepend>
+                  <q-icon name="filter_list" />
+                </template>
+              </q-select>
+            </div>
+          </div>
+
+          <q-list bordered separator style="max-height: 400px; overflow-y: auto">
             <q-item
-              v-for="rental in activeRentals"
-              :key="rental.rentral_id"
+              v-for="rental in filteredQuickReturnsRentals"
+              :key="rental.rentral_id || rental.pue_rental_id"
               clickable
               @click="quickReturn(rental)"
+              :class="rental.is_pay_to_own ? 'bg-purple-1' : ''"
             >
               <q-item-section avatar>
-                <q-avatar color="primary" text-color="white">
-                  <q-icon name="battery_charging_full" />
+                <q-avatar :color="rental.rental_type === 'pue' ? 'deep-purple' : 'primary'" text-color="white">
+                  <q-icon :name="rental.rental_type === 'pue' ? 'devices' : 'battery_charging_full'" />
                 </q-avatar>
               </q-item-section>
 
               <q-item-section>
-                <q-item-label>{{ rental.user?.Name || rental.user?.username || `User ${rental.user_id}` }}</q-item-label>
-                <q-item-label caption>
+                <q-item-label>
+                  {{ rental.user?.Name || rental.user?.username || rental.user_name || `User ${rental.user_id}` }}
+                  <q-badge v-if="rental.is_pay_to_own" color="purple" class="q-ml-sm">
+                    <q-icon name="account_balance" size="xs" class="q-mr-xs" />
+                    Pay to Own
+                  </q-badge>
+                </q-item-label>
+                <q-item-label caption v-if="rental.rental_type === 'pue'">
+                  {{ rental.pue_name || `PUE ${rental.pue_id}` }} | Rental ID: {{ rental.pue_rental_id }}
+                </q-item-label>
+                <q-item-label caption v-else>
                   Battery {{ rental.battery_id }} | Rental ID: {{ rental.rentral_id }}
                 </q-item-label>
-                <q-item-label caption>
+                <q-item-label caption v-if="rental.due_back">
                   Due: {{ formatDate(rental.due_back) }}
                 </q-item-label>
               </q-item-section>
@@ -1508,10 +1605,10 @@
               </q-item-section>
             </q-item>
 
-            <q-item v-if="activeRentals.length === 0">
+            <q-item v-if="filteredQuickReturnsRentals.length === 0">
               <q-item-section>
                 <q-item-label class="text-grey text-center">
-                  No active rentals to return
+                  No active rentals found matching your search
                 </q-item-label>
               </q-item-section>
             </q-item>
@@ -1648,6 +1745,130 @@
       </q-card>
     </q-dialog>
 
+    <!-- PUE Payment Collection Dialog -->
+    <q-dialog v-model="showPUEPaymentCollectionDialog" persistent>
+      <q-card style="min-width: 400px">
+        <q-card-section>
+          <div class="text-h6">Collect Payment</div>
+          <div class="text-caption text-grey-7">Enter payment amount collected from customer</div>
+        </q-card-section>
+
+        <q-card-section class="q-gutter-md">
+          <q-input
+            v-model.number="puePaymentAmount"
+            type="number"
+            label="Payment Amount"
+            :prefix="currentCurrencySymbol"
+            step="0.01"
+            outlined
+            autofocus
+            :rules="[val => val > 0 || 'Amount must be greater than 0']"
+          />
+
+          <q-select
+            v-model="pueUpfrontPaymentType"
+            :options="paymentTypeOptions"
+            label="Payment Type"
+            outlined
+            option-value="value"
+            option-label="label"
+            emit-value
+            map-options
+            :rules="[val => !!val || 'Payment type is required']"
+          >
+            <template v-slot:prepend>
+              <q-icon name="payment" />
+            </template>
+          </q-select>
+
+          <div v-if="pueUpfrontPaymentType" class="bg-orange-1 q-pa-md rounded-borders">
+            <div class="text-weight-medium q-mb-sm">
+              <q-icon name="warning" color="orange" class="q-mr-sm" />
+              Payment Confirmation Required
+            </div>
+            <q-checkbox
+              v-model="confirmPUECashPayment"
+              :label="`I confirm that ${pueUpfrontPaymentType} payment has been received`"
+              color="positive"
+            />
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" v-close-popup @click="resetPUEPaymentDialog" />
+          <q-btn
+            flat
+            label="Confirm Payment"
+            color="primary"
+            @click="confirmPUEPayment"
+            :disable="!puePaymentAmount || puePaymentAmount <= 0 || !pueUpfrontPaymentType || !confirmPUECashPayment"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- PUE Deposit Collection Dialog -->
+    <q-dialog v-model="showPUEDepositDialog" persistent>
+      <q-card style="min-width: 400px">
+        <q-card-section>
+          <div class="text-h6">Collect Deposit</div>
+          <div class="text-caption text-grey-7">Enter deposit amount collected from customer</div>
+        </q-card-section>
+
+        <q-card-section class="q-gutter-md">
+          <q-input
+            v-model.number="pueDepositAmount"
+            type="number"
+            label="Deposit Amount"
+            :prefix="currentCurrencySymbol"
+            step="0.01"
+            outlined
+            autofocus
+            :rules="[val => val > 0 || 'Amount must be greater than 0']"
+          />
+
+          <q-select
+            v-model="pueDepositPaymentType"
+            :options="paymentTypeOptions"
+            label="Payment Type"
+            outlined
+            option-value="value"
+            option-label="label"
+            emit-value
+            map-options
+            :rules="[val => !!val || 'Payment type is required']"
+          >
+            <template v-slot:prepend>
+              <q-icon name="payment" />
+            </template>
+          </q-select>
+
+          <div v-if="pueDepositPaymentType" class="bg-orange-1 q-pa-md rounded-borders">
+            <div class="text-weight-medium q-mb-sm">
+              <q-icon name="warning" color="orange" class="q-mr-sm" />
+              Payment Confirmation Required
+            </div>
+            <q-checkbox
+              v-model="confirmPUECashDeposit"
+              :label="`I confirm that ${pueDepositPaymentType} payment has been received`"
+              color="positive"
+            />
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" v-close-popup @click="resetPUEDepositDialog" />
+          <q-btn
+            flat
+            label="Confirm Deposit"
+            color="positive"
+            @click="confirmPUEDeposit"
+            :disable="!pueDepositAmount || pueDepositAmount <= 0 || !pueDepositPaymentType || !confirmPUECashDeposit"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
     <!-- Apply Credit Dialog -->
     <q-dialog v-model="showApplyCreditDialog" persistent>
       <q-card style="min-width: 400px">
@@ -1764,6 +1985,8 @@ const showCreateDialog = ref(false)
 const showPUERentalDialog = ref(false)
 const showReturnDialog = ref(false)
 const showQuickReturnsDialog = ref(false)
+const quickReturnsUserSearch = ref('')
+const quickReturnsTypeFilter = ref('all')
 const showDepositDialog = ref(false)
 const showPaymentCollectionDialog = ref(false)
 const showApplyCreditDialog = ref(false)
@@ -1838,6 +2061,12 @@ const pueUserAccount = ref(null)
 const showPUEApplyCreditDialog = ref(false)
 const showPUEDepositDialog = ref(false)
 const showPUEPaymentCollectionDialog = ref(false)
+const pueDepositAmount = ref(0)
+const pueDepositPaymentType = ref(null)
+const confirmPUECashDeposit = ref(false)
+const puePaymentAmount = ref(0)
+const pueUpfrontPaymentType = ref(null)
+const confirmPUECashPayment = ref(false)
 
 // Computed property for custom duration check
 const isPUECustomDuration = computed(() => {
@@ -1859,13 +2088,45 @@ const selectedPUECostStructureObject = computed(() => {
   return availablePUECostStructures.value.find(s => s.structure_id === pueFormData.value.cost_structure_id)
 })
 
-// Payment method options
-const paymentMethodOptions = [
-  { label: 'Pay Upfront', value: 'upfront' },
-  { label: 'Pay on Return', value: 'on_return' },
-  { label: 'Deposit Only', value: 'deposit_only' },
-  { label: 'Partial Payment', value: 'partial' }
-]
+// Get recurring payment frequency display text
+const recurringFrequencyDisplay = computed(() => {
+  if (!pueFormData.value.has_recurring_payment || !selectedPUECostStructureObject.value) {
+    return null
+  }
+
+  const components = selectedPUECostStructureObject.value.components || []
+  const recurringComponent = components.find(c =>
+    ['per_month', 'per_week', 'per_day'].includes(c.unit_type)
+  )
+
+  if (recurringComponent) {
+    const frequencyMap = {
+      'per_month': 'per month',
+      'per_week': 'per week',
+      'per_day': 'per day'
+    }
+    return frequencyMap[recurringComponent.unit_type]
+  }
+
+  return 'recurring'
+})
+
+// Payment method options - computed to include recurring payment when applicable
+const paymentMethodOptions = computed(() => {
+  const options = [
+    { label: 'Pay Upfront', value: 'upfront' },
+    { label: 'Pay on Return', value: 'on_return' },
+    { label: 'Deposit Only', value: 'deposit_only' },
+    { label: 'Partial Payment', value: 'partial' }
+  ]
+
+  // Add recurring payment option when recurring payments are enabled
+  if (pueFormData.value.has_recurring_payment) {
+    options.unshift({ label: 'Recurring Payment', value: 'recurring' })
+  }
+
+  return options
+})
 
 // Payment type options (from settings)
 const paymentTypeOptions = ref([])
@@ -1967,6 +2228,42 @@ const activeRentals = computed(() => {
   return rentals.value.filter(r => r.status === 'active' || r.status === 'overdue')
 })
 
+// Computed property for filtered quick returns rentals (with search and type filter)
+const filteredQuickReturnsRentals = computed(() => {
+  let filtered = activeRentals.value
+
+  // Filter by rental type
+  if (quickReturnsTypeFilter.value !== 'all') {
+    filtered = filtered.filter(r => r.rental_type === quickReturnsTypeFilter.value)
+  }
+
+  // Filter by user name OR item name/ID search
+  if (quickReturnsUserSearch.value) {
+    const searchTerm = quickReturnsUserSearch.value.toLowerCase()
+    filtered = filtered.filter(r => {
+      // Search in user name
+      const userName = (r.user?.Name || r.user?.username || r.user_name || '').toLowerCase()
+      const userMatch = userName.includes(searchTerm)
+
+      // Search in item name/ID
+      let itemMatch = false
+      if (r.rental_type === 'pue') {
+        const pueId = (r.pue_rental_id || '').toString().toLowerCase()
+        const pueName = (r.pue_name || '').toLowerCase()
+        itemMatch = pueId.includes(searchTerm) || pueName.includes(searchTerm)
+      } else {
+        const batteryId = (r.battery_id || '').toString().toLowerCase()
+        const batteryShortId = (r.battery?.short_id || '').toLowerCase()
+        itemMatch = batteryId.includes(searchTerm) || batteryShortId.includes(searchTerm)
+      }
+
+      return userMatch || itemMatch
+    })
+  }
+
+  return filtered
+})
+
 // Use centralized currency symbol from hub settings store
 const currentCurrencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
@@ -2046,11 +2343,21 @@ const returnData = ref({
 })
 
 const columns = [
-  { name: 'rentral_id', label: 'ID', field: 'rentral_id', align: 'left', sortable: true },
+  { name: 'rentral_id', label: 'Rental ID', field: row => {
+    if (row.rental_type === 'pue') {
+      return row.pue_rental_id
+    }
+    return row.rentral_id
+  }, align: 'left', sortable: true },
   { name: 'rental_type', label: 'Type', field: 'rental_type', align: 'center', sortable: true },
   { name: 'hub', label: 'Hub', field: row => row.hub?.what_three_word_location || `Hub ${row.hub?.hub_id || '-'}`, align: 'left', sortable: true },
   { name: 'user', label: 'User', field: row => row.user?.Name || row.user?.username || `User ${row.user_id}`, align: 'left', sortable: true },
-  { name: 'battery', label: 'Battery', field: row => row.battery?.short_id || `Battery ${row.battery_id}`, align: 'left' },
+  { name: 'battery', label: 'Item', field: row => {
+    if (row.rental_type === 'pue') {
+      return row.pue_name || `PUE ${row.pue_id}`
+    }
+    return row.battery?.short_id || `Battery ${row.battery_id}`
+  }, align: 'left' },
   { name: 'subscription', label: 'Subscription', field: row => row.subscription?.package_name || '-', align: 'left', sortable: true },
   { name: 'timestamp_taken', label: 'Rental Date', field: 'timestamp_taken', align: 'left', sortable: true },
   { name: 'due_back', label: 'Due Back', field: 'due_back', align: 'left', sortable: true },
@@ -2141,7 +2448,7 @@ const onRowClick = (evt, row) => {
   if (row.rental_type === 'battery') {
     router.push(`/rentals/battery/${row.rentral_id}`)
   } else if (row.rental_type === 'pue') {
-    router.push(`/rentals/pue/${row.rentral_id}`)
+    router.push(`/rentals/pue/${row.pue_rental_id}`)
   } else {
     // Fallback for legacy rentals
     router.push({ name: 'rental-detail', params: { id: row.rentral_id } })
@@ -2184,6 +2491,7 @@ const loadRentals = async () => {
         rental_type: 'pue'
       }))
 
+      console.log('PUE Rentals loaded:', pueRentals)
       allRentals = [...batteryRentals, ...pueRentals]
     } else if (rentalTypeFilter.value === 'battery') {
       // Load only battery rentals
@@ -3414,6 +3722,44 @@ const resetPaymentDialog = () => {
   confirmCashPayment.value = false
 }
 
+// PUE Payment Collection Functions
+const confirmPUEPayment = () => {
+  pueFormData.value.amount_paid = puePaymentAmount.value
+  pueFormData.value.payment_type = pueUpfrontPaymentType.value
+  showPUEPaymentCollectionDialog.value = false
+
+  $q.notify({
+    type: 'positive',
+    message: `Payment of ${currentCurrencySymbol.value}${puePaymentAmount.value.toFixed(2)} recorded`,
+    position: 'top'
+  })
+}
+
+const resetPUEPaymentDialog = () => {
+  puePaymentAmount.value = 0
+  pueUpfrontPaymentType.value = null
+  confirmPUECashPayment.value = false
+}
+
+// PUE Deposit Collection Functions
+const confirmPUEDeposit = () => {
+  pueFormData.value.deposit_amount = pueDepositAmount.value
+  pueFormData.value.payment_type = pueDepositPaymentType.value
+  showPUEDepositDialog.value = false
+
+  $q.notify({
+    type: 'positive',
+    message: `Deposit of ${currentCurrencySymbol.value}${pueDepositAmount.value.toFixed(2)} recorded`,
+    position: 'top'
+  })
+}
+
+const resetPUEDepositDialog = () => {
+  pueDepositAmount.value = 0
+  pueDepositPaymentType.value = null
+  confirmPUECashDeposit.value = false
+}
+
 const saveRental = async () => {
   // Check if there's cash deposit or payment to confirm
   const hasDeposit = formData.value.deposit_amount && formData.value.deposit_amount > 0
@@ -3691,6 +4037,9 @@ const onPUEHubChange = async (hubId) => {
     userOptions.value = usersResponse.data
     filteredUsers.value = userOptions.value
 
+    // Load payment types for this hub
+    await loadPaymentTypes(hubId)
+
   } catch (error) {
     console.error('Failed to load hub data:', error)
     $q.notify({
@@ -3713,6 +4062,29 @@ const onPUEUserChange = async (userId) => {
   } catch (error) {
     console.error('Failed to load user account:', error)
     pueUserAccount.value = null
+  }
+}
+
+// Handler for recurring payment checkbox toggle
+const onRecurringPaymentToggle = async (isEnabled) => {
+  if (isEnabled) {
+    // Automatically select recurring payment method when recurring payments are enabled
+    pueFormData.value.payment_method = 'recurring'
+
+    // Recalculate cost estimate for recurring payments
+    const structure = selectedPUECostStructureObject.value
+    if (structure?.is_pay_to_own || structure) {
+      await calculateRecurringCostEstimate(structure)
+    }
+  } else {
+    // Reset to default payment method when recurring payments are disabled
+    if (pueFormData.value.payment_method === 'recurring') {
+      pueFormData.value.payment_method = null
+    }
+    // Clear cost estimate since we don't have duration for pay-to-own without recurring
+    if (selectedPUECostStructureObject.value?.is_pay_to_own) {
+      pueCostEstimate.value = null
+    }
   }
 }
 
@@ -3740,20 +4112,23 @@ const loadPUECostStructuresForRental = async (pueId, pueTypeId) => {
     const itemResponse = await settingsAPI.getCostStructures({
       hub_id: pueFormData.value.hub_id,
       item_type: 'pue_item',
-      specific_item_id: pueId
+      item_reference: String(pueId),
+      is_active: true
     })
 
     // Load cost structures for PUE type
     const typeResponse = pueTypeId ? await settingsAPI.getCostStructures({
       hub_id: pueFormData.value.hub_id,
       item_type: 'pue_type',
-      specific_item_id: pueTypeId
+      item_reference: String(pueTypeId),
+      is_active: true
     }) : { data: { cost_structures: [] } }
 
     // Load cost structures that apply to "all PUE items"
     const allPUEResponse = await settingsAPI.getCostStructures({
       hub_id: pueFormData.value.hub_id,
       item_type: 'pue',
+      item_reference: 'all',
       is_active: true
     })
 
@@ -3787,6 +4162,11 @@ const onPUERentalCostStructureChange = async (structureId) => {
   if (structure?.is_pay_to_own) {
     pueFormData.value.quantity = 1
     pueDurationOptions.value = [] // No duration options for pay-to-own
+
+    // For recurring payment rentals, calculate cost estimate based on recurring frequency
+    if (pueFormData.value.has_recurring_payment) {
+      await calculateRecurringCostEstimate(structure)
+    }
     return
   }
 
@@ -3925,6 +4305,41 @@ const calculatePUERentalCostEstimate = async (durationValue, durationUnit) => {
   }
 }
 
+// Calculate cost estimate for recurring payment rentals
+const calculateRecurringCostEstimate = async (structure) => {
+  try {
+    // For recurring payments, use a duration of 1 unit based on the frequency
+    const components = structure.components || []
+    const recurringComponent = components.find(c =>
+      ['per_month', 'per_week', 'per_day'].includes(c.unit_type)
+    )
+
+    let durationValue = 1
+    let durationUnit = 'months' // Default to monthly
+
+    if (recurringComponent) {
+      const unitMap = {
+        'per_month': 'months',
+        'per_week': 'weeks',
+        'per_day': 'days'
+      }
+      durationUnit = unitMap[recurringComponent.unit_type] || 'months'
+    }
+
+    const params = {
+      duration_value: durationValue,
+      duration_unit: durationUnit,
+      quantity: 1
+    }
+
+    const response = await settingsAPI.estimateCost(pueFormData.value.cost_structure_id, params)
+    pueCostEstimate.value = response.data
+
+  } catch (error) {
+    console.error('Failed to calculate recurring cost estimate:', error)
+  }
+}
+
 const savePUERental = async () => {
   try {
     saving.value = true
@@ -3971,29 +4386,24 @@ const savePUERental = async () => {
       }
     }
 
-    // Prepare rental data
+    // Prepare rental data for API
     const rentalData = {
-      hub_id: pueFormData.value.hub_id,
       user_id: pueFormData.value.user_id,
-      pue_item_ids: [pueFormData.value.pue_id],
-      pue_quantities: { [pueFormData.value.pue_id]: pueFormData.value.quantity },
+      pue_id: pueFormData.value.pue_id,
       cost_structure_id: pueFormData.value.cost_structure_id,
       rental_start_date: new Date(pueFormData.value.rental_start_date).toISOString(),
-      due_date: isPUEPayToOwn.value ? null : new Date(pueFormData.value.due_date).toISOString(),
-      duration_value: isPUEPayToOwn.value ? null : durationValue,
-      duration_unit: isPUEPayToOwn.value ? null : durationUnit,
-      payment_method: pueFormData.value.payment_method,
-      deposit_amount: pueFormData.value.deposit_amount || 0,
-      amount_paid: pueFormData.value.amount_paid || 0,
-      credit_applied: pueFormData.value.credit_used || 0,
       is_pay_to_own: isPUEPayToOwn.value,
       pay_to_own_price: isPUEPayToOwn.value ? selectedPUECostStructureObject.value?.item_total_cost : null,
+      initial_payment: pueFormData.value.amount_paid || 0,
+      deposit_amount: pueFormData.value.deposit_amount || 0,
+      payment_type: pueFormData.value.payment_type || null,
+      notes: [],
       has_recurring_payment: pueFormData.value.has_recurring_payment,
       recurring_payment_frequency: recurringFrequency
     }
 
     // Create the PUE rental
-    const response = await pueAPI.createPUERental(rentalData)
+    const response = await pueRentalsAPI.create(rentalData)
 
     $q.notify({
       type: 'positive',

@@ -1,11 +1,11 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="row items-center q-mb-md">
-      <div class="col">
+    <div class="row items-center q-mb-md q-col-gutter-sm">
+      <div class="col-12 col-sm">
         <q-btn flat round dense icon="arrow_back" @click="$router.back()" />
-        <span class="text-h4 q-ml-md">Battery {{ battery?.short_id || battery?.battery_id || 'Details' }}</span>
+        <span class="text-h5 q-ml-md">Battery {{ battery?.short_id || battery?.battery_id || 'Details' }}</span>
       </div>
-      <div class="col-auto q-gutter-sm">
+      <div class="col-12 col-sm-auto q-gutter-sm">
         <q-btn
           v-if="authStore.isAdmin && battery"
           label="Reset Secret"
@@ -13,6 +13,8 @@
           color="secondary"
           outline
           @click="showSecretDialog = true"
+          size="sm"
+          class="col-12 col-sm-auto"
         />
         <q-btn
           v-if="authStore.isAdmin && battery"
@@ -20,6 +22,8 @@
           icon="edit"
           color="warning"
           @click="editBattery"
+          size="sm"
+          class="col-12 col-sm-auto"
         />
       </div>
     </div>

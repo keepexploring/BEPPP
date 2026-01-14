@@ -1,16 +1,18 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="row items-center q-mb-md">
-      <div class="col">
-        <div class="text-h4">Users</div>
+    <div class="row items-center q-mb-md q-col-gutter-sm">
+      <div class="col-12 col-sm-auto">
+        <div class="text-h5">Users</div>
       </div>
-      <div class="col-auto row items-center q-gutter-sm">
+      <div class="col-12 col-sm row items-center q-gutter-sm">
         <HubFilter v-model="selectedHub" @change="onHubChange" />
         <q-btn
           label="Add User"
           icon="add"
           color="primary"
           @click="showCreateDialog = true"
+          size="sm"
+          class="col-12 col-sm-auto"
         />
       </div>
     </div>

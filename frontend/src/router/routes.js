@@ -51,6 +51,11 @@ const routes = [
         component: () => import('pages/PUEPage.vue')
       },
       {
+        path: 'pue/:id',
+        name: 'pue-detail',
+        component: () => import('pages/PUEDetailPage.vue')
+      },
+      {
         path: 'rentals',
         name: 'rentals',
         component: () => import('pages/RentalsPage.vue')

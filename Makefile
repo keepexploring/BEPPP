@@ -81,7 +81,7 @@ dev:
 	@echo "Once running, access:"
 	@echo "  📊 Backend API:  http://localhost:8000"
 	@echo "  📚 API Docs:     http://localhost:8000/docs"
-  💻 Frontend:     http://localhost:9000"
+	@echo "  💻 Frontend:     http://localhost:9000"
 	@echo "==================================================================="
 
 # Start database only (for development)
@@ -255,9 +255,7 @@ frontend-install:
 	@echo "✅ Frontend dependencies installed"
 
 # Start frontend dev server
-
-
-:
+frontend-dev:
 	@echo "🚀 Starting frontend dev server..."
 	@echo "Frontend will be available at http://localhost:9000"
 	@cd frontend && npm run dev

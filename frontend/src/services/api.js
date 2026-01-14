@@ -166,6 +166,10 @@ export const pueRentalsAPI = {
   list: (params) => api.get('/pue-rentals', { params }),
   get: (rentalId) => api.get(`/pue-rentals/${rentalId}`),
   create: (data) => api.post('/pue-rentals', data),
+  returnPUE: (rentalId, data) =>
+    api.post(`/pue-rentals/${rentalId}/return`, data),
+  calculateReturnCost: (rentalId, params) =>
+    api.get(`/pue-rentals/${rentalId}/calculate-return-cost`, { params }),
   recordPayment: (rentalId, data) =>
     api.post(`/pue-rentals/${rentalId}/payment`, data),
   getPayToOwnLedger: (rentalId) =>

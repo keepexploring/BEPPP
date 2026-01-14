@@ -50,12 +50,26 @@ def calculate_next_payment_date(current_date, frequency):
         return current_date + timedelta(days=30)  # Default to monthly
 
 
-def calculate_payment_breakdown(rental, cost_structure):
-    """Calculate how much should be charged based on the cost structure"""
+def calculate_payment_breakdown(rental, cost_structure, only_recurring=False):
+    """Calculate how much should be charged based on the cost structure
+
+    Args:
+        rental: The PUERental object
+        cost_structure: The CostStructure object
+        only_recurring: If True, only include components with is_recurring_payment=True
+    """
     ownership_amount = Decimal('0.00')
     rental_fee_amount = Decimal('0.00')
 
     for component in cost_structure.components:
+        # Skip non-recurring components if only_recurring is True
+        if only_recurring and not component.is_recurring_payment:
+            continue
+
+        # Skip recurring components if only_recurring is False (rental-level payment mode)
+        if not only_recurring and component.is_recurring_payment:
+            continue
+
         # Calculate component amount
         if component.is_percentage_of_remaining:
             remaining = Decimal(str(rental.total_item_cost or 0)) - rental.total_paid_towards_ownership
@@ -72,8 +86,63 @@ def calculate_payment_breakdown(rental, cost_structure):
     return float(ownership_amount), float(rental_fee_amount)
 
 
+def calculate_days_for_interval(interval, unit_type):
+    """Convert interval and unit_type to days"""
+    unit_to_days = {
+        'per_day': 1,
+        'per_week': 7,
+        'per_month': 30,
+        'per_hour': 1/24  # Will be multiplied by interval
+    }
+    base_days = unit_to_days.get(unit_type, 30)  # Default to 30 days
+    return interval * base_days
+
+
+def get_recurring_components_due(rental, cost_structure, now):
+    """Check which recurring components are due for charge
+
+    Returns a list of components that should be charged now
+    """
+    due_components = []
+
+    for component in cost_structure.components:
+        if not component.is_recurring_payment or not component.recurring_interval:
+            continue
+
+        # Calculate interval in days
+        interval_days = calculate_days_for_interval(
+            float(component.recurring_interval),
+            component.unit_type
+        )
+
+        # Calculate time since checkout
+        checkout_date = rental.date_checked_out
+        days_since_checkout = (now - checkout_date).total_seconds() / 86400
+
+        # Calculate how many full intervals have passed
+        intervals_passed = int(days_since_checkout / interval_days)
+
+        # Calculate when the next charge should occur
+        next_charge_days = (intervals_passed + 1) * interval_days
+
+        # Check if we're past the next charge point
+        if days_since_checkout >= next_charge_days:
+            due_components.append(component)
+
+    return due_components
+
+
 def process_recurring_pue_payments(dry_run=False):
-    """Process recurring payments for all PUE rentals that are due"""
+    """Process recurring payments for all PUE rentals that are due
+
+    This script handles:
+    1. Rental-level recurring payments (has_recurring_payment=True)
+       - Charges all non-recurring components at the rental's frequency
+    2. Component-level recurring payments (component.is_recurring_payment=True)
+       - TODO: Requires additional tracking mechanism to charge components
+         at their custom intervals without duplicates. For now, recurring
+         components should be used within rental-level recurring payment structure.
+    """
     db = SessionLocal()
 
     try:

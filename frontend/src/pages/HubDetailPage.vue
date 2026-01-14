@@ -1,7 +1,7 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="row items-center q-mb-md">
-      <div class="col">
+    <div class="row items-center q-mb-md q-col-gutter-sm">
+      <div class="col-12 col-sm">
         <q-btn
           flat
           round
@@ -9,7 +9,7 @@
           icon="arrow_back"
           @click="$router.back()"
         />
-        <span class="text-h4 q-ml-md">{{ hub?.what_three_word_location || `Hub #${hub?.hub_id}` || 'Hub Details' }}</span>
+        <span class="text-h5 q-ml-md">{{ hub?.what_three_word_location || `Hub #${hub?.hub_id}` || 'Hub Details' }}</span>
       </div>
     </div>
 

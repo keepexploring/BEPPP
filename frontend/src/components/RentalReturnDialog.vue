@@ -4,7 +4,7 @@
       <q-card-section>
         <div class="text-h6">Return Rental</div>
         <div class="text-caption" v-if="rental">
-          Rental ID: {{ rental.rental_unique_id || rental.rentral_id }}
+          Rental ID: {{ rental.rental_unique_id || rental.rentral_id || rental.pue_rental_id || rental.rental_id || rental.id }}
         </div>
       </q-card-section>
 

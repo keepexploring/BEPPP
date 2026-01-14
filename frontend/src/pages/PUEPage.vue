@@ -1,10 +1,10 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="row items-center q-mb-md">
-      <div class="col">
-        <div class="text-h4">Productive Use Equipment (PUE)</div>
+    <div class="row items-center q-mb-md q-col-gutter-sm">
+      <div class="col-12 col-sm-auto">
+        <div class="text-h5">Productive Use Equipment (PUE)</div>
       </div>
-      <div class="col-auto row items-center q-gutter-sm">
+      <div class="col-12 col-sm row items-center q-gutter-sm">
         <HubFilter v-model="selectedHub" @change="onHubChange" />
         <q-btn
           v-if="authStore.isAdmin"
@@ -12,6 +12,8 @@
           icon="add"
           color="primary"
           @click="showCreateDialog = true"
+          size="sm"
+          class="col-12 col-sm-auto"
         />
       </div>
     </div>
@@ -25,6 +27,8 @@
           :loading="loading"
           :filter="filter"
           :no-data-label="selectedHub ? 'No equipment found for this hub - add some to get started!' : 'No equipment available yet - add your first PUE item!'"
+          @row-click="(evt, row) => $router.push({ name: 'pue-detail', params: { id: row.pue_id } })"
+          class="cursor-pointer"
         >
           <template v-slot:top-right>
             <q-input
@@ -155,9 +159,8 @@
               rows="2"
             />
 
-
-            <div class="row q-col-gutter-md">
-              <div class="col-6">
+            <div class="row">
+              <div class="col q-pr-sm">
                 <q-input
                   v-model.number="formData.power_rating_watts"
                   label="Power Rating (W)"
@@ -165,7 +168,7 @@
                   outlined
                 />
               </div>
-              <div class="col-6">
+              <div class="col q-pl-sm">
                 <q-input
                   v-model="formData.storage_location"
                   label="Storage Location"

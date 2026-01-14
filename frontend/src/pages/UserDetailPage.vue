@@ -1,14 +1,20 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="row items-center q-mb-md">
-      <q-btn flat round dense icon="arrow_back" @click="$router.back()" class="q-mr-md" />
-      <div class="text-h4 col">User Details</div>
-      <q-btn
-        color="primary"
-        label="Edit User"
-        icon="edit"
-        @click="openEditUserDialog"
-      />
+    <div class="row items-center q-mb-md q-col-gutter-sm">
+      <div class="col-12 col-sm">
+        <q-btn flat round dense icon="arrow_back" @click="$router.back()" />
+        <span class="text-h5 q-ml-md">User Details</span>
+      </div>
+      <div class="col-12 col-sm-auto">
+        <q-btn
+          color="primary"
+          label="Edit User"
+          icon="edit"
+          @click="openEditUserDialog"
+          size="sm"
+          class="col-12 col-sm-auto"
+        />
+      </div>
     </div>
 
     <div v-if="loading" class="row justify-center q-mt-xl">
@@ -52,17 +58,18 @@
       <!-- Account Summary Card -->
       <q-card class="q-mb-md">
         <q-card-section>
-          <div class="row items-center q-mb-md">
-            <div class="col">
+          <div class="row items-center q-mb-md q-col-gutter-sm">
+            <div class="col-12 col-sm-auto">
               <div class="text-h6">Account Summary</div>
             </div>
-            <div class="col-auto">
+            <div class="col-12 col-sm row q-gutter-sm">
               <q-btn
                 color="primary"
                 label="Add Credit"
                 icon="add_card"
                 @click="showAddCreditDialog = true"
-                class="q-mr-sm"
+                size="sm"
+                class="col-12 col-sm-auto"
               >
                 <q-tooltip>Add prepaid credit for future rentals</q-tooltip>
               </q-btn>
@@ -71,6 +78,8 @@
                 label="Take Payment"
                 icon="payments"
                 @click="openTakePaymentDialog"
+                size="sm"
+                class="col-12 col-sm-auto"
               >
                 <q-tooltip>Record a payment from this user</q-tooltip>
               </q-btn>
@@ -80,7 +89,8 @@
                 label="Settle Debt"
                 icon="account_balance"
                 @click="showPaymentDialog = true"
-                class="q-ml-sm"
+                size="sm"
+                class="col-12 col-sm-auto"
               >
                 <q-tooltip>Advanced: Settle debt with credit options</q-tooltip>
               </q-btn>
@@ -89,8 +99,9 @@
                 label="Manual Adjustment"
                 icon="edit"
                 @click="showManualAdjustmentDialog = true"
-                class="q-ml-sm"
                 outline
+                size="sm"
+                class="col-12 col-sm-auto"
               >
                 <q-tooltip>Make a manual journal entry to adjust balance</q-tooltip>
               </q-btn>
@@ -186,16 +197,18 @@
       <!-- Subscriptions Card -->
       <q-card class="q-mb-md">
         <q-card-section>
-          <div class="row items-center q-mb-md">
-            <div class="col">
+          <div class="row items-center q-mb-md q-col-gutter-sm">
+            <div class="col-12 col-sm-auto">
               <div class="text-h6">Subscriptions</div>
             </div>
-            <div class="col-auto">
+            <div class="col-12 col-sm row justify-end">
               <q-btn
                 color="primary"
                 label="Assign Subscription"
                 icon="add"
                 @click="openAssignSubscriptionDialog"
+                size="sm"
+                class="col-12 col-sm-auto"
               />
             </div>
           </div>
@@ -283,16 +296,16 @@
       <!-- Pay-to-Own Items -->
       <q-card v-if="payToOwnItems.length > 0 || payToOwnLoading" class="q-mb-md">
         <q-card-section>
-          <div class="row items-center q-mb-md">
-            <div class="col">
+          <div class="row items-center q-mb-md q-col-gutter-sm">
+            <div class="col-12 col-sm">
               <div class="text-h6">
                 <q-icon name="account_balance" color="purple" class="q-mr-sm" />
                 Pay-to-Own Items
               </div>
               <div class="text-caption text-grey-7">Items being purchased through payment plans</div>
             </div>
-            <div class="col-auto">
-              <q-btn flat label="Refresh" icon="refresh" @click="loadPayToOwnItems" />
+            <div class="col-12 col-sm-auto">
+              <q-btn flat label="Refresh" icon="refresh" @click="loadPayToOwnItems" size="sm" class="col-12 col-sm-auto" />
             </div>
           </div>
 
@@ -370,12 +383,12 @@
       <!-- Rentals (Tabbed View) -->
       <q-card class="q-mb-md">
         <q-card-section>
-          <div class="row items-center q-mb-md">
-            <div class="col">
+          <div class="row items-center q-mb-md q-col-gutter-sm">
+            <div class="col-12 col-sm-auto">
               <div class="text-h6">Rentals</div>
             </div>
-            <div class="col-auto">
-              <q-btn-dropdown color="primary" label="Create Rental" icon="add" class="q-mr-sm">
+            <div class="col-12 col-sm row q-gutter-sm">
+              <q-btn-dropdown color="primary" label="Create Rental" icon="add" size="sm" class="col-12 col-sm-auto">
                 <q-list>
                   <q-item clickable v-close-popup @click="router.push(`/rentals/battery/create?user_id=${userId}`)">
                     <q-item-section avatar>
@@ -397,7 +410,7 @@
                   </q-item>
                 </q-list>
               </q-btn-dropdown>
-              <q-btn flat label="Refresh" icon="refresh" @click="refreshAllRentals" />
+              <q-btn flat label="Refresh" icon="refresh" @click="refreshAllRentals" size="sm" class="col-12 col-sm-auto" />
             </div>
           </div>
 
@@ -739,13 +752,13 @@
       <!-- Transaction History -->
       <q-card>
         <q-card-section>
-          <div class="row items-center q-mb-md">
-            <div class="col">
+          <div class="row items-center q-mb-md q-col-gutter-sm">
+            <div class="col-12 col-sm-auto">
               <div class="text-h6">Transaction History</div>
             </div>
-            <div class="col-auto">
-              <q-btn flat label="Refresh" icon="refresh" @click="loadTransactions" />
-              <q-btn flat label="Export" icon="download" @click="exportTransactions" />
+            <div class="col-12 col-sm row justify-end q-gutter-sm">
+              <q-btn flat label="Refresh" icon="refresh" @click="loadTransactions" size="sm" class="col-12 col-sm-auto" />
+              <q-btn flat label="Export" icon="download" @click="exportTransactions" size="sm" class="col-12 col-sm-auto" />
             </div>
           </div>
 

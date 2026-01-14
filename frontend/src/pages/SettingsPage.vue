@@ -637,7 +637,7 @@
             v-model="newStructure.item_reference"
             :options="filteredPUEItems"
             option-value="pue_id"
-            option-label="name"
+            :option-label="(item) => item ? `${item.pue_id} - ${item.name}` : ''"
             emit-value
             map-options
             use-input
@@ -645,12 +645,20 @@
             @filter="filterPUEItemsForPricing"
             label="PUE Item"
             outlined
-            hint="Type to search specific PUE item"
+            hint="Type to search by ID or name"
           >
             <template v-slot:no-option>
               <q-item>
                 <q-item-section class="text-grey">
                   No PUE items found
+                </q-item-section>
+              </q-item>
+            </template>
+            <template v-slot:option="scope">
+              <q-item v-bind="scope.itemProps">
+                <q-item-section>
+                  <q-item-label>{{ scope.opt.pue_id }} - {{ scope.opt.name }}</q-item-label>
+                  <q-item-label caption v-if="scope.opt.description">{{ scope.opt.description }}</q-item-label>
                 </q-item-section>
               </q-item>
             </template>
@@ -766,12 +774,33 @@
               </div>
 
               <div class="col-3">
-                <q-checkbox
-                  v-model="component.is_calculated_on_return"
-                  label="Calculate on Return"
+                <div class="text-caption text-grey-7 q-mb-xs">Charge Type</div>
+                <q-option-group
+                  :model-value="getComponentChargeType(component)"
+                  @update:model-value="(val) => setComponentChargeType(component, val)"
+                  :options="[
+                    { label: 'Upfront', value: 'upfront' },
+                    { label: 'On Return', value: 'on_return' },
+                    { label: 'Recurring', value: 'recurring' }
+                  ]"
                   dense
-                  :hint="component.is_calculated_on_return ? 'Uses actual data' : 'Estimated upfront'"
+                  inline
                 />
+
+                <!-- Recurring Interval Input -->
+                <div v-if="getComponentChargeType(component) === 'recurring'" class="row items-center q-mt-xs q-gutter-xs">
+                  <q-input
+                    v-model.number="component.recurring_interval"
+                    type="number"
+                    label="Every"
+                    dense
+                    outlined
+                    step="0.5"
+                    min="0.5"
+                    style="width: 80px"
+                  />
+                  <span class="text-caption">{{ getIntervalUnit(component.unit_type) }}</span>
+                </div>
               </div>
 
               <div class="col-1">
@@ -1255,7 +1284,7 @@
             v-model="newPricing.item_reference"
             :options="filteredPUEItems"
             option-value="pue_id"
-            option-label="name"
+            :option-label="(item) => item ? `${item.pue_id} - ${item.name}` : ''"
             emit-value
             map-options
             label="PUE Item"
@@ -1264,13 +1293,13 @@
             input-debounce="0"
             @filter="filterPUEItemsForPricing"
             :disable="!newPricing.hub_id && authStore.isSuperAdmin"
-            :hint="!newPricing.hub_id && authStore.isSuperAdmin ? 'Select a hub first' : 'Select specific PUE item'"
+            :hint="!newPricing.hub_id && authStore.isSuperAdmin ? 'Select a hub first' : 'Type to search by ID or name'"
           >
             <template v-slot:option="scope">
               <q-item v-bind="scope.itemProps">
                 <q-item-section>
-                  <q-item-label>{{ scope.opt.name }} (ID: {{ scope.opt.pue_id }})</q-item-label>
-                  <q-item-label caption>{{ scope.opt.description }}</q-item-label>
+                  <q-item-label>{{ scope.opt.pue_id }} - {{ scope.opt.name }}</q-item-label>
+                  <q-item-label caption v-if="scope.opt.description">{{ scope.opt.description }}</q-item-label>
                 </q-item-section>
               </q-item>
             </template>
@@ -1625,7 +1654,7 @@
             v-model="newSubscriptionItem.item_reference"
             :options="filteredPUEItemsForSubscription"
             option-value="pue_id"
-            option-label="name"
+            :option-label="(item) => item ? `${item.pue_id} - ${item.name}` : ''"
             emit-value
             map-options
             use-input
@@ -1634,13 +1663,21 @@
             label="PUE Item"
             outlined
             dense
-            hint="Type to search PUE items by name"
+            hint="Type to search by ID or name"
             class="q-mb-md"
           >
             <template v-slot:no-option>
               <q-item>
                 <q-item-section class="text-grey">
                   No PUE items found
+                </q-item-section>
+              </q-item>
+            </template>
+            <template v-slot:option="scope">
+              <q-item v-bind="scope.itemProps">
+                <q-item-section>
+                  <q-item-label>{{ scope.opt.pue_id }} - {{ scope.opt.name }}</q-item-label>
+                  <q-item-label caption v-if="scope.opt.description">{{ scope.opt.description }}</q-item-label>
                 </q-item-section>
               </q-item>
             </template>
@@ -2792,7 +2829,10 @@ const addComponent = () => {
     // Pay-to-own defaults
     contributes_to_ownership: true,
     is_percentage_of_remaining: false,
-    percentage_value: null
+    percentage_value: null,
+    // Recurring payment defaults
+    is_recurring_payment: false,
+    recurring_interval: null
   }
   newStructure.value.components.push(newComponent)
 }
@@ -2824,6 +2864,44 @@ const onUnitTypeChange = (component) => {
   if (!component.component_name || standardNames.includes(component.component_name)) {
     component.component_name = unitTypeLabels[component.unit_type] || ''
   }
+}
+
+// Get the current charge type for a component
+const getComponentChargeType = (component) => {
+  if (component.is_recurring_payment) {
+    return 'recurring'
+  } else if (component.is_calculated_on_return) {
+    return 'on_return'
+  } else {
+    return 'upfront'
+  }
+}
+
+// Set the charge type for a component
+const setComponentChargeType = (component, chargeType) => {
+  component.is_calculated_on_return = chargeType === 'on_return'
+  component.is_recurring_payment = chargeType === 'recurring'
+
+  // Initialize recurring_interval to 1.0 if not set and recurring is selected
+  if (chargeType === 'recurring' && !component.recurring_interval) {
+    component.recurring_interval = 1.0
+  }
+}
+
+// Get the interval unit text based on unit_type
+const getIntervalUnit = (unitType) => {
+  const unitMap = {
+    'per_day': 'day(s)',
+    'per_week': 'week(s)',
+    'per_month': 'month(s)',
+    'per_hour': 'hour(s)',
+    'per_kwh': 'billing cycle(s)',
+    'per_kg': 'billing cycle(s)',
+    'per_recharge': 'recharge(s)',
+    'one_time': 'occurrence(s)',
+    'fixed': 'billing cycle(s)'
+  }
+  return unitMap[unitType] || 'interval(s)'
 }
 
 const addDurationOption = () => {
@@ -2971,12 +3049,14 @@ const editStructure = (structure) => {
     return parsed
   })
 
-  // Ensure components have pay-to-own defaults
+  // Ensure components have pay-to-own and recurring payment defaults
   const components = (structure.components || []).map(comp => ({
     ...comp,
     contributes_to_ownership: comp.contributes_to_ownership !== undefined ? comp.contributes_to_ownership : true,
     is_percentage_of_remaining: comp.is_percentage_of_remaining !== undefined ? comp.is_percentage_of_remaining : false,
-    percentage_value: comp.percentage_value || null
+    percentage_value: comp.percentage_value || null,
+    is_recurring_payment: comp.is_recurring_payment !== undefined ? comp.is_recurring_payment : false,
+    recurring_interval: comp.recurring_interval || null
   }))
 
   newStructure.value = {

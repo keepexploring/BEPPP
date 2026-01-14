@@ -528,7 +528,11 @@ class PUERentalCreateNew(BaseModel):
     is_pay_to_own: bool = Field(False, description="Is this a pay-to-own rental")
     pay_to_own_price: Optional[float] = Field(None, description="Total price for pay-to-own")
     initial_payment: Optional[float] = Field(None, description="Initial payment amount")
+    deposit_amount: Optional[float] = Field(None, description="Deposit amount collected")
+    payment_type: Optional[str] = Field(None, description="Payment type: cash, mobile_money, etc.")
     notes: Optional[List[str]] = Field(None, description="Notes about the rental")
+    has_recurring_payment: bool = Field(False, description="Enable recurring payments")
+    recurring_payment_frequency: Optional[str] = Field(None, description="Payment frequency: monthly, weekly, daily")
 
 class PUERentalPayment(BaseModel):
     """Record payment for PUE rental"""
@@ -553,12 +557,10 @@ class PUERentalConvertToRental(BaseModel):
 
 class PUEInspectionCreate(BaseModel):
     """Create PUE inspection record"""
-    inspector_name: str = Field(..., description="Name of inspector")
     inspection_date: Optional[datetime] = Field(None, description="Inspection date (defaults to now)")
     condition: str = Field(..., description="Condition: Excellent, Good, Fair, Poor, Damaged")
-    notes: Optional[str] = Field(None, description="Inspection notes")
-    requires_maintenance: bool = Field(False, description="Does PUE require maintenance")
-    maintenance_notes: Optional[str] = Field(None, description="Maintenance notes")
+    notes: Optional[str] = Field(None, description="Issues found during inspection")
+    maintenance_notes: Optional[str] = Field(None, description="Actions taken during inspection")
 
 class DataQuery(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -5999,11 +6001,11 @@ async def create_pue_rental(
 
     try:
         # Verify user and PUE exist
-        user = db.query(BEPPPUser).filter(BEPPPUser.user_id == rental.user_id).first()
+        user = db.query(User).filter(User.user_id == rental.user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        pue = db.query(BEPPPPUE).filter(BEPPPPUE.pue_id == rental.pue_id).first()
+        pue = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == rental.pue_id).first()
         if not pue:
             raise HTTPException(status_code=404, detail="PUE not found")
 
@@ -6018,19 +6020,62 @@ async def create_pue_rental(
 
         # Create rental
         rental_start = rental.rental_start_date or datetime.now(timezone.utc)
+
+        # Calculate next payment due date if recurring payments are enabled
+        next_payment_due = None
+        if rental.has_recurring_payment and rental.recurring_payment_frequency:
+            from datetime import timedelta
+            if rental.recurring_payment_frequency == 'daily':
+                next_payment_due = rental_start + timedelta(days=1)
+            elif rental.recurring_payment_frequency == 'weekly':
+                next_payment_due = rental_start + timedelta(weeks=1)
+            elif rental.recurring_payment_frequency == 'monthly':
+                next_payment_due = rental_start + timedelta(days=30)
+
         new_rental = PUERental(
             user_id=rental.user_id,
             pue_id=rental.pue_id,
-            hub_id=user.hub_id,
-            cost_structure_id=rental.cost_structure_id,
             timestamp_taken=rental_start,
+            cost_structure_id=rental.cost_structure_id,
             is_pay_to_own=rental.is_pay_to_own,
-            pay_to_own_price=rental.pay_to_own_price,
-            pay_to_own_paid_amount=rental.initial_payment or 0.0,
-            status='active'
+            total_item_cost=rental.pay_to_own_price,
+            total_paid_towards_ownership=rental.initial_payment or 0.0,
+            deposit_amount=rental.deposit_amount,
+            is_active=True,
+            has_recurring_payment=rental.has_recurring_payment,
+            recurring_payment_frequency=rental.recurring_payment_frequency,
+            next_payment_due_date=next_payment_due
         )
         db.add(new_rental)
         db.flush()
+
+        # Create account transactions for deposit and initial payment
+        if rental.deposit_amount and rental.deposit_amount > 0:
+            # Get or create user account
+            user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+            if not user_account:
+                user_account = UserAccount(
+                    user_id=rental.user_id,
+                    balance=0,
+                    total_spent=0,
+                    total_owed=0
+                )
+                db.add(user_account)
+                db.flush()
+
+            # Record deposit transaction (deposits are credits held, not spent)
+            deposit_transaction = AccountTransaction(
+                account_id=user_account.account_id,
+                transaction_type='pue_deposit',
+                amount=-rental.deposit_amount,  # Negative = money held as deposit
+                balance_after=user_account.balance - rental.deposit_amount,
+                description=f'Deposit for PUE rental #{new_rental.pue_rental_id}',
+                payment_method=rental.payment_type or 'cash',
+                created_at=rental_start
+            )
+            db.add(deposit_transaction)
+            user_account.balance -= rental.deposit_amount
+            user_account.total_owed += rental.deposit_amount
 
         # If pay-to-own, create ledger
         if rental.is_pay_to_own and rental.pay_to_own_price:
@@ -6075,9 +6120,10 @@ async def create_pue_rental(
             "pue_id": new_rental.pue_id,
             "rental_start_date": new_rental.timestamp_taken.isoformat(),
             "is_pay_to_own": new_rental.is_pay_to_own,
-            "pay_to_own_price": float(new_rental.pay_to_own_price) if new_rental.pay_to_own_price else None,
-            "amount_paid": float(new_rental.pay_to_own_paid_amount) if new_rental.pay_to_own_paid_amount else 0.0,
-            "status": new_rental.status
+            "pay_to_own_price": float(new_rental.total_item_cost) if new_rental.total_item_cost else None,
+            "amount_paid": float(new_rental.total_paid_towards_ownership) if new_rental.total_paid_towards_ownership else 0.0,
+            "deposit_amount": float(new_rental.deposit_amount) if new_rental.deposit_amount else 0.0,
+            "status": 'active' if new_rental.is_active else 'inactive'
         }
 
     except HTTPException:
@@ -6138,20 +6184,29 @@ async def list_pue_rentals(
                     "ownership_transferred": ledger.ownership_transferred
                 }
 
+        # Determine status
+        if rental.date_returned:
+            status = 'returned'
+        elif rental.is_active:
+            status = 'active'
+        else:
+            status = 'inactive'
+
         result.append({
             "pue_rental_id": rental.pue_rental_id,
             "user_id": rental.user_id,
-            "user_name": user.name if user else None,
+            "user_name": user.Name if user else None,
             "pue_id": rental.pue_id,
             "pue_name": pue.name if pue else None,
-            "hub_id": rental.hub_id,
-            "cost_structure_id": rental.cost_structure_id,
             "timestamp_taken": rental.timestamp_taken.isoformat(),
-            "timestamp_returned": rental.timestamp_returned.isoformat() if rental.timestamp_returned else None,
+            "date_returned": rental.date_returned.isoformat() if rental.date_returned else None,
             "is_pay_to_own": rental.is_pay_to_own,
-            "pay_to_own_price": float(rental.pay_to_own_price) if rental.pay_to_own_price else None,
-            "pay_to_own_paid_amount": float(rental.pay_to_own_paid_amount) if rental.pay_to_own_paid_amount else 0.0,
-            "status": rental.status,
+            "total_item_cost": float(rental.total_item_cost) if rental.total_item_cost else None,
+            "total_paid_towards_ownership": float(rental.total_paid_towards_ownership) if rental.total_paid_towards_ownership else 0.0,
+            "ownership_percentage": float(rental.ownership_percentage) if rental.ownership_percentage else 0.0,
+            "deposit_amount": float(rental.deposit_amount) if rental.deposit_amount else 0.0,
+            "is_active": rental.is_active,
+            "status": status,
             "pay_to_own_progress": pay_to_own_progress
         })
 
@@ -6172,38 +6227,62 @@ async def get_pue_rental(
 
     # Authorization check
     if current_user.get('role') == UserRole.USER:
-        user = db.query(BEPPPUser).filter(BEPPPUser.user_id == rental.user_id).first()
+        user = db.query(User).filter(User.user_id == rental.user_id).first()
         if user.hub_id != current_user.get('hub_id'):
             raise HTTPException(status_code=403, detail="Access denied")
 
     # Get PUE details
-    pue = db.query(BEPPPPUE).filter(BEPPPPUE.pue_id == rental.pue_id).first()
+    pue = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == rental.pue_id).first()
 
-    # Get pay-to-own ledger if applicable
-    ledger_info = None
-    if rental.is_pay_to_own:
-        ledger = db.query(PUEPayToOwnLedger).filter(
-            PUEPayToOwnLedger.pue_rental_id == rental_id
-        ).first()
-        if ledger:
-            ledger_info = {
-                "total_price": float(ledger.total_price),
-                "amount_paid": float(ledger.amount_paid),
-                "remaining_balance": float(ledger.remaining_balance) if ledger.remaining_balance else None,
-                "ownership_transferred": ledger.ownership_transferred,
-                "ownership_transfer_date": ledger.ownership_transfer_date.isoformat() if ledger.ownership_transfer_date else None
+    # Get cost structure if available
+    cost_structure_data = None
+    if rental.cost_structure_id:
+        cost_structure = db.query(CostStructure).filter(CostStructure.structure_id == rental.cost_structure_id).first()
+        if cost_structure:
+            # Get cost components
+            components = db.query(CostComponent).filter(
+                CostComponent.structure_id == rental.cost_structure_id
+            ).order_by(CostComponent.component_id).all()
+
+            cost_structure_data = {
+                "structure_id": cost_structure.structure_id,
+                "name": cost_structure.name,
+                "description": cost_structure.description,
+                "components": [{
+                    "component_id": comp.component_id,
+                    "component_name": comp.component_name,
+                    "rate": float(comp.rate),
+                    "unit_type": comp.unit_type,
+                    "late_fee_rate": float(comp.late_fee_rate) if comp.late_fee_rate else None,
+                    "late_fee_grace_days": comp.late_fee_grace_days,
+                    "late_fee_action": comp.late_fee_action
+                } for comp in components]
             }
+
+    # Determine status
+    if rental.date_returned:
+        status = 'returned'
+    elif rental.is_active:
+        status = 'active'
+    else:
+        status = 'inactive'
 
     return {
         "pue_rental_id": rental.pue_rental_id,
         "user_id": rental.user_id,
         "pue_id": rental.pue_id,
-        "pue_name": pue.pue_name if pue else None,
-        "rental_start_date": rental.timestamp_taken.isoformat(),
-        "return_date": rental.date_returned.isoformat() if rental.date_returned else None,
+        "pue_name": pue.name if pue else None,
+        "timestamp_taken": rental.timestamp_taken.isoformat(),
+        "date_returned": rental.date_returned.isoformat() if rental.date_returned else None,
         "is_pay_to_own": rental.is_pay_to_own,
-        "status": rental.status,
-        "pay_to_own_ledger": ledger_info
+        "total_item_cost": float(rental.total_item_cost) if rental.total_item_cost else None,
+        "total_paid_towards_ownership": float(rental.total_paid_towards_ownership) if rental.total_paid_towards_ownership else 0.0,
+        "ownership_percentage": float(rental.ownership_percentage) if rental.ownership_percentage else 0.0,
+        "deposit_amount": float(rental.deposit_amount) if rental.deposit_amount else 0.0,
+        "rental_cost": rental.rental_cost,
+        "status": status,
+        "is_active": rental.is_active,
+        "cost_structure": cost_structure_data
     }
 
 @app.post("/pue-rentals/{rental_id}/payment",
@@ -6279,7 +6358,7 @@ async def record_pue_payment(
                 rental.status = 'completed'
 
                 # Update PUE ownership
-                pue = db.query(BEPPPPUE).filter(BEPPPPUE.pue_id == rental.pue_id).first()
+                pue = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == rental.pue_id).first()
                 if pue:
                     pue.status = 'owned'
                     pue.owner_user_id = rental.user_id
@@ -6359,6 +6438,260 @@ async def get_pay_to_own_ledger(
         "payment_progress_percentage": (float(ledger.amount_paid) / float(ledger.total_price) * 100) if ledger.total_price > 0 else 0,
         "transactions": transaction_list
     }
+
+@app.get("/pue-rentals/{rental_id}/calculate-return-cost",
+    tags=["PUE Rentals"],
+    summary="Calculate Final Cost at PUE Return")
+async def calculate_pue_rental_return_cost(
+    rental_id: int,
+    actual_return_date: Optional[str] = Query(None, description="Actual return date (ISO format)"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Calculate final cost for a PUE rental at return time based on:
+    - Actual duration (rental start to return date)
+    - Cost structure components (per_day, per_hour, per_week, per_month, fixed, etc.)
+
+    Returns breakdown of all cost components and final total.
+    """
+    rental = db.query(PUERental).filter(PUERental.pue_rental_id == rental_id).first()
+    if not rental:
+        raise HTTPException(status_code=404, detail="Rental not found")
+
+    # Authorization check
+    if current_user.get('role') == UserRole.USER:
+        # Get the PUE item to check hub
+        pue = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == rental.pue_id).first()
+        if pue and pue.hub_id != current_user.get('hub_id'):
+            raise HTTPException(status_code=403, detail="Access denied")
+    elif current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot access rental details")
+
+    # Parse actual return date or use now
+    if actual_return_date:
+        try:
+            return_date = datetime.fromisoformat(actual_return_date.replace('Z', '+00:00'))
+        except:
+            return_date = datetime.now(timezone.utc)
+    else:
+        return_date = datetime.now(timezone.utc)
+
+    # Calculate actual duration
+    start_date = rental.timestamp_taken
+    if isinstance(start_date, str):
+        start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+    elif start_date and not start_date.tzinfo:
+        start_date = start_date.replace(tzinfo=timezone.utc)
+
+    duration_delta = return_date - start_date
+    actual_hours = duration_delta.total_seconds() / 3600
+    actual_days = duration_delta.total_seconds() / 86400
+    actual_weeks = actual_days / 7
+    actual_months = actual_days / 30
+
+    # Get cost structure
+    cost_breakdown = []
+    subtotal = 0
+    cost_structure_info = None
+
+    if rental.cost_structure_id:
+        cost_structure = db.query(CostStructure).filter(
+            CostStructure.structure_id == rental.cost_structure_id
+        ).first()
+
+        if cost_structure:
+            cost_structure_info = {
+                "structure_id": cost_structure.structure_id,
+                "name": cost_structure.name,
+                "description": cost_structure.description or "No description available"
+            }
+
+            components = db.query(CostComponent).filter(
+                CostComponent.structure_id == cost_structure.structure_id
+            ).all()
+
+            for component in components:
+                component_cost = 0
+                quantity = 0
+
+                if component.unit_type == 'per_hour':
+                    quantity = actual_hours
+                    component_cost = component.rate * actual_hours
+                elif component.unit_type == 'per_day':
+                    quantity = actual_days
+                    component_cost = component.rate * actual_days
+                elif component.unit_type == 'per_week':
+                    quantity = actual_weeks
+                    component_cost = component.rate * actual_weeks
+                elif component.unit_type == 'per_month':
+                    quantity = actual_months
+                    component_cost = component.rate * actual_months
+                elif component.unit_type == 'fixed':
+                    quantity = 1
+                    component_cost = component.rate
+
+                if quantity > 0 or component.unit_type == 'fixed':
+                    cost_breakdown.append({
+                        "component_name": component.component_name,
+                        "unit_type": component.unit_type,
+                        "rate": float(component.rate),
+                        "quantity": round(quantity, 2),
+                        "amount": round(component_cost, 2)
+                    })
+                    subtotal += component_cost
+
+    # Get hub VAT
+    pue = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == rental.pue_id).first()
+    vat_percentage = 15.0
+    if pue and pue.hub_id:
+        hub = db.query(SolarHub).filter(SolarHub.hub_id == pue.hub_id).first()
+        if hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None:
+            vat_percentage = hub.vat_percentage
+
+    vat_amount = subtotal * (vat_percentage / 100)
+    total = subtotal + vat_amount
+
+    # Get user account balance
+    user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+    account_balance = user_account.balance if user_account else 0
+
+    # Calculate amounts
+    deposit_paid = rental.deposit_amount or 0
+    amount_still_owed = max(0, total - deposit_paid)
+
+    return {
+        "rental_id": rental_id,
+        "cost_structure": cost_structure_info,
+        "duration": {
+            "start_date": start_date.isoformat(),
+            "return_date": return_date.isoformat(),
+            "actual_hours": round(actual_hours, 2),
+            "actual_days": round(actual_days, 2),
+            "is_late": False  # Can add late logic later if needed
+        },
+        "kwh_usage": {
+            "start_reading": None,
+            "end_reading": None,
+            "total_used": None
+        },
+        "cost_breakdown": cost_breakdown,
+        "subtotal": round(subtotal, 2),
+        "vat_percentage": vat_percentage,
+        "vat_amount": round(vat_amount, 2),
+        "total": round(total, 2),
+        "original_estimate": 0,
+        "payment_status": {
+            "amount_paid_so_far": round(deposit_paid, 2),
+            "amount_still_owed": round(amount_still_owed, 2),
+            "user_account_balance": round(account_balance, 2),
+            "can_pay_with_credit": account_balance >= amount_still_owed
+        },
+        "subscription": None
+    }
+
+@app.post("/pue-rentals/{rental_id}/return",
+    tags=["PUE Rentals"],
+    summary="Return PUE Item")
+async def return_pue_rental(
+    rental_id: int,
+    return_data: dict,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Return PUE item from a rental"""
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot process returns")
+
+    try:
+        rental = db.query(PUERental).filter(PUERental.pue_rental_id == rental_id).first()
+        if not rental:
+            raise HTTPException(status_code=404, detail="Rental not found")
+
+        # Authorization check
+        if current_user.get('role') == UserRole.USER:
+            pue = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == rental.pue_id).first()
+            if pue and pue.hub_id != current_user.get('hub_id'):
+                raise HTTPException(status_code=403, detail="Access denied")
+
+        # Check if already returned
+        if rental.date_returned:
+            raise HTTPException(status_code=400, detail="PUE item has already been returned")
+
+        # Parse return date
+        actual_return_date = return_data.get('actual_return_date')
+        if actual_return_date:
+            if isinstance(actual_return_date, str):
+                return_date = datetime.fromisoformat(actual_return_date.replace('Z', '+00:00'))
+            else:
+                return_date = actual_return_date
+        else:
+            return_date = datetime.now(timezone.utc)
+
+        # Update rental status
+        rental.date_returned = return_date
+        rental.is_active = False
+
+        # Mark PUE item as available
+        pue = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == rental.pue_id).first()
+        if pue:
+            pue.status = 'available'
+
+        # Handle payment if collecting
+        if return_data.get('collect_payment'):
+            user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+            if not user_account:
+                user_account = UserAccount(user_id=rental.user_id, balance=0)
+                db.add(user_account)
+                db.flush()
+
+            payment_amount = return_data.get('payment_amount', 0)
+            credit_applied = return_data.get('credit_applied', 0)
+
+            if credit_applied > 0:
+                if user_account.balance < credit_applied:
+                    raise HTTPException(status_code=400, detail="Insufficient account credit")
+                user_account.balance -= credit_applied
+
+            if payment_amount > 0:
+                user_account.balance += payment_amount
+
+            # Create transaction record
+            payment_type = return_data.get('payment_type', 'cash')
+            payment_notes = return_data.get('payment_notes', '')
+
+            transaction = AccountTransaction(
+                account_id=user_account.account_id,
+                transaction_type='pue_rental_payment',
+                amount=payment_amount,
+                balance_after=user_account.balance,
+                description=f'Payment for PUE rental #{rental_id}' + (f' - {payment_notes}' if payment_notes else ''),
+                payment_method=payment_type,
+                created_at=return_date
+            )
+            db.add(transaction)
+
+        # Add return notes
+        return_notes = return_data.get('return_notes')
+        if return_notes:
+            note = Note(content=f"Return notes: {return_notes}")
+            db.add(note)
+            db.flush()
+            rental.notes.append(note)
+
+        db.commit()
+
+        return {
+            "message": "PUE rental returned successfully",
+            "pue_rental_id": rental_id,
+            "return_date": return_date.isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
 # PAY-TO-OWN ENDPOINTS (NEW DESIGN)
@@ -6468,7 +6801,7 @@ async def get_user_pay_to_own_items(
     items = []
     for rental in rentals:
         # Get PUE item details
-        pue_item = db.query(BEPPPPUE).filter(BEPPPPUE.pue_id == rental.pue_id).first()
+        pue_item = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == rental.pue_id).first()
 
         # Calculate remaining balance
         remaining = float(rental.total_item_cost or 0) - float(rental.total_paid_towards_ownership)
@@ -6510,7 +6843,7 @@ async def create_pue_inspection(
         raise HTTPException(status_code=403, detail="Data admins cannot record inspections")
 
     try:
-        pue = db.query(BEPPPPUE).filter(BEPPPPUE.pue_id == pue_id).first()
+        pue = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == pue_id).first()
         if not pue:
             raise HTTPException(status_code=404, detail="PUE not found")
 
@@ -6519,31 +6852,12 @@ async def create_pue_inspection(
         new_inspection = PUEInspection(
             pue_id=pue_id,
             inspection_date=inspection_date,
-            inspector_name=inspection.inspector_name,
+            inspector_id=current_user.get('user_id'),
             condition=inspection.condition,
-            inspection_notes=inspection.notes,
-            requires_maintenance=inspection.requires_maintenance,
-            maintenance_notes=inspection.maintenance_notes
+            issues_found=inspection.notes,
+            actions_taken=inspection.maintenance_notes if hasattr(inspection, 'maintenance_notes') else None
         )
         db.add(new_inspection)
-
-        # Update PUE last inspection date
-        pue.last_inspection_date = inspection_date
-
-        # Calculate next inspection date if there's an interval
-        # Get cost structure config for inspection interval
-        if pue.status == 'rented':
-            rental = db.query(PUERental).filter(
-                PUERental.pue_id == pue_id,
-                PUERental.status == 'active'
-            ).first()
-            if rental:
-                config = db.query(CostStructurePUEConfig).filter(
-                    CostStructurePUEConfig.structure_id == rental.cost_structure_id
-                ).first()
-                if config and config.inspection_interval_days:
-                    pue.next_inspection_due = inspection_date + timedelta(days=config.inspection_interval_days)
-
         db.commit()
         db.refresh(new_inspection)
 
@@ -6553,8 +6867,8 @@ async def create_pue_inspection(
             "pue_id": pue_id,
             "inspection_date": new_inspection.inspection_date.isoformat(),
             "condition": new_inspection.condition,
-            "requires_maintenance": new_inspection.requires_maintenance,
-            "next_inspection_due": pue.next_inspection_due.isoformat() if pue.next_inspection_due else None
+            "issues_found": new_inspection.issues_found,
+            "next_inspection_due": None
         }
 
     except HTTPException:
@@ -6572,7 +6886,7 @@ async def get_pue_inspections(
     current_user: dict = Depends(get_current_user)
 ):
     """Get inspection history for a specific PUE"""
-    pue = db.query(BEPPPPUE).filter(BEPPPPUE.pue_id == pue_id).first()
+    pue = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == pue_id).first()
     if not pue:
         raise HTTPException(status_code=404, detail="PUE not found")
 
@@ -6583,20 +6897,21 @@ async def get_pue_inspections(
     inspection_list = [{
         "inspection_id": i.inspection_id,
         "inspection_date": i.inspection_date.isoformat(),
-        "inspector_name": i.inspector_name,
+        "inspector_id": i.inspector_id,
         "condition": i.condition,
-        "inspection_notes": i.inspection_notes,
-        "requires_maintenance": i.requires_maintenance,
-        "maintenance_notes": i.maintenance_notes,
-        "maintenance_completed": i.maintenance_completed,
-        "maintenance_completed_date": i.maintenance_completed_date.isoformat() if i.maintenance_completed_date else None
+        "issues_found": i.issues_found,
+        "actions_taken": i.actions_taken,
+        "next_inspection_due": i.next_inspection_due.isoformat() if i.next_inspection_due else None
     } for i in inspections]
+
+    # Get last inspection from the list
+    last_inspection_date = inspections[0].inspection_date if inspections else None
 
     return {
         "pue_id": pue_id,
-        "pue_name": pue.pue_name,
-        "last_inspection_date": pue.last_inspection_date.isoformat() if pue.last_inspection_date else None,
-        "next_inspection_due": pue.next_inspection_due.isoformat() if pue.next_inspection_due else None,
+        "pue_name": pue.name,
+        "last_inspection_date": last_inspection_date.isoformat() if last_inspection_date else None,
+        "next_inspection_due": None,  # Can be calculated from last inspection + interval if needed
         "inspection_count": len(inspections),
         "inspections": inspection_list
     }
@@ -6612,15 +6927,15 @@ async def get_due_inspections(
     today = datetime.now(timezone.utc).date()
 
     # PUE with next_inspection_due <= today
-    due_pue = db.query(BEPPPPUE).filter(
-        BEPPPPUE.next_inspection_due.isnot(None),
-        func.date(BEPPPPUE.next_inspection_due) <= today
+    due_pue = db.query(ProductiveUseEquipment).filter(
+        ProductiveUseEquipment.next_inspection_due.isnot(None),
+        func.date(ProductiveUseEquipment.next_inspection_due) <= today
     ).all()
 
     result = [{
         "pue_id": p.pue_id,
-        "pue_name": p.pue_name,
-        "serial_number": p.serial_number,
+        "pue_name": p.name,
+        "serial_number": p.short_id,
         "status": p.status,
         "last_inspection_date": p.last_inspection_date.isoformat() if p.last_inspection_date else None,
         "next_inspection_due": p.next_inspection_due.isoformat() if p.next_inspection_due else None,
@@ -6643,15 +6958,15 @@ async def get_overdue_inspections(
     today = datetime.now(timezone.utc).date()
 
     # PUE with next_inspection_due < today
-    overdue_pue = db.query(BEPPPPUE).filter(
-        BEPPPPUE.next_inspection_due.isnot(None),
-        func.date(BEPPPPUE.next_inspection_due) < today
+    overdue_pue = db.query(ProductiveUseEquipment).filter(
+        ProductiveUseEquipment.next_inspection_due.isnot(None),
+        func.date(ProductiveUseEquipment.next_inspection_due) < today
     ).all()
 
     result = [{
         "pue_id": p.pue_id,
-        "pue_name": p.pue_name,
-        "serial_number": p.serial_number,
+        "pue_name": p.name,
+        "serial_number": p.short_id,
         "status": p.status,
         "last_inspection_date": p.last_inspection_date.isoformat() if p.last_inspection_date else None,
         "next_inspection_due": p.next_inspection_due.isoformat() if p.next_inspection_due else None,
@@ -8237,7 +8552,9 @@ async def get_cost_structures(
                 "late_fee_grace_days": comp.late_fee_grace_days,
                 "contributes_to_ownership": comp.contributes_to_ownership,
                 "is_percentage_of_remaining": comp.is_percentage_of_remaining,
-                "percentage_value": float(comp.percentage_value) if comp.percentage_value is not None else None
+                "percentage_value": float(comp.percentage_value) if comp.percentage_value is not None else None,
+                "is_recurring_payment": comp.is_recurring_payment,
+                "recurring_interval": float(comp.recurring_interval) if comp.recurring_interval is not None else None
             } for comp in components],
             "duration_options": [{
                 "option_id": opt.option_id,
@@ -8344,7 +8661,9 @@ async def create_cost_structure(
             late_fee_grace_days=comp_data.get('late_fee_grace_days', 0),
             contributes_to_ownership=comp_data.get('contributes_to_ownership', True),
             is_percentage_of_remaining=comp_data.get('is_percentage_of_remaining', False),
-            percentage_value=comp_data.get('percentage_value')
+            percentage_value=comp_data.get('percentage_value'),
+            is_recurring_payment=comp_data.get('is_recurring_payment', False),
+            recurring_interval=comp_data.get('recurring_interval')
         )
         db.add(component)
 
@@ -8475,7 +8794,9 @@ async def update_cost_structure(
                 late_fee_grace_days=comp_data.get('late_fee_grace_days', 0),
                 contributes_to_ownership=comp_data.get('contributes_to_ownership', True),
                 is_percentage_of_remaining=comp_data.get('is_percentage_of_remaining', False),
-                percentage_value=comp_data.get('percentage_value')
+                percentage_value=comp_data.get('percentage_value'),
+                is_recurring_payment=comp_data.get('is_recurring_payment', False),
+                recurring_interval=comp_data.get('recurring_interval')
             )
             db.add(component)
 

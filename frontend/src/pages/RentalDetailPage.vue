@@ -65,6 +65,7 @@
                 class="q-ml-sm"
               />
             </div>
+            <!-- Battery Info -->
             <div v-if="rentalData?.battery_id">
               <strong>Battery:</strong>
               <q-btn
@@ -89,6 +90,38 @@
                 dense
                 size="sm"
                 label="Return Battery"
+                icon="assignment_return"
+                color="positive"
+                @click="showReturnDialog = true"
+                class="q-ml-sm"
+              />
+            </div>
+
+            <!-- PUE Item Info -->
+            <div v-if="pueData">
+              <strong>PUE Item:</strong>
+              <q-btn
+                flat
+                dense
+                color="primary"
+                :label="pueData.name || `PUE #${pueData.pue_id}`"
+                icon="devices"
+                :to="{ name: 'pue-detail', params: { id: pueData.pue_id } }"
+                class="q-ml-sm"
+              />
+              <q-badge
+                v-if="rentalData?.actual_return_date"
+                color="grey"
+                class="q-ml-sm"
+              >
+                Returned
+              </q-badge>
+              <q-btn
+                v-else-if="canReturn"
+                flat
+                dense
+                size="sm"
+                label="Return PUE"
                 icon="assignment_return"
                 color="positive"
                 @click="showReturnDialog = true"
@@ -726,10 +759,24 @@ const batteryData = computed(() => {
   return rental.value.battery
 })
 
+const pueData = computed(() => {
+  if (!rental.value) return null
+  if (route.name === 'pue-rental-detail') {
+    return {
+      pue_id: rental.value.pue_id,
+      name: rental.value.pue_name
+    }
+  }
+  return null
+})
+
 // Computed property for cost structure information
 const costStructureInfo = computed(() => {
   if (!rental.value) return null
   if (route.name === 'battery-rental-detail') {
+    return rental.value.cost_structure
+  }
+  if (route.name === 'pue-rental-detail') {
     return rental.value.cost_structure
   }
   return null
@@ -892,17 +939,25 @@ const loadRentalDetails = async () => {
 
   try {
     const rentalId = route.params.id
+    console.log('Loading rental details:', {
+      rentalId,
+      routeName: route.name,
+      fullRoute: route.fullPath
+    })
     let response
 
     // Determine which API to use based on route
     if (route.name === 'battery-rental-detail') {
       // New battery rental system
+      console.log('Using battery rentals API for ID:', rentalId)
       response = await batteryRentalsAPI.get(rentalId)
     } else if (route.name === 'pue-rental-detail') {
       // New PUE rental system
+      console.log('Using PUE rentals API for ID:', rentalId)
       response = await pueRentalsAPI.get(rentalId)
     } else {
       // Legacy rental system
+      console.log('Using legacy rentals API for ID:', rentalId)
       response = await rentalsAPI.get(rentalId)
     }
 
