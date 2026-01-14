@@ -60,6 +60,7 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./backups:/app/backups
+      - ./alembic/versions:/app/alembic/versions
     networks:
       - battery-hub-network
     restart: unless-stopped
