@@ -11,6 +11,17 @@
         />
         <span class="text-h5 q-ml-md">{{ hub?.what_three_word_location || `Hub #${hub?.hub_id}` || 'Hub Details' }}</span>
       </div>
+      <div class="col-12 col-sm-auto">
+        <q-btn
+          v-if="authStore.isAdmin"
+          color="primary"
+          label="Edit Hub"
+          icon="edit"
+          @click="openEditDialog"
+          size="sm"
+          class="col-12 col-sm-auto"
+        />
+      </div>
     </div>
 
     <div v-if="loading" class="flex flex-center q-pa-xl">
@@ -205,6 +216,76 @@
         </q-card>
       </div>
     </div>
+
+    <!-- Edit Hub Dialog -->
+    <q-dialog v-model="showEditDialog">
+      <q-card style="min-width: 500px">
+        <q-card-section>
+          <div class="text-h6">Edit Hub</div>
+        </q-card-section>
+
+        <q-card-section>
+          <q-form @submit="saveHub" class="q-gutter-md">
+            <q-input
+              v-model="formData.what_three_word_location"
+              label="What3Words Location"
+              outlined
+              :rules="[val => !!val || 'Location is required']"
+              hint="e.g., main.solar.hub"
+            />
+
+            <q-input
+              v-model.number="formData.solar_capacity_kw"
+              label="Solar Capacity (kW)"
+              type="number"
+              outlined
+              hint="Solar panel capacity in kilowatts"
+            />
+
+            <q-input
+              v-model="formData.country"
+              label="Country"
+              outlined
+            />
+
+            <div class="row q-col-gutter-md">
+              <div class="col-6">
+                <q-input
+                  v-model.number="formData.latitude"
+                  label="Latitude"
+                  type="number"
+                  step="any"
+                  outlined
+                />
+              </div>
+              <div class="col-6">
+                <q-input
+                  v-model.number="formData.longitude"
+                  label="Longitude"
+                  type="number"
+                  step="any"
+                  outlined
+                />
+              </div>
+            </div>
+
+            <div class="row justify-end q-gutter-sm">
+              <q-btn
+                label="Cancel"
+                flat
+                v-close-popup
+              />
+              <q-btn
+                label="Save"
+                type="submit"
+                color="primary"
+                :loading="saving"
+              />
+            </div>
+          </q-form>
+        </q-card-section>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -228,6 +309,17 @@ const batteries = ref([])
 const pueItems = ref([])
 const users = ref([])
 const loading = ref(true)
+const showEditDialog = ref(false)
+const saving = ref(false)
+
+const formData = ref({
+  hub_id: null,
+  what_three_word_location: '',
+  solar_capacity_kw: null,
+  country: '',
+  latitude: null,
+  longitude: null
+})
 
 const getStatusColor = (status) => {
   const colors = {
@@ -280,6 +372,33 @@ const loadHubDetails = async () => {
     })
   } finally {
     loading.value = false
+  }
+}
+
+const openEditDialog = () => {
+  formData.value = { ...hub.value }
+  showEditDialog.value = true
+}
+
+const saveHub = async () => {
+  saving.value = true
+  try {
+    await hubsAPI.update(hub.value.hub_id, formData.value)
+    $q.notify({
+      type: 'positive',
+      message: 'Hub updated successfully',
+      position: 'top'
+    })
+    showEditDialog.value = false
+    await loadHubDetails()
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: error.response?.data?.detail || 'Failed to update hub',
+      position: 'top'
+    })
+  } finally {
+    saving.value = false
   }
 }
 
