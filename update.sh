@@ -108,9 +108,9 @@ if [ -d "$REPO_DIR" ]; then
     git pull origin main
     log_success "Code updated from GitHub"
 
-    # Copy updated files to app directory (except nginx config and migration backups)
+    # Copy updated files to app directory (except nginx config, .env, and migration backups)
     log_info "Copying updated files to $APP_DIR..."
-    rsync -av --exclude='nginx/conf.d/default.conf' --exclude='.git' --exclude='*.backup' --exclude='alembic/versions_old_backup' --exclude='frontend/node_modules' --exclude='frontend/dist' "$REPO_DIR/" "$APP_DIR/"
+    rsync -av --exclude='nginx/conf.d/default.conf' --exclude='nginx/ssl/' --exclude='.env' --exclude='.git' --exclude='*.backup' --exclude='alembic/versions_old_backup' --exclude='frontend/node_modules' --exclude='frontend/dist' "$REPO_DIR/" "$APP_DIR/"
     log_success "Files copied"
 
     # Update nginx config with current domains (in case template changed)
