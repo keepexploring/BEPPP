@@ -17,18 +17,37 @@ depends_on = None
 
 
 def upgrade():
-    # Add cost_structure_id column to puerental table
-    op.add_column('puerental',
-        sa.Column('cost_structure_id', sa.Integer(), nullable=True)
-    )
+    # Check if column exists before adding
+    conn = op.get_bind()
+    result = conn.execute(sa.text("""
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name='puerental' AND column_name='cost_structure_id'
+    """))
+    column_exists = result.fetchone() is not None
 
-    # Add foreign key constraint
-    op.create_foreign_key(
-        'fk_puerental_cost_structure',
-        'puerental', 'cost_structures',
-        ['cost_structure_id'], ['structure_id'],
-        ondelete='SET NULL'
-    )
+    if not column_exists:
+        # Add cost_structure_id column to puerental table
+        op.add_column('puerental',
+            sa.Column('cost_structure_id', sa.Integer(), nullable=True)
+        )
+
+    # Check if foreign key exists before adding
+    result = conn.execute(sa.text("""
+        SELECT constraint_name
+        FROM information_schema.table_constraints
+        WHERE table_name='puerental' AND constraint_name='fk_puerental_cost_structure'
+    """))
+    fk_exists = result.fetchone() is not None
+
+    if not fk_exists:
+        # Add foreign key constraint
+        op.create_foreign_key(
+            'fk_puerental_cost_structure',
+            'puerental', 'cost_structures',
+            ['cost_structure_id'], ['structure_id'],
+            ondelete='SET NULL'
+        )
 
 
 def downgrade():
