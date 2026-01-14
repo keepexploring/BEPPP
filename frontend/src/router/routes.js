@@ -102,6 +102,11 @@ const routes = [
         name: 'accounts',
         meta: { requiresAdmin: true },
         component: () => import('pages/AccountsPage.vue')
+      },
+      {
+        path: 'help',
+        name: 'help',
+        component: () => import('pages/HelpPage.vue')
       }
     ]
   },

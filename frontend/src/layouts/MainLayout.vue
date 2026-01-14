@@ -161,6 +161,21 @@
           </q-item-section>
         </q-item>
 
+        <q-separator />
+
+        <q-item
+          clickable
+          :to="{ name: 'help' }"
+          v-ripple
+        >
+          <q-item-section avatar>
+            <q-icon name="help_outline" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Help & Guide</q-item-label>
+          </q-item-section>
+        </q-item>
+
         <template v-if="authStore.isAdmin">
           <q-separator />
 
