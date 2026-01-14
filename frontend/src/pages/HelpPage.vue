@@ -208,59 +208,493 @@
           <q-card-section class="bg-primary text-white">
             <div class="text-h5">
               <q-icon name="payments" />
-              Cost Structures & Pricing
+              Cost Structures & Pricing - Deep Dive
             </div>
           </q-card-section>
           <q-card-section>
-            <div class="text-h6 q-mb-sm">What are Cost Structures?</div>
-            <p>Cost Structures define pricing models for rentals. You can create different pricing tiers for batteries and PUE items.</p>
+            <div class="text-h6 q-mb-sm">Understanding Cost Structures</div>
+            <p class="text-body1">
+              Cost Structures are the foundation of your rental pricing system. They define how much customers pay,
+              how payments are structured over time, and whether equipment can be owned through a Pay-to-Own program.
+              Think of them as reusable pricing templates that you can apply to different equipment types.
+            </p>
 
-            <div class="text-h6 q-mt-md q-mb-sm">Creating a Cost Structure</div>
+            <q-banner class="bg-blue-1 q-mt-md q-mb-md">
+              <template v-slot:avatar>
+                <q-icon name="info" color="primary" />
+              </template>
+              <div class="text-subtitle1"><strong>Key Concept:</strong></div>
+              <div>Cost Structures separate pricing logic from equipment. You create the pricing model once,
+              then apply it to multiple rentals. This ensures consistency and makes price changes easy.</div>
+            </q-banner>
+
+            <div class="text-h6 q-mt-lg q-mb-sm">The Cost Structure Workflow</div>
+            <p class="text-body2 q-mb-md">Follow this workflow to understand how cost structures flow through the system:</p>
+
+            <q-timeline color="primary" class="q-mb-lg">
+              <q-timeline-entry icon="settings" title="1. Create Cost Structure">
+                <div>Admin defines pricing model in Settings page with all components and rules</div>
+              </q-timeline-entry>
+              <q-timeline-entry icon="devices" title="2. Link to Equipment">
+                <div>Cost Structure is optionally linked to specific PUE items or used during rental creation</div>
+              </q-timeline-entry>
+              <q-timeline-entry icon="person_add" title="3. Create Rental">
+                <div>When creating a rental, select which Cost Structure to apply for this customer</div>
+              </q-timeline-entry>
+              <q-timeline-entry icon="calculate" title="4. System Calculates">
+                <div>System automatically calculates: rental fees, deposits, recurring payments, and ownership progress</div>
+              </q-timeline-entry>
+              <q-timeline-entry icon="payments" title="5. Customer Pays">
+                <div>Payments are tracked against the Cost Structure's rules and applied to balances</div>
+              </q-timeline-entry>
+              <q-timeline-entry icon="check_circle" title="6. Ownership or Return">
+                <div>If Pay-to-Own: ownership transfers when thresholds met. Otherwise: equipment returned with deposit refund</div>
+              </q-timeline-entry>
+            </q-timeline>
+
+            <div class="text-h6 q-mt-lg q-mb-sm">Creating a Cost Structure: Step-by-Step</div>
+            <q-stepper v-model="costStructureStep" vertical flat class="bg-grey-1 q-mb-md">
+              <q-step :name="1" title="Access Settings" icon="settings" :done="costStructureStep > 1">
+                <div class="q-mb-sm">Navigate to <strong>Settings</strong> page (admin only)</div>
+                <div class="text-caption">Only administrators can create and modify cost structures</div>
+                <q-stepper-navigation>
+                  <q-btn @click="costStructureStep = 2" color="primary" label="Continue" />
+                </q-stepper-navigation>
+              </q-step>
+
+              <q-step :name="2" title="Basic Information" icon="edit" :done="costStructureStep > 2">
+                <div class="q-mb-md">
+                  <div class="text-subtitle1 q-mb-xs"><strong>Name:</strong></div>
+                  <div class="q-ml-md text-body2">Give your cost structure a descriptive name:</div>
+                  <ul class="q-ml-lg">
+                    <li>"Standard Battery Rental" - Basic battery pricing</li>
+                    <li>"Premium PUE with Pay-to-Own" - Higher-tier equipment with ownership option</li>
+                    <li>"Monthly Subscription - Solar Panel" - Recurring monthly payment model</li>
+                  </ul>
+                </div>
+                <q-stepper-navigation>
+                  <q-btn @click="costStructureStep = 3" color="primary" label="Continue" />
+                  <q-btn flat @click="costStructureStep = 1" color="primary" label="Back" class="q-ml-sm" />
+                </q-stepper-navigation>
+              </q-step>
+
+              <q-step :name="3" title="Cost Components" icon="payments" :done="costStructureStep > 3">
+                <div class="text-subtitle1 q-mb-sm"><strong>Configure All Cost Components:</strong></div>
+
+                <q-list bordered class="q-mb-md">
+                  <q-item>
+                    <q-item-section>
+                      <q-item-label class="text-weight-bold">Base Daily Rental Fee</q-item-label>
+                      <q-item-label caption>The per-day cost charged to the customer</q-item-label>
+                      <div class="q-mt-sm text-body2">
+                        <strong>Example:</strong> $2.50/day means a 30-day rental costs $75 in rental fees
+                      </div>
+                    </q-item-section>
+                  </q-item>
+
+                  <q-separator />
+
+                  <q-item>
+                    <q-item-section>
+                      <q-item-label class="text-weight-bold">Deposit Amount</q-item-label>
+                      <q-item-label caption>Refundable security deposit collected upfront</q-item-label>
+                      <div class="q-mt-sm text-body2">
+                        <strong>Example:</strong> $50 deposit - Refunded when equipment returned in good condition
+                      </div>
+                      <div class="q-mt-xs text-body2">
+                        <strong>Pay-to-Own:</strong> Can be configured to count toward ownership price
+                      </div>
+                    </q-item-section>
+                  </q-item>
+
+                  <q-separator />
+
+                  <q-item>
+                    <q-item-section>
+                      <q-item-label class="text-weight-bold">Late Fee Structure</q-item-label>
+                      <q-item-label caption>Penalty charged for overdue equipment</q-item-label>
+                      <div class="q-mt-sm text-body2">
+                        <strong>Example:</strong> $5/day after due date passes
+                      </div>
+                    </q-item-section>
+                  </q-item>
+
+                  <q-separator />
+
+                  <q-item>
+                    <q-item-section>
+                      <q-item-label class="text-weight-bold">Recurring Payment Option (PUE Only)</q-item-label>
+                      <q-item-label caption>Enable automatic recurring charges for ongoing rentals</q-item-label>
+                      <div class="q-mt-sm text-body2">
+                        <strong>Example:</strong> Charge $60 every 30 days automatically
+                      </div>
+                      <div class="q-mt-xs text-body2">
+                        <strong>Use Case:</strong> Long-term rentals like solar panels or refrigerators
+                      </div>
+                    </q-item-section>
+                  </q-item>
+                </q-list>
+
+                <q-stepper-navigation>
+                  <q-btn @click="costStructureStep = 4" color="primary" label="Continue" />
+                  <q-btn flat @click="costStructureStep = 2" color="primary" label="Back" class="q-ml-sm" />
+                </q-stepper-navigation>
+              </q-step>
+
+              <q-step :name="4" title="Pay-to-Own Configuration (Optional)" icon="shopping_cart" :done="costStructureStep > 4">
+                <div class="text-subtitle1 q-mb-sm"><strong>Enable Pay-to-Own Option:</strong></div>
+                <p class="text-body2">Pay-to-Own allows customers to own equipment by making payments over time. Enable this feature and configure:</p>
+
+                <q-list bordered class="q-mb-md">
+                  <q-item>
+                    <q-item-section>
+                      <q-item-label class="text-weight-bold">Ownership Price</q-item-label>
+                      <q-item-label caption>Total amount customer must pay to own the equipment</q-item-label>
+                      <div class="q-mt-sm text-body2">
+                        <strong>Example:</strong> $300 - Once payments reach this amount, ownership transfers
+                      </div>
+                    </q-item-section>
+                  </q-item>
+
+                  <q-separator />
+
+                  <q-item>
+                    <q-item-section>
+                      <q-item-label class="text-weight-bold">Apply Deposit to Ownership</q-item-label>
+                      <q-item-label caption>Toggle: Should deposit count toward ownership price?</q-item-label>
+                      <div class="q-mt-sm text-body2">
+                        <strong>If Enabled:</strong> $50 deposit immediately counts as $50 toward $300 ownership price
+                      </div>
+                      <div class="q-mt-xs text-body2">
+                        <strong>If Disabled:</strong> Deposit is separate and refundable (doesn't count)
+                      </div>
+                    </q-item-section>
+                  </q-item>
+
+                  <q-separator />
+
+                  <q-item>
+                    <q-item-section>
+                      <q-item-label class="text-weight-bold">Apply Rental Payments to Ownership</q-item-label>
+                      <q-item-label caption>Toggle: Should rental fees count toward ownership price?</q-item-label>
+                      <div class="q-mt-sm text-body2">
+                        <strong>If Enabled:</strong> Each $2.50/day rental payment reduces the ownership balance
+                      </div>
+                      <div class="q-mt-xs text-body2">
+                        <strong>If Disabled:</strong> Rental fees are pure rental cost (doesn't build equity)
+                      </div>
+                    </q-item-section>
+                  </q-item>
+
+                  <q-separator />
+
+                  <q-item>
+                    <q-item-section>
+                      <q-item-label class="text-weight-bold">Minimum Payment Threshold</q-item-label>
+                      <q-item-label caption>Optional: Minimum amount required before ownership transfer</q-item-label>
+                      <div class="q-mt-sm text-body2">
+                        <strong>Example:</strong> Require at least $250 in direct payments (excluding credits)
+                      </div>
+                    </q-item-section>
+                  </q-item>
+                </q-list>
+
+                <q-banner class="bg-amber-1">
+                  <template v-slot:avatar>
+                    <q-icon name="lightbulb" color="amber-8" />
+                  </template>
+                  <div class="text-subtitle2"><strong>Important:</strong></div>
+                  <div>Pay-to-Own is only available for PUE equipment, NOT for batteries. Batteries use standard rental model only.</div>
+                </q-banner>
+
+                <q-stepper-navigation class="q-mt-md">
+                  <q-btn @click="costStructureStep = 5" color="primary" label="Continue" />
+                  <q-btn flat @click="costStructureStep = 3" color="primary" label="Back" class="q-ml-sm" />
+                </q-stepper-navigation>
+              </q-step>
+
+              <q-step :name="5" title="Save & Apply" icon="check_circle" :done="costStructureStep > 5">
+                <div class="q-mb-md">
+                  <div class="text-subtitle1 q-mb-sm"><strong>Review and Save</strong></div>
+                  <p class="text-body2">Once saved, your Cost Structure will be available when creating rentals.</p>
+                </div>
+                <q-stepper-navigation>
+                  <q-btn @click="costStructureStep = 1" color="primary" label="Finish" />
+                  <q-btn flat @click="costStructureStep = 4" color="primary" label="Back" class="q-ml-sm" />
+                </q-stepper-navigation>
+              </q-step>
+            </q-stepper>
+
+            <div class="text-h6 q-mt-lg q-mb-sm">How Cost Structures Link to Rentals</div>
+            <p class="text-body2 q-mb-md">When you create a rental, you select a Cost Structure. Here's what happens:</p>
+
+            <q-card flat bordered class="bg-blue-grey-1 q-mb-md">
+              <q-card-section>
+                <div class="text-subtitle1 q-mb-sm"><strong>Linking Process:</strong></div>
+                <ol class="q-pl-md">
+                  <li class="q-mb-sm"><strong>Rental Creation:</strong> Admin selects customer, equipment, and Cost Structure</li>
+                  <li class="q-mb-sm"><strong>System Copies Values:</strong> The Cost Structure's values are copied to the rental record</li>
+                  <li class="q-mb-sm"><strong>Rental is Independent:</strong> Once created, the rental has its own values (changing the Cost Structure won't affect existing rentals)</li>
+                  <li class="q-mb-sm"><strong>Calculations Begin:</strong> System uses these values to calculate all charges and ownership progress</li>
+                </ol>
+              </q-card-section>
+            </q-card>
+
+            <div class="text-h6 q-mt-lg q-mb-sm">Calculation Logic Explained</div>
+            <p class="text-body2 q-mb-md">Understanding how the system calculates costs is crucial:</p>
+
+            <q-expansion-item
+              expand-separator
+              icon="calculate"
+              label="Standard Rental Calculation (No Pay-to-Own)"
+              header-class="bg-grey-3"
+              class="q-mb-sm"
+            >
+              <q-card>
+                <q-card-section>
+                  <div class="text-subtitle2 q-mb-sm"><strong>Formula:</strong></div>
+                  <div class="q-mb-md bg-grey-2 q-pa-md" style="font-family: monospace;">
+                    Total Cost = Deposit + (Daily Rate × Number of Days) + Late Fees
+                  </div>
+
+                  <div class="text-subtitle2 q-mb-sm"><strong>Example Calculation:</strong></div>
+                  <ul class="q-pl-md">
+                    <li>Deposit: $50 (refundable)</li>
+                    <li>Daily Rate: $2.50/day</li>
+                    <li>Rental Period: 30 days</li>
+                    <li>Returned On Time: Yes</li>
+                  </ul>
+
+                  <div class="q-mt-md bg-green-1 q-pa-md">
+                    <div class="text-weight-bold">At Rental Start:</div>
+                    <div>Customer pays: $50 (deposit) + $75 (30 × $2.50) = <strong>$125</strong></div>
+
+                    <div class="text-weight-bold q-mt-md">At Return:</div>
+                    <div>Customer receives back: <strong>$50</strong> (deposit refund)</div>
+                    <div>Net cost to customer: <strong>$75</strong></div>
+                  </div>
+                </q-card-section>
+              </q-card>
+            </q-expansion-item>
+
+            <q-expansion-item
+              expand-separator
+              icon="shopping_cart"
+              label="Pay-to-Own Calculation (PUE Only)"
+              header-class="bg-grey-3"
+              class="q-mb-sm"
+            >
+              <q-card>
+                <q-card-section>
+                  <div class="text-subtitle2 q-mb-sm"><strong>Formula:</strong></div>
+                  <div class="q-mb-md bg-grey-2 q-pa-md" style="font-family: monospace;">
+                    Ownership Progress = (Deposit × deposit_applies) + (Rental Payments × payments_apply) + Direct Payments<br/>
+                    Ownership Complete = Ownership Progress ≥ Ownership Price
+                  </div>
+
+                  <div class="text-subtitle2 q-mb-sm"><strong>Example Calculation:</strong></div>
+                  <div class="text-body2 q-mb-sm"><strong>Cost Structure Settings:</strong></div>
+                  <ul class="q-pl-md q-mb-md">
+                    <li>Ownership Price: $300</li>
+                    <li>Deposit: $50 (applies to ownership: YES)</li>
+                    <li>Daily Rate: $2.50/day</li>
+                    <li>Rental Payments Apply to Ownership: YES</li>
+                  </ul>
+
+                  <div class="bg-amber-1 q-pa-md q-mb-md">
+                    <div class="text-weight-bold">Month 1:</div>
+                    <div>Customer pays: $50 (deposit) + $75 (30 days)</div>
+                    <div>Ownership Progress: $50 + $75 = <strong>$125 / $300</strong></div>
+                    <div class="text-caption">Still renting - needs $175 more</div>
+
+                    <div class="text-weight-bold q-mt-md">Month 2:</div>
+                    <div>Customer pays: $75 (30 days)</div>
+                    <div>Ownership Progress: $125 + $75 = <strong>$200 / $300</strong></div>
+                    <div class="text-caption">Still renting - needs $100 more</div>
+
+                    <div class="text-weight-bold q-mt-md">Month 3:</div>
+                    <div>Customer pays: $75 (30 days)</div>
+                    <div>Ownership Progress: $200 + $75 = <strong>$275 / $300</strong></div>
+                    <div class="text-caption">Still renting - needs $25 more</div>
+
+                    <div class="text-weight-bold q-mt-md">Month 4 (Day 10):</div>
+                    <div>Customer pays: $25 (10 days)</div>
+                    <div>Ownership Progress: $275 + $25 = <strong>$300 / $300</strong></div>
+                    <div class="text-success text-weight-bold">✓ OWNERSHIP TRANSFERRED!</div>
+                  </div>
+
+                  <div class="bg-green-1 q-pa-md">
+                    <div class="text-weight-bold">Total Cost to Own:</div>
+                    <div>$50 + $75 + $75 + $75 + $25 = <strong>$300</strong></div>
+                    <div class="text-caption q-mt-xs">Customer now owns the equipment after ~100 days</div>
+                  </div>
+                </q-card-section>
+              </q-card>
+            </q-expansion-item>
+
+            <q-expansion-item
+              expand-separator
+              icon="event"
+              label="Recurring Payment Calculation (PUE Only)"
+              header-class="bg-grey-3"
+              class="q-mb-md"
+            >
+              <q-card>
+                <q-card-section>
+                  <div class="text-subtitle2 q-mb-sm"><strong>How Recurring Payments Work:</strong></div>
+                  <p class="text-body2">For long-term PUE rentals, you can enable recurring payments that automatically charge the customer at regular intervals.</p>
+
+                  <div class="text-subtitle2 q-mt-md q-mb-sm"><strong>Configuration:</strong></div>
+                  <ul class="q-pl-md q-mb-md">
+                    <li>Enable "Recurring Payment" in Cost Structure</li>
+                    <li>Set interval: e.g., every 30 days</li>
+                    <li>Set amount: e.g., $60 per interval</li>
+                  </ul>
+
+                  <div class="bg-blue-1 q-pa-md">
+                    <div class="text-weight-bold">Example Timeline:</div>
+                    <div class="q-mt-sm">Day 1: Rental starts - Customer pays deposit + first month</div>
+                    <div class="q-mt-sm">Day 30: System auto-charges $60 to customer account</div>
+                    <div class="q-mt-sm">Day 60: System auto-charges $60 to customer account</div>
+                    <div class="q-mt-sm">Day 90: System auto-charges $60 to customer account</div>
+                    <div class="q-mt-sm text-caption">Continues until rental is returned or ownership transferred</div>
+                  </div>
+
+                  <q-banner class="bg-orange-1 q-mt-md">
+                    <template v-slot:avatar>
+                      <q-icon name="warning" color="orange-8" />
+                    </template>
+                    <div><strong>Important:</strong> Recurring payments are processed by a cron job that runs daily. If customer credit is insufficient, notifications are sent.</div>
+                  </q-banner>
+                </q-card-section>
+              </q-card>
+            </q-expansion-item>
+
+            <div class="text-h6 q-mt-lg q-mb-sm">Practical Examples</div>
+
+            <q-card flat bordered class="q-mb-md">
+              <q-card-section class="bg-positive text-white">
+                <div class="text-subtitle1"><strong>Scenario 1: Simple Battery Rental</strong></div>
+              </q-card-section>
+              <q-card-section>
+                <div><strong>Equipment:</strong> Standard 12V Battery</div>
+                <div><strong>Cost Structure:</strong> "Basic Battery - $3/day"</div>
+                <div><strong>Configuration:</strong> $50 deposit, $3/day, no pay-to-own</div>
+                <div><strong>Customer rents for 20 days</strong></div>
+
+                <div class="q-mt-md">
+                  <div>Customer pays upfront: $50 + (20 × $3) = <strong>$110</strong></div>
+                  <div>At return: Receives <strong>$50</strong> deposit back</div>
+                  <div class="text-weight-bold">Final cost: $60</div>
+                </div>
+              </q-card-section>
+            </q-card>
+
+            <q-card flat bordered class="q-mb-md">
+              <q-card-section class="bg-info text-white">
+                <div class="text-subtitle1"><strong>Scenario 2: Pay-to-Own Solar Panel</strong></div>
+              </q-card-section>
+              <q-card-section>
+                <div><strong>Equipment:</strong> 100W Solar Panel</div>
+                <div><strong>Cost Structure:</strong> "Solar Panel Pay-to-Own"</div>
+                <div><strong>Configuration:</strong></div>
+                <ul class="q-pl-md">
+                  <li>Ownership Price: $400</li>
+                  <li>Deposit: $100 (applies to ownership)</li>
+                  <li>Daily Rate: $4/day (applies to ownership)</li>
+                  <li>Recurring: $120 every 30 days</li>
+                </ul>
+
+                <div class="q-mt-md">
+                  <div><strong>Month 1:</strong> Deposit $100 + Initial $120 = <strong>$220 / $400</strong></div>
+                  <div><strong>Month 2:</strong> $220 + $120 = <strong>$340 / $400</strong></div>
+                  <div><strong>Month 3:</strong> $340 + $120 = <strong>$460 / $400</strong></div>
+                  <div class="text-success text-weight-bold q-mt-sm">✓ Ownership transferred in Month 3!</div>
+                  <div class="text-caption">Customer pays total $360, receives $60 credit for overpayment</div>
+                </div>
+              </q-card-section>
+            </q-card>
+
+            <q-card flat bordered class="q-mb-md">
+              <q-card-section class="bg-warning text-white">
+                <div class="text-subtitle1"><strong>Scenario 3: Late Return with Fees</strong></div>
+              </q-card-section>
+              <q-card-section>
+                <div><strong>Equipment:</strong> Battery</div>
+                <div><strong>Cost Structure:</strong> $2/day, $50 deposit, $5/day late fee</div>
+                <div><strong>Agreed rental:</strong> 30 days</div>
+                <div><strong>Actual return:</strong> 35 days (5 days late)</div>
+
+                <div class="q-mt-md">
+                  <div>Original payment: $50 + (30 × $2) = $110</div>
+                  <div>Late fees: 5 × $5 = <strong>$25</strong></div>
+                  <div>Additional rental days: 5 × $2 = <strong>$10</strong></div>
+                  <div class="text-weight-bold q-mt-sm">Customer owes additional: $35</div>
+                  <div>Deducted from deposit: $50 - $35 = $15 refunded</div>
+                </div>
+              </q-card-section>
+            </q-card>
+
+            <div class="text-h6 q-mt-lg q-mb-sm">Best Practices</div>
             <q-list bordered separator class="q-mb-md">
               <q-item>
-                <q-item-section avatar><div class="text-h6 text-primary">1</div></q-item-section>
-                <q-item-section>Go to <strong>Settings</strong> (admin only)</q-item-section>
-              </q-item>
-              <q-item>
-                <q-item-section avatar><div class="text-h6 text-primary">2</div></q-item-section>
-                <q-item-section>Scroll to <strong>Cost Structures</strong> section</q-item-section>
-              </q-item>
-              <q-item>
-                <q-item-section avatar><div class="text-h6 text-primary">3</div></q-item-section>
-                <q-item-section>Click <strong>Add Cost Structure</strong></q-item-section>
-              </q-item>
-              <q-item>
-                <q-item-section avatar><div class="text-h6 text-primary">4</div></q-item-section>
+                <q-item-section avatar top>
+                  <q-icon name="tips_and_updates" color="amber" size="md" />
+                </q-item-section>
                 <q-item-section>
-                  Configure pricing:
-                  <ul class="q-mt-sm q-ml-md">
-                    <li><strong>Name:</strong> e.g., "Standard Battery Rental"</li>
-                    <li><strong>Base Cost:</strong> Daily rental fee</li>
-                    <li><strong>Deposit:</strong> Refundable deposit amount</li>
-                    <li><strong>Duration Options:</strong> Add pricing for different rental periods</li>
-                  </ul>
+                  <q-item-label class="text-weight-bold">Create Multiple Tiers</q-item-label>
+                  <q-item-label caption>
+                    Have "Basic", "Standard", and "Premium" cost structures to offer customers choices
+                  </q-item-label>
                 </q-item-section>
               </q-item>
-            </q-list>
 
-            <div class="text-h6 q-mt-md q-mb-sm">Cost Components</div>
-            <p>Each cost structure can include multiple components:</p>
-            <q-list bordered dense class="q-mb-md">
               <q-item>
-                <q-item-section avatar><q-icon name="check_circle" color="positive" /></q-item-section>
-                <q-item-section><strong>Base Rental Fee:</strong> Regular rental cost per day/week</q-item-section>
+                <q-item-section avatar top>
+                  <q-icon name="tips_and_updates" color="amber" size="md" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Use Descriptive Names</q-item-label>
+                  <q-item-label caption>
+                    Names like "Battery Standard $3/day" are clearer than "Plan A"
+                  </q-item-label>
+                </q-item-section>
               </q-item>
+
               <q-item>
-                <q-item-section avatar><q-icon name="check_circle" color="positive" /></q-item-section>
-                <q-item-section><strong>Deposit:</strong> Refundable security deposit</q-item-section>
+                <q-item-section avatar top>
+                  <q-icon name="tips_and_updates" color="amber" size="md" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Set Realistic Ownership Prices</q-item-label>
+                  <q-item-label caption>
+                    For Pay-to-Own, price should be fair market value, not inflated
+                  </q-item-label>
+                </q-item-section>
               </q-item>
+
               <q-item>
-                <q-item-section avatar><q-icon name="check_circle" color="positive" /></q-item-section>
-                <q-item-section><strong>Late Fees:</strong> Penalties for overdue returns</q-item-section>
+                <q-item-section avatar top>
+                  <q-icon name="tips_and_updates" color="amber" size="md" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Consider Your Costs</q-item-label>
+                  <q-item-label caption>
+                    Factor in equipment depreciation, maintenance, and opportunity cost when setting rates
+                  </q-item-label>
+                </q-item-section>
               </q-item>
+
               <q-item>
-                <q-item-section avatar><q-icon name="check_circle" color="positive" /></q-item-section>
-                <q-item-section><strong>Recurring Payments:</strong> For ongoing rentals</q-item-section>
+                <q-item-section avatar top>
+                  <q-icon name="tips_and_updates" color="amber" size="md" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Test Before Deployment</q-item-label>
+                  <q-item-label caption>
+                    Create a test rental to verify calculations work as expected
+                  </q-item-label>
+                </q-item-section>
               </q-item>
             </q-list>
           </q-card-section>
@@ -580,17 +1014,9 @@
           </q-card-section>
           <q-card-section>
             <p class="text-body1">
-              If you need additional assistance or have questions not covered in this guide:
+              If you need additional assistance or have questions not covered in this guide, please contact your system administrator.
             </p>
             <div class="q-mt-md">
-              <q-btn
-                outline
-                color="primary"
-                label="Contact Support"
-                icon="email"
-                href="mailto:support@beppp.cloud"
-                class="q-mr-sm"
-              />
               <q-btn
                 outline
                 color="primary"
@@ -600,6 +1026,18 @@
                 target="_blank"
               />
             </div>
+
+            <q-banner class="bg-blue-1 q-mt-md">
+              <template v-slot:avatar>
+                <q-icon name="info" color="primary" />
+              </template>
+              <div class="text-subtitle2"><strong>Note on User Access:</strong></div>
+              <div class="text-body2">
+                While the system has user login functionality implemented, user credentials are not currently
+                being provided to end customers. This feature can be enabled and rolled out when ready.
+                Currently, admins manage all rental operations on behalf of customers.
+              </div>
+            </q-banner>
           </q-card-section>
         </q-card>
 
@@ -612,6 +1050,7 @@
 import { ref } from 'vue'
 
 const step = ref(1)
+const costStructureStep = ref(1)
 
 const quickLinks = [
   { id: 'getting-started', label: 'Getting Started' },
