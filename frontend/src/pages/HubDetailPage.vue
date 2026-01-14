@@ -248,26 +248,23 @@
               outlined
             />
 
-            <div class="row q-col-gutter-md">
-              <div class="col-6">
-                <q-input
-                  v-model.number="formData.latitude"
-                  label="Latitude"
-                  type="number"
-                  step="any"
-                  outlined
-                />
-              </div>
-              <div class="col-6">
-                <q-input
-                  v-model.number="formData.longitude"
-                  label="Longitude"
-                  type="number"
-                  step="any"
-                  outlined
-                />
-              </div>
-            </div>
+            <q-input
+              v-model.number="formData.latitude"
+              label="Latitude"
+              type="number"
+              step="any"
+              outlined
+              hint="Optional"
+            />
+
+            <q-input
+              v-model.number="formData.longitude"
+              label="Longitude"
+              type="number"
+              step="any"
+              outlined
+              hint="Optional"
+            />
 
             <div class="row justify-end q-gutter-sm">
               <q-btn
