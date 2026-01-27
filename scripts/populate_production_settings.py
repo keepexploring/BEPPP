@@ -43,7 +43,7 @@ def populate_return_surveys(db: Session):
             "question_text": "How satisfied were you with the battery performance?",
             "question_type": "rating",
             "is_required": True,
-            "question_order": 1,
+            "sort_order": 1,
             "rating_min": 1,
             "rating_max": 5,
             "rating_min_label": "Very Dissatisfied",
@@ -53,13 +53,13 @@ def populate_return_surveys(db: Session):
             "question_text": "Did the battery meet your energy needs?",
             "question_type": "yes_no",
             "is_required": True,
-            "question_order": 2
+            "sort_order": 2
         },
         {
             "question_text": "How would you rate the rental process?",
             "question_type": "rating",
             "is_required": True,
-            "question_order": 3,
+            "sort_order": 3,
             "rating_min": 1,
             "rating_max": 5,
             "rating_min_label": "Very Poor",
@@ -69,20 +69,20 @@ def populate_return_surveys(db: Session):
             "question_text": "What did you use the battery for?",
             "question_type": "multiple_choice",
             "is_required": False,
-            "question_order": 4,
+            "sort_order": 4,
             "options": ["Lighting", "Phone Charging", "TV/Radio", "Small Appliances", "Business Equipment", "Other"]
         },
         {
             "question_text": "Would you rent from us again?",
             "question_type": "yes_no",
             "is_required": True,
-            "question_order": 5
+            "sort_order": 5
         },
         {
             "question_text": "Any suggestions for improvement?",
-            "question_type": "text",
+            "question_type": "open_text",
             "is_required": False,
-            "question_order": 6
+            "sort_order": 6
         }
     ]
 
@@ -106,7 +106,7 @@ def populate_return_surveys(db: Session):
                 question_text=q_data["question_text"],
                 question_type=q_data["question_type"],
                 is_required=q_data["is_required"],
-                question_order=q_data["question_order"],
+                sort_order=q_data["sort_order"],
                 rating_min=q_data.get("rating_min"),
                 rating_max=q_data.get("rating_max"),
                 rating_min_label=q_data.get("rating_min_label"),
@@ -118,10 +118,12 @@ def populate_return_surveys(db: Session):
             # Add options for multiple choice questions
             if q_data["question_type"] == "multiple_choice" and "options" in q_data:
                 db.flush()  # Get the question ID
-                for option_text in q_data["options"]:
+                for idx, option_text in enumerate(q_data["options"], start=1):
                     option = ReturnSurveyQuestionOption(
                         question_id=question.question_id,
-                        option_text=option_text
+                        option_text=option_text,
+                        option_value=option_text.lower().replace(" ", "_"),
+                        sort_order=idx
                     )
                     db.add(option)
 
