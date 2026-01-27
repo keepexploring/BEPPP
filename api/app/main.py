@@ -1282,9 +1282,9 @@ async def handle_direct_format(battery_data: dict, db: Session, current_user: di
     
     battery_id = None
     if 'id' in battery_data:
-        try:
-            battery_id = int(battery_data['id'])
-        except (ValueError, TypeError):
+        # Keep battery_id as string to match database schema (converted in ff7c9c33882f migration)
+        battery_id = str(battery_data['id'])
+        if not battery_id:
             log_webhook_event(
                 event_type="invalid_battery_id",
                 user_info=current_user,
@@ -1716,10 +1716,8 @@ async def receive_live_data(
         battery_data = await request.json()
         
         if 'id' in battery_data:
-            try:
-                battery_id = int(battery_data['id'])
-            except (ValueError, TypeError):
-                pass
+            # Keep battery_id as string to match database schema (converted in ff7c9c33882f migration)
+            battery_id = str(battery_data['id']) if battery_data['id'] else None
         
         if DEBUG:
             log_webhook_event(
