@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from sqlalchemy.orm import Session
 from database import get_db
-from models import SolarHub, ReturnSurveyQuestion, CustomCustomerField, CustomFieldOption
+from models import SolarHub, ReturnSurveyQuestion, CustomerFieldOption, ReturnSurveyQuestionOption
 
 
 def populate_return_surveys(db: Session):
@@ -119,8 +119,7 @@ def populate_return_surveys(db: Session):
             if q_data["question_type"] == "multiple_choice" and "options" in q_data:
                 db.flush()  # Get the question ID
                 for option_text in q_data["options"]:
-                    from models import SurveyQuestionOption
-                    option = SurveyQuestionOption(
+                    option = ReturnSurveyQuestionOption(
                         question_id=question.question_id,
                         option_text=option_text
                     )
@@ -134,14 +133,17 @@ def populate_custom_field_options(db: Session):
     """Populate custom customer field options"""
     print("\n📝 Populating Custom Field Options...")
 
-    # Define custom fields with their options
-    custom_fields = [
-        {
-            "field_name": "gesi_status",
+    # Get all hubs
+    hubs = db.query(SolarHub).all()
+
+    if not hubs:
+        print("⚠️  No hubs found. Please create hubs first.")
+        return
+
+    # Define custom field options
+    custom_field_options = {
+        "gesi_status": {
             "display_name": "GESI Status",
-            "field_type": "select",
-            "is_required": False,
-            "field_order": 1,
             "options": [
                 "Person with Disability",
                 "Female-headed Household",
@@ -152,12 +154,8 @@ def populate_custom_field_options(db: Session):
                 "Not Applicable"
             ]
         },
-        {
-            "field_name": "business_category",
+        "business_category": {
             "display_name": "Business Category",
-            "field_type": "select",
-            "is_required": False,
-            "field_order": 2,
             "options": [
                 "Micro Business (1-5 employees)",
                 "Small Business (6-20 employees)",
@@ -168,12 +166,8 @@ def populate_custom_field_options(db: Session):
                 "Other"
             ]
         },
-        {
-            "field_name": "main_reason_signup",
+        "main_reason_for_signup": {
             "display_name": "Main Reason for Signing Up",
-            "field_type": "select",
-            "is_required": False,
-            "field_order": 3,
             "options": [
                 "No electricity access",
                 "Unreliable grid electricity",
@@ -186,45 +180,39 @@ def populate_custom_field_options(db: Session):
                 "Other"
             ]
         }
-    ]
+    }
 
-    fields_added = 0
-    for field_data in custom_fields:
-        # Check if field already exists
-        existing = db.query(CustomCustomerField).filter(
-            CustomCustomerField.field_name == field_data["field_name"]
-        ).first()
+    options_added = 0
+    for hub in hubs:
+        print(f"\n  Adding options for hub: {hub.what_three_word_location}")
 
-        if existing:
-            print(f"  ℹ️  Field '{field_data['display_name']}' already exists - skipping")
-            continue
+        for field_name, field_data in custom_field_options.items():
+            # Check if options already exist for this hub and field
+            existing = db.query(CustomerFieldOption).filter(
+                CustomerFieldOption.hub_id == hub.hub_id,
+                CustomerFieldOption.field_name == field_name
+            ).count()
 
-        # Create the custom field
-        custom_field = CustomCustomerField(
-            field_name=field_data["field_name"],
-            display_name=field_data["display_name"],
-            field_type=field_data["field_type"],
-            is_required=field_data["is_required"],
-            field_order=field_data["field_order"]
-        )
-        db.add(custom_field)
-        db.flush()  # Get the field ID
+            if existing > 0:
+                print(f"  ℹ️  '{field_data['display_name']}' options already exist - skipping")
+                continue
 
-        # Add options
-        for order, option_text in enumerate(field_data["options"], start=1):
-            option = CustomFieldOption(
-                field_id=custom_field.field_id,
-                option_value=option_text,
-                option_label=option_text,
-                option_order=order
-            )
-            db.add(option)
+            # Add options
+            for order, option_value in enumerate(field_data["options"], start=1):
+                option = CustomerFieldOption(
+                    hub_id=hub.hub_id,
+                    field_name=field_name,
+                    option_value=option_value,
+                    is_active=True,
+                    sort_order=order
+                )
+                db.add(option)
+                options_added += 1
 
-        fields_added += 1
-        print(f"  ✅ Added '{field_data['display_name']}' with {len(field_data['options'])} options")
+            print(f"  ✅ Added '{field_data['display_name']}' with {len(field_data['options'])} options")
 
     db.commit()
-    print(f"\n✅ Added {fields_added} custom fields")
+    print(f"\n✅ Added {options_added} custom field options")
 
 
 def main():
@@ -248,7 +236,7 @@ def main():
         print("=" * 70)
         print("\nYou can now:")
         print("  1. View return surveys in Settings > Return Surveys")
-        print("  2. View custom fields in Settings > Customer Data")
+        print("  2. View custom field options in Settings > Customer Data")
         print("  3. These will appear in customer forms and battery returns")
         print()
 
