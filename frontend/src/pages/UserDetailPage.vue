@@ -3,14 +3,33 @@
     <div class="row items-center q-mb-md q-col-gutter-sm">
       <div class="col-12 col-sm">
         <q-btn flat round dense icon="arrow_back" @click="$router.back()" />
-        <span class="text-h5 q-ml-md">User Details</span>
+        <span class="text-h5 q-ml-md">Customer Details</span>
       </div>
-      <div class="col-12 col-sm-auto">
+      <div class="col-12 col-sm-auto q-gutter-sm">
+        <q-btn
+          v-if="user"
+          label="Create Job Card"
+          icon="add_task"
+          color="primary"
+          outline
+          @click="showJobCardDialog = true"
+          size="sm"
+          class="col-12 col-sm-auto"
+        />
         <q-btn
           color="primary"
-          label="Edit User"
+          label="Edit Customer"
           icon="edit"
           @click="openEditUserDialog"
+          size="sm"
+          class="col-12 col-sm-auto"
+        />
+        <q-btn
+          v-if="authStore.isSuperAdmin && user"
+          color="orange"
+          label="Reset Password"
+          icon="lock_reset"
+          @click="showResetPasswordDialog = true"
           size="sm"
           class="col-12 col-sm-auto"
         />
@@ -22,17 +41,17 @@
     </div>
 
     <div v-else>
-      <!-- User Info Card -->
+      <!-- Customer Info Card -->
       <q-card class="q-mb-md">
         <q-card-section>
-          <div class="text-h6 q-mb-md">User Information</div>
+          <div class="text-h6 q-mb-md">Customer Information</div>
           <div class="row q-col-gutter-md">
             <div class="col-12 col-md-6">
               <div class="text-caption text-grey-7">Name</div>
-              <div class="text-body1">{{ user.Name || user.username || `User ${user.user_id}` }}</div>
+              <div class="text-body1">{{ user.Name || user.username || `Customer ${user.user_id}` }}</div>
             </div>
             <div class="col-12 col-md-6">
-              <div class="text-caption text-grey-7">User ID</div>
+              <div class="text-caption text-grey-7">Customer ID</div>
               <div class="text-body1">{{ user.user_id }}</div>
             </div>
             <div class="col-12 col-md-6">
@@ -50,6 +69,24 @@
                   {{ user.role }}
                 </q-chip>
               </div>
+            </div>
+            <div v-if="user.id_document_photo_url" class="col-12">
+              <div class="text-caption text-grey-7 q-mb-sm">ID Document Photo</div>
+              <q-img
+                :src="`${apiBaseUrl}${user.id_document_photo_url}`"
+                style="max-width: 300px; max-height: 300px"
+                class="rounded-borders cursor-pointer"
+                @click="showPhotoDialog = true"
+              >
+                <template v-slot:loading>
+                  <q-spinner color="primary" size="50px" />
+                </template>
+                <template v-slot:error>
+                  <div class="absolute-full flex flex-center bg-negative text-white">
+                    Failed to load photo
+                  </div>
+                </template>
+              </q-img>
             </div>
           </div>
         </q-card-section>
@@ -833,7 +870,7 @@
       <q-card style="min-width: 500px">
         <q-card-section>
           <div class="text-h6">Settle Debt</div>
-          <div class="text-subtitle2">User: {{ user.Name || user.username || `User ${user.user_id}` }}</div>
+          <div class="text-subtitle2">Customer: {{ user.Name || user.username || `Customer ${user.user_id}` }}</div>
         </q-card-section>
 
         <q-card-section>
@@ -1011,7 +1048,7 @@
       <q-card style="min-width: 500px">
         <q-card-section>
           <div class="text-h6">Take Payment</div>
-          <div class="text-subtitle2">User: {{ user.Name || user.username || `User ${user.user_id}` }}</div>
+          <div class="text-subtitle2">Customer: {{ user.Name || user.username || `Customer ${user.user_id}` }}</div>
         </q-card-section>
 
         <q-card-section>
@@ -1070,7 +1107,7 @@
               outlined
               :max="account.balance"
               :disable="account.balance <= 0"
-              :hint="account.balance > 0 ? `Available credit: ${currencySymbol}${account.balance.toFixed(2)}` : 'User has no account credit'"
+              :hint="account.balance > 0 ? `Available credit: ${currencySymbol}${account.balance.toFixed(2)}` : 'Customer has no account credit'"
               :rules="[
                 val => val >= 0 || 'Credit cannot be negative',
                 val => val <= account.balance || `Cannot exceed available credit (${currencySymbol}${account.balance.toFixed(2)})`
@@ -1224,7 +1261,7 @@
             <q-icon name="warning" class="q-mr-sm" />
             Manual Balance Adjustment
           </div>
-          <div class="text-subtitle2">User: {{ user.Name || user.username || `User ${user.user_id}` }}</div>
+          <div class="text-subtitle2">Customer: {{ user.Name || user.username || `Customer ${user.user_id}` }}</div>
         </q-card-section>
 
         <q-card-section>
@@ -1330,7 +1367,7 @@
       <q-card style="min-width: 450px">
         <q-card-section>
           <div class="text-h6">Add Prepaid Credit</div>
-          <div class="text-subtitle2">User: {{ user.Name || user.username || `User ${user.user_id}` }}</div>
+          <div class="text-subtitle2">Customer: {{ user.Name || user.username || `Customer ${user.user_id}` }}</div>
         </q-card-section>
 
         <q-card-section>
@@ -1536,12 +1573,12 @@
       </q-card>
     </q-dialog>
 
-    <!-- Edit User Dialog -->
+    <!-- Edit Customer Dialog -->
     <q-dialog v-model="showEditUserDialog">
       <q-card style="min-width: 500px">
         <q-card-section>
-          <div class="text-h6">Edit User</div>
-          <div class="text-subtitle2">User ID: {{ user.user_id }}</div>
+          <div class="text-h6">Edit Customer</div>
+          <div class="text-subtitle2">Customer ID: {{ user.user_id }}</div>
         </q-card-section>
 
         <q-card-section class="q-gutter-md">
@@ -1680,6 +1717,40 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <!-- ID Document Photo Dialog -->
+    <q-dialog v-model="showPhotoDialog">
+      <q-card style="min-width: 400px; max-width: 90vw">
+        <q-card-section class="row items-center q-pb-none">
+          <div class="text-h6">ID Document Photo</div>
+          <q-space />
+          <q-btn icon="close" flat round dense v-close-popup />
+        </q-card-section>
+
+        <q-card-section>
+          <q-img
+            :src="`${apiBaseUrl}${user.id_document_photo_url}`"
+            style="max-width: 100%"
+            class="rounded-borders"
+          />
+        </q-card-section>
+      </q-card>
+    </q-dialog>
+
+    <!-- Create Job Card Dialog -->
+    <JobCardDialog
+      v-model="showJobCardDialog"
+      :linked-entity-type="'user'"
+      :linked-entity-id="user?.user_id"
+      @saved="onJobCardSaved"
+    />
+
+    <!-- Reset Password Dialog -->
+    <ResetPasswordDialog
+      v-model="showResetPasswordDialog"
+      :user="user"
+      @success="onPasswordResetSuccess"
+    />
   </q-page>
 </template>
 
@@ -1691,6 +1762,8 @@ import { usersAPI, accountsAPI, settingsAPI, subscriptionsAPI, rentalsAPI, batte
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
 import RentalReturnDialog from 'components/RentalReturnDialog.vue'
+import JobCardDialog from 'components/JobCardDialog.vue'
+import ResetPasswordDialog from 'components/ResetPasswordDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -1702,6 +1775,8 @@ const userId = ref(route.params.id)
 const loading = ref(false)
 const transactionsLoading = ref(false)
 const user = ref({})
+const showPhotoDialog = ref(false)
+const apiBaseUrl = process.env.API_URL || 'http://localhost:8000'
 const account = ref({
   balance: 0,
   total_spent: 0,
@@ -2048,6 +2123,8 @@ const payToOwnLoading = ref(false)
 // Rental dialogs
 const showReturnDialog = ref(false)
 const showExtendDialog = ref(false)
+const showJobCardDialog = ref(false)
+const showResetPasswordDialog = ref(false)
 const selectedRental = ref(null)
 const selectedRentalType = ref(null) // 'battery' or 'pue'
 const returnCondition = ref('good')
@@ -2592,7 +2669,7 @@ const submitEditUser = async () => {
 
     $q.notify({
       type: 'positive',
-      message: 'User updated successfully',
+      message: 'Customer updated successfully',
       position: 'top'
     })
 
@@ -2897,6 +2974,24 @@ watch(() => selectedRentalForPayment.value, (newRental) => {
     }
   }
 })
+
+const onJobCardSaved = () => {
+  $q.notify({
+    type: 'positive',
+    message: 'Job card created successfully',
+    position: 'top'
+  })
+  showJobCardDialog.value = false
+}
+
+const onPasswordResetSuccess = () => {
+  showResetPasswordDialog.value = false
+  $q.notify({
+    type: 'positive',
+    message: 'Password reset successfully',
+    position: 'top'
+  })
+}
 
 onMounted(async () => {
   loadHubSettings()

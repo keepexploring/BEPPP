@@ -7,7 +7,7 @@
       option-value="id"
       use-input
       input-debounce="300"
-      label="Search User"
+      label="Search Customer"
       outlined
       clearable
       @filter="filterUsers"
@@ -39,7 +39,7 @@
       <template v-slot:no-option>
         <q-item>
           <q-item-section class="text-grey">
-            No users found
+            No customers found
           </q-item-section>
         </q-item>
       </template>

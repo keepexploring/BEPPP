@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine, Column, BigInteger, String, Float, DateTime, ForeignKey, Table, Integer, func, Boolean, Text, Enum, Numeric
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy.orm import relationship, sessionmaker, backref
 from datetime import datetime
 import enum
 
@@ -28,7 +28,7 @@ user_hub_access = Table('user_hub_access', Base.metadata,
 )
 
 battery_notes = Table('bepppbattery_notes', Base.metadata,
-    Column('battery_id', BigInteger, ForeignKey('bepppbattery.battery_id'), primary_key=True),
+    Column('battery_id', String(50), ForeignKey('bepppbattery.battery_id'), primary_key=True),
     Column('note_id', BigInteger, ForeignKey('note.id'), primary_key=True)
 )
 
@@ -38,7 +38,7 @@ rental_notes = Table('rental_notes', Base.metadata,
 )
 
 pue_notes = Table('pue_notes', Base.metadata,
-    Column('pue_id', BigInteger, ForeignKey('productiveuseequipment.pue_id'), primary_key=True),
+    Column('pue_id', String(50), ForeignKey('productiveuseequipment.pue_id'), primary_key=True),
     Column('note_id', BigInteger, ForeignKey('note.id'), primary_key=True)
 )
 
@@ -54,13 +54,14 @@ battery_rental_notes = Table('battery_rental_notes', Base.metadata,
 
 class SolarHub(Base):
     __tablename__ = 'solarhub'
-    
+
     hub_id = Column(BigInteger, primary_key=True)
     what_three_word_location = Column(String(255))
     solar_capacity_kw = Column(BigInteger)
     country = Column(String(255))
     latitude = Column(Float)
     longitude = Column(Float)
+    return_survey_required = Column(Boolean, server_default='false', nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -78,10 +79,25 @@ class User(Base):
     __tablename__ = 'user'
 
     user_id = Column(BigInteger, primary_key=True, autoincrement=True)
-    Name = Column(String(255))
+    # Name fields - split into first and last for clearer identification
+    first_names = Column(String(255), nullable=True)  # First name(s)
+    last_name = Column(String(255), nullable=True)  # Last name/surname
+    Name = Column(String(255))  # DEPRECATED: Keep for backward compatibility, will be computed from first_names + last_name
+
     users_identification_document_number = Column(String)
     mobile_number = Column(String(255))
-    address = Column(String)
+
+    # Address renamed for clarity
+    physical_address = Column(String, nullable=True)
+    address = Column(String)  # DEPRECATED: Keep for backward compatibility
+
+    # New customer demographic fields
+    date_of_birth = Column(DateTime, nullable=True)  # Customer's date of birth
+    gesi_status = Column(String(100), nullable=True)  # GESI (Gender Equality & Social Inclusion) status - configurable
+    business_category = Column(String(100), nullable=True)  # Business size/category - configurable
+    monthly_energy_expenditure = Column(Float, nullable=True)  # Current monthly spending on energy/power
+    main_reason_for_signup = Column(String(100), nullable=True)  # Main reason for signing up - configurable
+
     hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id'))
     user_access_level = Column(String(255))  # Will store UserRole enum values
     username = Column(String(255), unique=True)
@@ -120,7 +136,7 @@ class Note(Base):
 class BEPPPBattery(Base):
     __tablename__ = 'bepppbattery'
 
-    battery_id = Column(BigInteger, primary_key=True)
+    battery_id = Column(String(50), primary_key=True)  # Allow alphanumeric IDs like "BAT-001" or "B-123-ABC"
     hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id'))
     battery_capacity_wh = Column(BigInteger)
     status = Column(String, default="available")
@@ -128,7 +144,7 @@ class BEPPPBattery(Base):
     short_id = Column(String(20), unique=True, index=True, nullable=True)  # QR code ID (e.g., BAT-0001)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_data_received = Column(DateTime, nullable=True)  # Last time we got data from this battery
-    
+
     # Relations
     hub = relationship("SolarHub", back_populates="batteries")
     live_data = relationship("LiveData", back_populates="battery")
@@ -138,7 +154,7 @@ class BEPPPBattery(Base):
 class ProductiveUseEquipment(Base):
     __tablename__ = 'productiveuseequipment'
 
-    pue_id = Column(BigInteger, primary_key=True)
+    pue_id = Column(String(50), primary_key=True)  # Allow alphanumeric IDs like "PUE-001" or "P-ABC-123"
     hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id'))
     name = Column(String(255), nullable=False)
     description = Column(Text)
@@ -171,9 +187,9 @@ class ProductiveUseEquipment(Base):
 
 class LiveData(Base):
     __tablename__ = 'livedata'
-    
+
     id = Column(BigInteger, primary_key=True)
-    battery_id = Column(BigInteger, ForeignKey('bepppbattery.battery_id'))
+    battery_id = Column(String(50), ForeignKey('bepppbattery.battery_id'))
     state_of_charge = Column(BigInteger)
     voltage = Column(Float)
     current_amps = Column(Float)
@@ -219,7 +235,7 @@ class Rental(Base):
     __tablename__ = 'rental'
     
     rentral_id = Column(BigInteger, primary_key=True)  # Note: keeping the typo to match existing schema
-    battery_id = Column(BigInteger, ForeignKey('bepppbattery.battery_id'))
+    battery_id = Column(String(50), ForeignKey('bepppbattery.battery_id'))
     user_id = Column(BigInteger, ForeignKey('user.user_id'))
     timestamp_taken = Column(DateTime)
     due_back = Column(DateTime)
@@ -286,7 +302,7 @@ class RentalPUEItem(Base):
     
     id = Column(BigInteger, primary_key=True)
     rental_id = Column(BigInteger, ForeignKey('rental.rentral_id'))
-    pue_id = Column(BigInteger, ForeignKey('productiveuseequipment.pue_id'))
+    pue_id = Column(String(50), ForeignKey('productiveuseequipment.pue_id'))
     
     # Timing
     added_at = Column(DateTime, default=datetime.utcnow)  # When PUE was added to rental
@@ -308,7 +324,7 @@ class PUERental(Base):
     __tablename__ = 'puerental'
 
     pue_rental_id = Column(BigInteger, primary_key=True)
-    pue_id = Column(BigInteger, ForeignKey('productiveuseequipment.pue_id'))
+    pue_id = Column(String(50), ForeignKey('productiveuseequipment.pue_id'))
     user_id = Column(BigInteger, ForeignKey('user.user_id'))
     timestamp_taken = Column(DateTime)
     due_back = Column(DateTime)
@@ -458,6 +474,9 @@ class CostStructure(Base):
     is_pay_to_own = Column(Boolean, server_default='false', nullable=False)  # Is this a pay-to-own structure
     item_total_cost = Column(Numeric(10, 2), nullable=True)  # Total cost of item for pay-to-own
     allow_multiple_items = Column(Boolean, server_default='true', nullable=False)  # False for pay-to-own
+
+    # Duration control
+    allow_custom_duration = Column(Boolean, server_default='true', nullable=False)  # Allow users to enter custom rental duration
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -622,7 +641,7 @@ class UserAccount(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     # Relationships
-    user = relationship("User", foreign_keys=[user_id], backref="account")
+    user = relationship("User", foreign_keys=[user_id], backref=backref("account", uselist=False))
     transactions = relationship("AccountTransaction", back_populates="account", cascade="all, delete-orphan")
 
 
@@ -783,12 +802,30 @@ class Notification(Base):
     # Relationships
     hub = relationship("SolarHub", foreign_keys=[hub_id])
 
+
+class CustomerFieldOption(Base):
+    """Configurable options for customer data fields (GESI status, Business Category, Signup Reasons)"""
+    __tablename__ = 'customer_field_options'
+
+    option_id = Column(Integer, primary_key=True, autoincrement=True)
+    hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id', ondelete='CASCADE'), nullable=True)
+    field_name = Column(String(50), nullable=False)  # 'gesi_status', 'business_category', 'main_reason_for_signup'
+    option_value = Column(String(100), nullable=False)  # The actual option text (e.g., 'Youth (<18)', 'Small Business')
+    description = Column(Text, nullable=True)  # Optional description/explanation
+    is_active = Column(Boolean, server_default='true', nullable=False)
+    sort_order = Column(Integer, server_default='0', nullable=False)  # For ordering options in dropdown
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    hub = relationship("SolarHub", foreign_keys=[hub_id])
+
 class WebhookLog(Base):
     """Webhook request/response logging for debugging in production"""
     __tablename__ = 'webhook_logs'
 
     log_id = Column(BigInteger, primary_key=True, autoincrement=True)
-    battery_id = Column(BigInteger, ForeignKey('bepppbattery.battery_id'), nullable=True)
+    battery_id = Column(String(50), ForeignKey('bepppbattery.battery_id'), nullable=True)
     endpoint = Column(String(255), nullable=False)  # /webhook/live-data, etc.
     method = Column(String(10), nullable=False)  # POST, GET, etc.
     request_headers = Column(Text, nullable=True)  # JSON string of headers
@@ -926,7 +963,7 @@ class BatteryRentalItem(Base):
 
     item_id = Column(BigInteger, primary_key=True, autoincrement=True)
     rental_id = Column(BigInteger, ForeignKey('battery_rentals.rental_id', ondelete='CASCADE'), nullable=False)
-    battery_id = Column(BigInteger, ForeignKey('bepppbattery.battery_id', ondelete='CASCADE'), nullable=False)
+    battery_id = Column(String(50), ForeignKey('bepppbattery.battery_id', ondelete='CASCADE'), nullable=False)
 
     # Item-specific tracking
     condition_at_checkout = Column(String(50), nullable=True)  # good, fair, damaged
@@ -1010,7 +1047,7 @@ class PUEInspection(Base):
     __tablename__ = 'pue_inspections'
 
     inspection_id = Column(BigInteger, primary_key=True, autoincrement=True)
-    pue_id = Column(BigInteger, ForeignKey('productiveuseequipment.pue_id', ondelete='CASCADE'), nullable=False)
+    pue_id = Column(String(50), ForeignKey('productiveuseequipment.pue_id', ondelete='CASCADE'), nullable=False)
     pue_rental_id = Column(BigInteger, ForeignKey('puerental.pue_rental_id', ondelete='SET NULL'), nullable=True)
 
     inspection_date = Column(DateTime(timezone=True), nullable=False)
@@ -1032,3 +1069,183 @@ class PUEInspection(Base):
     pue_rental = relationship("PUERental")
     inspector = relationship("User", foreign_keys=[inspector_id])
     note = relationship("Note")
+
+
+# ============================================================================
+# RETURN SURVEY SYSTEM
+# ============================================================================
+
+class ReturnSurveyQuestion(Base):
+    """Configurable survey questions for battery/PUE returns"""
+    __tablename__ = 'return_survey_questions'
+
+    question_id = Column(Integer, primary_key=True, autoincrement=True)
+    hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id', ondelete='CASCADE'), nullable=True)  # NULL = global
+
+    # Question content
+    question_text = Column(Text, nullable=False)
+    question_type = Column(String(30), nullable=False)  # 'multiple_choice', 'multiple_select', 'open_text', 'rating', 'yes_no'
+    help_text = Column(Text, nullable=True)  # Optional help text/description
+
+    # Applicable rental types
+    applies_to_battery = Column(Boolean, server_default='true', nullable=False)
+    applies_to_pue = Column(Boolean, server_default='true', nullable=False)
+
+    # Conditional logic
+    parent_question_id = Column(Integer, ForeignKey('return_survey_questions.question_id', ondelete='CASCADE'), nullable=True)
+    show_if_parent_answer = Column(String(255), nullable=True)  # JSON array of parent answers that trigger this question
+
+    # Rating-specific fields
+    rating_min = Column(Integer, nullable=True)  # Min value for rating scale
+    rating_max = Column(Integer, nullable=True)  # Max value for rating scale
+    rating_min_label = Column(Text, nullable=True)  # Label for min value (e.g., "Very Dissatisfied")
+    rating_max_label = Column(Text, nullable=True)  # Label for max value (e.g., "Very Satisfied")
+
+    # Display settings
+    is_required = Column(Boolean, server_default='true', nullable=False)
+    is_active = Column(Boolean, server_default='true', nullable=False)
+    sort_order = Column(Integer, server_default='0', nullable=False)
+
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    hub = relationship("SolarHub", foreign_keys=[hub_id])
+    parent_question = relationship("ReturnSurveyQuestion", remote_side=[question_id], backref="conditional_questions")
+    options = relationship("ReturnSurveyQuestionOption", back_populates="question", cascade="all, delete-orphan")
+    responses = relationship("ReturnSurveyResponse", back_populates="question", cascade="all, delete-orphan")
+
+
+class ReturnSurveyQuestionOption(Base):
+    """Options for multiple choice/select questions"""
+    __tablename__ = 'return_survey_question_options'
+
+    option_id = Column(Integer, primary_key=True, autoincrement=True)
+    question_id = Column(Integer, ForeignKey('return_survey_questions.question_id', ondelete='CASCADE'), nullable=False)
+
+    option_text = Column(String(255), nullable=False)
+    option_value = Column(String(100), nullable=False)  # Internal value (e.g., 'rented_pue_only', 'own_devices')
+    is_open_text_trigger = Column(Boolean, server_default='false', nullable=False)  # If selected, show text input
+    sort_order = Column(Integer, server_default='0', nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    question = relationship("ReturnSurveyQuestion", back_populates="options")
+
+
+class ReturnSurveyResponse(Base):
+    """User responses to return surveys"""
+    __tablename__ = 'return_survey_responses'
+
+    response_id = Column(BigInteger, primary_key=True, autoincrement=True)
+
+    # Link to rental
+    battery_rental_id = Column(BigInteger, ForeignKey('battery_rentals.rental_id', ondelete='CASCADE'), nullable=True)
+    pue_rental_id = Column(BigInteger, ForeignKey('puerental.pue_rental_id', ondelete='CASCADE'), nullable=True)
+
+    # Link to question
+    question_id = Column(Integer, ForeignKey('return_survey_questions.question_id', ondelete='CASCADE'), nullable=False)
+
+    # Response data
+    response_value = Column(Text, nullable=True)  # For single values (text, single choice, rating)
+    response_values = Column(Text, nullable=True)  # JSON array for multiple selections
+    response_text = Column(Text, nullable=True)  # Additional text for "other" options or conditional text
+
+    # Metadata
+    user_id = Column(BigInteger, ForeignKey('user.user_id', ondelete='SET NULL'), nullable=True)
+    submitted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    battery_rental = relationship("BatteryRental", foreign_keys=[battery_rental_id])
+    pue_rental = relationship("PUERental", foreign_keys=[pue_rental_id])
+    question = relationship("ReturnSurveyQuestion", back_populates="responses")
+    user = relationship("User", foreign_keys=[user_id])
+
+
+# Job Cards / Maintenance Board
+
+class JobCardStatus(enum.Enum):
+    """Status options for job cards"""
+    TODO = "todo"
+    IN_PROGRESS = "in_progress"
+    BLOCKED = "blocked"
+    DONE = "done"
+    CANCELLED = "cancelled"
+
+
+class JobCardPriority(enum.Enum):
+    """Priority levels for job cards"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    URGENT = "urgent"
+
+
+class JobCard(Base):
+    """Main job card model for tracking maintenance and issues"""
+    __tablename__ = 'job_cards'
+
+    # Primary fields
+    card_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id', ondelete='CASCADE'), nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+
+    # Status and priority
+    status = Column(String(50), server_default='todo', nullable=False)
+    priority = Column(String(50), server_default='medium', nullable=False)
+    sort_order = Column(Integer, server_default='0', nullable=False)  # For drag-drop ordering within columns
+
+    # Assignment
+    assigned_to = Column(BigInteger, ForeignKey('user.user_id', ondelete='SET NULL'), nullable=True)
+
+    # Linked entities (polymorphic - one of these will be set)
+    linked_entity_type = Column(String(50), nullable=True)  # 'battery', 'pue', 'user', 'rental'
+    linked_battery_id = Column(String(50), ForeignKey('bepppbattery.battery_id', ondelete='CASCADE'), nullable=True)
+    linked_pue_id = Column(String(50), ForeignKey('productiveuseequipment.pue_id', ondelete='CASCADE'), nullable=True)
+    linked_user_id = Column(BigInteger, ForeignKey('user.user_id', ondelete='CASCADE'), nullable=True)
+    linked_rental_id = Column(BigInteger, ForeignKey('battery_rentals.rental_id', ondelete='CASCADE'), nullable=True)
+
+    # Dates
+    due_date = Column(DateTime, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    started_at = Column(DateTime, nullable=True)  # When status changed to in_progress
+    completed_at = Column(DateTime, nullable=True)  # When status changed to done
+
+    # Metadata
+    created_by = Column(BigInteger, ForeignKey('user.user_id', ondelete='SET NULL'), nullable=True)
+
+    # Relationships
+    hub = relationship("SolarHub", foreign_keys=[hub_id])
+    assigned_user = relationship("User", foreign_keys=[assigned_to], backref="assigned_job_cards")
+    creator = relationship("User", foreign_keys=[created_by], backref="created_job_cards")
+    linked_battery = relationship("BEPPPBattery", foreign_keys=[linked_battery_id])
+    linked_pue = relationship("ProductiveUseEquipment", foreign_keys=[linked_pue_id])
+    linked_user = relationship("User", foreign_keys=[linked_user_id], backref="linked_job_cards")
+    linked_rental = relationship("BatteryRental", foreign_keys=[linked_rental_id])
+    activities = relationship("JobCardActivity", back_populates="job_card", cascade="all, delete-orphan", order_by="JobCardActivity.created_at.desc()")
+
+
+class JobCardActivity(Base):
+    """Activity history and comments for job cards"""
+    __tablename__ = 'job_card_activities'
+
+    activity_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    card_id = Column(BigInteger, ForeignKey('job_cards.card_id', ondelete='CASCADE'), nullable=False)
+
+    # Activity type: 'created', 'status_changed', 'comment', 'assigned', 'updated', 'due_date_changed'
+    activity_type = Column(String(50), nullable=False)
+    description = Column(Text, nullable=False)  # Human-readable description
+
+    # Metadata (JSON) - stores old/new values for changes
+    activity_metadata = Column(Text, nullable=True)  # JSON: {"old_status": "todo", "new_status": "in_progress"}
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_by = Column(BigInteger, ForeignKey('user.user_id', ondelete='SET NULL'), nullable=True)
+
+    # Relationships
+    job_card = relationship("JobCard", back_populates="activities")
+    creator = relationship("User")

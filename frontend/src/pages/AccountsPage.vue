@@ -141,12 +141,12 @@
               </div>
             </div>
 
-            <!-- User Search Bar -->
+            <!-- Customer Search Bar -->
             <q-input
               v-model="userSearch"
               outlined
               dense
-              placeholder="Search by user ID, name, or mobile number..."
+              placeholder="Search by customer ID, name, or mobile number..."
               class="q-mb-md"
             >
               <template v-slot:prepend>
@@ -201,7 +201,7 @@
                     dense
                     size="sm"
                   >
-                    {{ props.row.role }}
+                    {{ getRoleLabel(props.row.role) }}
                   </q-chip>
                 </q-td>
               </template>
@@ -286,7 +286,7 @@
       <q-card style="min-width: 400px">
         <q-card-section>
           <div class="text-h6">Record Payment</div>
-          <div class="text-subtitle2">User: {{ selectedUser?.user }}</div>
+          <div class="text-subtitle2">Customer: {{ selectedUser?.user }}</div>
           <div class="text-caption">Current Debt: {{ currencySymbol }}{{ selectedUser?.total_owed?.toFixed(2) }}</div>
         </q-card-section>
 
@@ -367,7 +367,7 @@ const paymentAmount = ref(0)
 const paymentDescription = ref('')
 
 const debtColumns = [
-  { name: 'user', label: 'User', field: 'user', align: 'left' },
+  { name: 'user', label: 'Customer', field: 'user', align: 'left' },
   { name: 'balance', label: 'Balance', field: 'balance', align: 'right' },
   { name: 'total_owed', label: 'Amount Owed', field: 'total_owed', align: 'right' },
   { name: 'actions', label: 'Actions', align: 'center' }
@@ -455,7 +455,7 @@ const userPagination = ref({
 })
 
 const userColumns = [
-  { name: 'user_id', label: 'User ID', field: 'user_id', align: 'left', sortable: true },
+  { name: 'user_id', label: 'Customer ID', field: 'user_id', align: 'left', sortable: true },
   { name: 'user_name', label: 'Name', field: 'user_name', align: 'left', sortable: true },
   { name: 'mobile_number', label: 'Mobile', field: 'mobile_number', align: 'left', sortable: true },
   { name: 'role', label: 'Role', field: 'role', align: 'center', sortable: true },
@@ -475,11 +475,26 @@ const filteredUsers = computed(() => {
   )
 })
 
+const getRoleLabel = (role) => {
+  const labels = {
+    user: 'Customer',
+    hub_admin: 'Hub Admin',
+    admin: 'Admin',
+    superadmin: 'Super Admin',
+    data_admin: 'Data Admin',
+    battery: 'Battery'
+  }
+  return labels[role?.toLowerCase()] || role
+}
+
 const getRoleColor = (role) => {
   switch (role?.toUpperCase()) {
     case 'SUPERADMIN': return 'red'
     case 'ADMIN': return 'orange'
+    case 'HUB_ADMIN': return 'blue-grey'
     case 'USER': return 'blue'
+    case 'DATA_ADMIN': return 'teal'
+    case 'BATTERY': return 'orange'
     default: return 'grey'
   }
 }
@@ -497,8 +512,8 @@ const transactionPagination = ref({
 
 const transactionColumns = [
   { name: 'timestamp', label: 'Date', field: 'timestamp', align: 'left', sortable: true },
-  { name: 'user_name', label: 'User Name', field: 'user_name', align: 'left', sortable: true },
-  { name: 'user_id', label: 'User ID', field: 'user_id', align: 'left', sortable: true },
+  { name: 'user_name', label: 'Customer Name', field: 'user_name', align: 'left', sortable: true },
+  { name: 'user_id', label: 'Customer ID', field: 'user_id', align: 'left', sortable: true },
   { name: 'mobile_number', label: 'Mobile', field: 'mobile_number', align: 'left', sortable: true },
   { name: 'transaction_type', label: 'Type', field: 'transaction_type', align: 'center', sortable: true },
   { name: 'amount', label: 'Amount', field: 'amount', align: 'right', sortable: true },
@@ -537,7 +552,7 @@ const loadAllTransactions = async () => {
         const response = await accountsAPI.getUserTransactions(user.user_id)
         return response.data.transactions.map(t => ({
           ...t,
-          user_name: user.Name || user.username || `User ${user.user_id}`,
+          user_name: user.Name || user.username || `Customer ${user.user_id}`,
           user_id: user.user_id,
           mobile_number: user.mobile_number
         }))
@@ -582,7 +597,7 @@ const loadAllUsers = async () => {
         const accountResponse = await accountsAPI.getUserAccount(user.user_id)
         return {
           user_id: user.user_id,
-          user_name: user.Name || user.username || `User ${user.user_id}`,
+          user_name: user.Name || user.username || `Customer ${user.user_id}`,
           mobile_number: user.mobile_number,
           email: user.email,
           role: user.role,
@@ -594,7 +609,7 @@ const loadAllUsers = async () => {
         console.error(`Failed to load account for user ${user.user_id}:`, error)
         return {
           user_id: user.user_id,
-          user_name: user.Name || user.username || `User ${user.user_id}`,
+          user_name: user.Name || user.username || `Customer ${user.user_id}`,
           mobile_number: user.mobile_number,
           email: user.email,
           role: user.role,

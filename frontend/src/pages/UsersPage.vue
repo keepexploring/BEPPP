@@ -10,7 +10,7 @@
           label="Add User"
           icon="add"
           color="primary"
-          @click="showCreateDialog = true"
+          @click="openCreateDialog"
           size="sm"
           class="col-12 col-sm-auto"
         />
@@ -27,7 +27,7 @@
           :filter="filter"
           @row-click="onUserRowClick"
           class="cursor-pointer"
-          no-data-label="No users found - add your first user to get started!"
+          no-data-label="No customers found - add your first customer to get started!"
         >
           <template v-slot:top-right>
             <q-input
@@ -47,7 +47,7 @@
             <q-td :props="props">
               <q-badge
                 :color="getRoleColor(props.row.user_access_level)"
-                :label="props.row.user_access_level"
+                :label="getRoleLabel(props.row.user_access_level)"
               />
             </q-td>
           </template>
@@ -55,6 +55,7 @@
           <template v-slot:body-cell-actions="props">
             <q-td :props="props">
               <q-btn
+                v-if="authStore.isAdmin"
                 flat
                 round
                 dense
@@ -62,6 +63,17 @@
                 color="warning"
                 @click.stop="editUser(props.row)"
               />
+              <q-btn
+                v-if="authStore.isSuperAdmin"
+                flat
+                round
+                dense
+                icon="lock_reset"
+                color="orange"
+                @click.stop="openResetPasswordDialog(props.row)"
+              >
+                <q-tooltip>Reset Password</q-tooltip>
+              </q-btn>
               <q-btn
                 v-if="authStore.isSuperAdmin"
                 flat
@@ -111,18 +123,31 @@
     <q-dialog v-model="showCreateDialog">
       <q-card style="min-width: 500px">
         <q-card-section>
-          <div class="text-h6">{{ editingUser ? 'Edit User' : 'Create User' }}</div>
+          <div class="text-h6">{{ editingUser ? 'Edit Customer' : 'Create Customer' }}</div>
         </q-card-section>
 
         <q-card-section>
           <q-form @submit="saveUser" class="q-gutter-md">
-            <q-input
-              v-model="formData.name"
-              label="Name *"
-              outlined
-              :rules="[val => !!val || 'Name is required']"
-              hint="Full name of the user"
-            />
+            <div class="row q-gutter-sm">
+              <div class="col-12 col-sm-6">
+                <q-input
+                  v-model="formData.first_names"
+                  label="First Name(s) *"
+                  outlined
+                  :rules="[val => !!val || 'First name is required']"
+                  hint="Given name(s)"
+                />
+              </div>
+              <div class="col-12 col-sm-6">
+                <q-input
+                  v-model="formData.last_name"
+                  label="Last Name *"
+                  outlined
+                  :rules="[val => !!val || 'Last name is required']"
+                  hint="Family name / Surname"
+                />
+              </div>
+            </div>
 
             <q-input
               v-model="formData.username"
@@ -136,14 +161,38 @@
               v-if="!editingUser"
               v-model="formData.password"
               label="Password *"
-              type="password"
+              :type="showPassword ? 'text' : 'password'"
               outlined
               :rules="[
                 val => !!val || 'Password is required',
                 val => val.length >= 8 || 'Password must be at least 8 characters'
               ]"
               hint="Minimum 8 characters required"
-            />
+            >
+              <template v-slot:append>
+                <q-btn
+                  flat
+                  round
+                  dense
+                  :icon="showPassword ? 'visibility_off' : 'visibility'"
+                  @click="showPassword = !showPassword"
+                  size="sm"
+                >
+                  <q-tooltip>{{ showPassword ? 'Hide password' : 'Show password' }}</q-tooltip>
+                </q-btn>
+                <q-btn
+                  flat
+                  round
+                  dense
+                  icon="casino"
+                  @click="generatePassword"
+                  color="primary"
+                  size="sm"
+                >
+                  <q-tooltip>Generate random password</q-tooltip>
+                </q-btn>
+              </template>
+            </q-input>
 
             <q-select
               v-model="formData.hub_id"
@@ -152,10 +201,12 @@
               option-label="what_three_word_location"
               emit-value
               map-options
+              :display-value="(authStore.role === 'admin' || authStore.role === 'hub_admin') ? selectedHubName : undefined"
               label="Hub *"
               outlined
               :rules="[val => !!val || 'Hub is required']"
-              hint="Primary hub for this user"
+              :disable="authStore.role === 'admin' || authStore.role === 'hub_admin'"
+              :hint="authStore.role === 'admin' || authStore.role === 'hub_admin' ? 'Automatically set to your hub' : 'Primary hub for this user'"
             />
 
             <q-select
@@ -163,6 +214,8 @@
               :options="roleOptions"
               label="Access Level *"
               outlined
+              emit-value
+              map-options
               :rules="[val => !!val || 'Access level is required']"
               hint="user, admin, superadmin, or data_admin"
             />
@@ -176,18 +229,91 @@
 
             <q-input
               v-model="formData.users_identification_document_number"
-              label="ID Document Number"
+              label="ID Document Number *"
               outlined
-              hint="Optional - for user verification"
+              hint="Required - for customer verification"
+              :rules="[val => !!val || 'ID document number is required']"
             />
 
+            <!-- ID Document Photo Upload -->
+            <div class="q-mb-md">
+              <div class="text-subtitle2 q-mb-sm">ID Document Photo</div>
+              <q-file
+                v-model="idDocumentPhoto"
+                outlined
+                accept="image/*"
+                capture="environment"
+                label="Upload or Take Photo"
+                hint="Optional - take a photo or upload from device"
+                :clearable="true"
+                @update:model-value="onPhotoSelected"
+              >
+                <template v-slot:prepend>
+                  <q-icon name="photo_camera" />
+                </template>
+              </q-file>
+
+              <!-- Photo Preview -->
+              <div v-if="photoPreview" class="q-mt-sm">
+                <q-img
+                  :src="photoPreview"
+                  style="max-width: 200px; max-height: 200px"
+                  class="rounded-borders"
+                />
+              </div>
+            </div>
+
             <q-input
-              v-model="formData.address"
-              label="Address"
+              v-model="formData.physical_address"
+              label="Physical Address"
               type="textarea"
               outlined
               rows="2"
-              hint="Optional - physical address"
+              hint="Optional - physical location/address"
+            />
+
+            <q-input
+              v-model="formData.date_of_birth"
+              label="Date of Birth"
+              outlined
+              type="date"
+              hint="Optional - customer's birth date"
+            />
+
+            <q-select
+              v-model="formData.gesi_status"
+              :options="gesiStatusOptions"
+              label="GESI Status"
+              outlined
+              clearable
+              hint="Optional - Gender Equality & Social Inclusion category"
+            />
+
+            <q-select
+              v-model="formData.business_category"
+              :options="businessCategoryOptions"
+              label="Business Category"
+              outlined
+              clearable
+              hint="Optional - Size/type of business"
+            />
+
+            <q-input
+              v-model.number="formData.monthly_energy_expenditure"
+              label="Monthly Energy Expenditure"
+              type="number"
+              outlined
+              prefix="$"
+              hint="Optional - Current monthly spending on energy/power"
+            />
+
+            <q-select
+              v-model="formData.main_reason_for_signup"
+              :options="signupReasonOptions"
+              label="Main Reason for Signing Up"
+              outlined
+              clearable
+              hint="Optional - Primary motivation for joining"
             />
 
             <div class="row justify-end q-gutter-sm">
@@ -234,20 +360,29 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <!-- Reset Password Dialog -->
+    <ResetPasswordDialog
+      v-model="showResetPasswordDialog"
+      :user="selectedUserForReset"
+      @success="onPasswordResetSuccess"
+    />
   </q-page>
 </template>
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { usersAPI, hubsAPI } from 'src/services/api'
+import { usersAPI, hubsAPI, settingsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useQuasar } from 'quasar'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import HubFilter from 'src/components/HubFilter.vue'
+import ResetPasswordDialog from 'src/components/ResetPasswordDialog.vue'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 
 const users = ref([])
 const hubOptions = ref([])
@@ -256,23 +391,132 @@ const filter = ref('')
 const selectedHub = ref(null)
 const showCreateDialog = ref(false)
 const showHubAccessDialog = ref(false)
+const showResetPasswordDialog = ref(false)
 const editingUser = ref(null)
+const selectedUserForReset = ref(null)
+
+// Customer field options for dropdowns
+const gesiStatusOptions = ref([])
+const businessCategoryOptions = ref([])
+const signupReasonOptions = ref([])
 const selectedUser = ref(null)
 const saving = ref(false)
 
 const formData = ref({
   user_id: null,
-  name: '',
+  first_names: '',
+  last_name: '',
   username: '',
   password: '',
   hub_id: null,
   user_access_level: 'user',
   mobile_number: '',
   users_identification_document_number: '',
-  address: ''
+  physical_address: '',
+  date_of_birth: null,
+  gesi_status: null,
+  business_category: null,
+  monthly_energy_expenditure: null,
+  main_reason_for_signup: null
 })
 
-const roleOptions = ['user', 'admin', 'superadmin', 'data_admin']
+const showPassword = ref(false)
+const idDocumentPhoto = ref(null)
+const photoPreview = ref(null)
+
+// Handle photo selection
+const onPhotoSelected = (file) => {
+  if (file) {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      photoPreview.value = e.target.result
+    }
+    reader.readAsDataURL(file)
+  } else {
+    photoPreview.value = null
+  }
+}
+
+// Generate a random secure password
+const generatePassword = () => {
+  const length = 12
+  const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+  const lowercase = 'abcdefghijklmnopqrstuvwxyz'
+  const numbers = '0123456789'
+  const symbols = '!@#$%^&*'
+  const allChars = uppercase + lowercase + numbers + symbols
+
+  let password = ''
+  // Ensure at least one of each type
+  password += uppercase[Math.floor(Math.random() * uppercase.length)]
+  password += lowercase[Math.floor(Math.random() * lowercase.length)]
+  password += numbers[Math.floor(Math.random() * numbers.length)]
+  password += symbols[Math.floor(Math.random() * symbols.length)]
+
+  // Fill the rest randomly
+  for (let i = password.length; i < length; i++) {
+    password += allChars[Math.floor(Math.random() * allChars.length)]
+  }
+
+  // Shuffle the password
+  password = password.split('').sort(() => Math.random() - 0.5).join('')
+
+  formData.value.password = password
+  showPassword.value = true // Show the generated password
+
+  $q.notify({
+    type: 'positive',
+    message: 'Password generated! Make sure to copy it.',
+    position: 'top',
+    timeout: 3000
+  })
+}
+
+const getRoleLabel = (role) => {
+  const labels = {
+    user: 'Customer',
+    hub_admin: 'Hub Admin',
+    admin: 'Admin',
+    superadmin: 'Super Admin',
+    data_admin: 'Data Admin',
+    battery: 'Battery'
+  }
+  return labels[role] || role
+}
+
+const selectedHubName = computed(() => {
+  if (!formData.value.hub_id || !hubOptions.value.length) return ''
+  const hub = hubOptions.value.find(h => h.hub_id === formData.value.hub_id)
+  return hub ? hub.what_three_word_location : ''
+})
+
+const roleOptions = computed(() => {
+  // Hub admins can only create customers
+  if (authStore.role === 'hub_admin') {
+    return [
+      { label: 'Customer', value: 'user' }
+    ]
+  }
+
+  // Admins can create all roles except superadmin
+  if (authStore.role === 'admin') {
+    return [
+      { label: 'Customer', value: 'user' },
+      { label: 'Hub Admin', value: 'hub_admin' },
+      { label: 'Admin', value: 'admin' },
+      { label: 'Data Admin', value: 'data_admin' }
+    ]
+  }
+
+  // Superadmins can create all roles
+  return [
+    { label: 'Customer', value: 'user' },
+    { label: 'Hub Admin', value: 'hub_admin' },
+    { label: 'Admin', value: 'admin' },
+    { label: 'Super Admin', value: 'superadmin' },
+    { label: 'Data Admin', value: 'data_admin' }
+  ]
+})
 
 const columns = [
   { name: 'user_id', label: 'ID', field: 'user_id', align: 'left', sortable: true },
@@ -286,9 +530,11 @@ const columns = [
 const getRoleColor = (role) => {
   const colors = {
     user: 'grey',
+    hub_admin: 'blue-grey',
     admin: 'primary',
     superadmin: 'purple',
-    data_admin: 'info'
+    data_admin: 'info',
+    battery: 'orange'
   }
   return colors[role] || 'grey'
 }
@@ -349,34 +595,57 @@ const editUser = (user) => {
 const saveUser = async () => {
   saving.value = true
   try {
+    let userId
     if (editingUser.value) {
       const updateData = { ...formData.value }
       if (!updateData.password) {
         delete updateData.password
       }
       await usersAPI.update(editingUser.value.user_id, updateData)
+      userId = editingUser.value.user_id
       $q.notify({
         type: 'positive',
-        message: 'User updated successfully',
+        message: 'Customer updated successfully',
         position: 'top'
       })
     } else {
-      await usersAPI.create(formData.value)
+      const response = await usersAPI.create(formData.value)
+      userId = response.data.user_id
       $q.notify({
         type: 'positive',
-        message: 'User created successfully',
+        message: 'Customer created successfully',
         position: 'top'
       })
     }
+
+    // Upload photo if one was selected
+    if (idDocumentPhoto.value && userId) {
+      try {
+        await usersAPI.uploadIdPhoto(userId, idDocumentPhoto.value)
+        $q.notify({
+          type: 'positive',
+          message: 'ID document photo uploaded successfully',
+          position: 'top'
+        })
+      } catch (photoError) {
+        console.error('Photo upload error:', photoError)
+        $q.notify({
+          type: 'warning',
+          message: 'Customer saved but photo upload failed',
+          position: 'top'
+        })
+      }
+    }
+
     showCreateDialog.value = false
     resetForm()
     loadUsers()
   } catch (error) {
-    console.error('User creation error:', error)
+    console.error('Customer creation error:', error)
     console.error('Error response:', error.response?.data)
     $q.notify({
       type: 'negative',
-      message: error.response?.data?.detail || 'Failed to save user',
+      message: error.response?.data?.detail || 'Failed to save customer',
       position: 'top'
     })
   } finally {
@@ -387,7 +656,7 @@ const saveUser = async () => {
 const deleteUser = (user) => {
   $q.dialog({
     title: 'Confirm Delete',
-    message: `Are you sure you want to delete user "${user.username}"?`,
+    message: `Are you sure you want to delete customer "${user.username}"?`,
     cancel: true,
     persistent: true
   }).onOk(async () => {
@@ -395,7 +664,7 @@ const deleteUser = (user) => {
       await usersAPI.delete(user.user_id)
       $q.notify({
         type: 'positive',
-        message: 'User deleted successfully',
+        message: 'Customer deleted successfully',
         position: 'top'
       })
       loadUsers()
@@ -407,6 +676,16 @@ const deleteUser = (user) => {
       })
     }
   })
+}
+
+const openResetPasswordDialog = (user) => {
+  selectedUserForReset.value = user
+  showResetPasswordDialog.value = true
+}
+
+const onPasswordResetSuccess = () => {
+  showResetPasswordDialog.value = false
+  selectedUserForReset.value = null
 }
 
 const onUserRowClick = (_evt, row) => {
@@ -481,6 +760,15 @@ const toggleHubAccess = async (hubId, hasAccess) => {
   }
 }
 
+const openCreateDialog = () => {
+  resetForm()
+  // Auto-select hub for admin and hub_admin users (not superadmin)
+  if (authStore.role === 'admin' || authStore.role === 'hub_admin') {
+    formData.value.hub_id = authStore.currentHubId
+  }
+  showCreateDialog.value = true
+}
+
 const resetForm = () => {
   formData.value = {
     user_id: null,
@@ -493,11 +781,48 @@ const resetForm = () => {
     users_identification_document_number: '',
     address: ''
   }
+  showPassword.value = false
   editingUser.value = null
+  idDocumentPhoto.value = null
+  photoPreview.value = null
+}
+
+// Load customer field options for dropdowns
+const loadCustomerFieldOptions = async () => {
+  try {
+    const response = await settingsAPI.getCustomerFieldOptions({
+      hub_id: authStore.user?.hub_id
+    })
+    const options = response.data || []
+
+    // Extract and map options to dropdown format
+    gesiStatusOptions.value = options
+      .filter(opt => opt.field_name === 'gesi_status' && opt.is_active)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map(opt => opt.option_value)
+
+    businessCategoryOptions.value = options
+      .filter(opt => opt.field_name === 'business_category' && opt.is_active)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map(opt => opt.option_value)
+
+    signupReasonOptions.value = options
+      .filter(opt => opt.field_name === 'main_reason_for_signup' && opt.is_active)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map(opt => opt.option_value)
+  } catch (error) {
+    console.error('Failed to load customer field options:', error)
+  }
 }
 
 onMounted(() => {
   loadUsers()
   loadHubs()
+  loadCustomerFieldOptions()
+
+  // Check if we should auto-open the create user dialog
+  if (route.query.action === 'create') {
+    showCreateDialog.value = true
+  }
 })
 </script>

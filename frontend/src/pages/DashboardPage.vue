@@ -2,70 +2,224 @@
   <q-page class="q-pa-md">
     <div class="row items-center justify-between q-mb-md">
       <div class="text-h4">Dashboard</div>
-      <HubFilter v-model="selectedHub" @change="onHubChange" />
+      <HubFilter v-if="authStore.isSuperAdmin" v-model="selectedHub" @change="onHubChange" />
     </div>
 
     <div class="row q-col-gutter-md">
-      <!-- Summary Cards -->
-      <div class="col-12 col-md-3">
+      <!-- Quick Actions - AT TOP -->
+      <div class="col-12">
+        <q-card>
+          <q-card-section>
+            <div class="text-h6">Quick Actions</div>
+          </q-card-section>
+          <q-card-section class="row q-col-gutter-md">
+            <div class="col-12 col-sm-6 col-md-4 col-lg-2">
+              <q-btn
+                unelevated
+                size="lg"
+                class="full-width q-py-md"
+                color="primary"
+                @click="$router.push({ name: 'create-battery-rental' })"
+              >
+                <div class="column items-center q-gutter-xs">
+                  <q-icon name="battery_charging_full" size="42px" />
+                  <div class="text-weight-medium">Rent Battery</div>
+                </div>
+              </q-btn>
+            </div>
+            <div class="col-12 col-sm-6 col-md-4 col-lg-2">
+              <q-btn
+                unelevated
+                size="lg"
+                class="full-width q-py-md"
+                color="purple"
+                @click="$router.push({ name: 'create-pue-rental' })"
+              >
+                <div class="column items-center q-gutter-xs">
+                  <q-icon name="power" size="42px" />
+                  <div class="text-weight-medium">Rent PUE</div>
+                </div>
+              </q-btn>
+            </div>
+            <div class="col-12 col-sm-6 col-md-4 col-lg-2">
+              <q-btn
+                unelevated
+                size="lg"
+                class="full-width q-py-md"
+                color="positive"
+                @click="$router.push({ name: 'rentals', query: { action: 'returns' } })"
+              >
+                <div class="column items-center q-gutter-xs">
+                  <q-icon name="assignment_return" size="42px" />
+                  <div class="text-weight-medium">Returns</div>
+                </div>
+              </q-btn>
+            </div>
+            <div class="col-12 col-sm-6 col-md-4 col-lg-2">
+              <q-btn
+                outline
+                size="lg"
+                class="full-width q-py-md"
+                color="primary"
+                @click="$router.push({ name: 'rentals' })"
+              >
+                <div class="column items-center q-gutter-xs">
+                  <q-icon name="format_list_bulleted" size="42px" />
+                  <div class="text-weight-medium">View Rentals</div>
+                </div>
+              </q-btn>
+            </div>
+            <div class="col-12 col-sm-6 col-md-4 col-lg-2">
+              <q-btn
+                outline
+                size="lg"
+                class="full-width q-py-md"
+                color="primary"
+                @click="$router.push({ name: 'users' })"
+              >
+                <div class="column items-center q-gutter-xs">
+                  <q-icon name="groups" size="42px" />
+                  <div class="text-weight-medium">View Users</div>
+                </div>
+              </q-btn>
+            </div>
+            <div class="col-12 col-sm-6 col-md-4 col-lg-2">
+              <q-btn
+                unelevated
+                size="lg"
+                class="full-width q-py-md"
+                color="secondary"
+                @click="$router.push({ name: 'users', query: { action: 'create' } })"
+              >
+                <div class="column items-center q-gutter-xs">
+                  <q-icon name="person_add" size="42px" />
+                  <div class="text-weight-medium">Create User</div>
+                </div>
+              </q-btn>
+            </div>
+          </q-card-section>
+        </q-card>
+      </div>
+
+      <!-- Battery Status Cards -->
+      <div class="col-12 col-md-4">
         <q-card class="stat-card">
           <q-card-section>
             <div class="row items-center">
               <div class="col">
-                <div class="text-overline text-grey-7">Total Hubs</div>
-                <div class="text-h4">{{ stats.totalHubs }}</div>
+                <div class="text-overline text-grey-7">Batteries Available</div>
+                <div class="text-h4">{{ stats.batteriesAvailable }}</div>
               </div>
               <div class="col-auto">
-                <q-icon name="hub" size="48px" color="primary" />
+                <q-icon name="battery_full" size="48px" color="positive" />
               </div>
             </div>
           </q-card-section>
         </q-card>
       </div>
 
-      <div class="col-12 col-md-3">
+      <div class="col-12 col-md-4">
         <q-card class="stat-card">
           <q-card-section>
             <div class="row items-center">
               <div class="col">
-                <div class="text-overline text-grey-7">Active Batteries</div>
-                <div class="text-h4">{{ stats.activeBatteries }}</div>
+                <div class="text-overline text-grey-7">In Maintenance</div>
+                <div class="text-h4">{{ stats.batteriesMaintenance }}</div>
               </div>
               <div class="col-auto">
-                <q-icon name="battery_charging_full" size="48px" color="positive" />
+                <q-icon name="build" size="48px" color="warning" />
               </div>
             </div>
           </q-card-section>
         </q-card>
       </div>
 
-      <div class="col-12 col-md-3">
+      <div class="col-12 col-md-4">
         <q-card class="stat-card">
           <q-card-section>
             <div class="row items-center">
               <div class="col">
-                <div class="text-overline text-grey-7">Active Rentals</div>
-                <div class="text-h4">{{ stats.activeRentals }}</div>
+                <div class="text-overline text-grey-7">Out for Rental</div>
+                <div class="text-h4">{{ stats.batteriesRented }}</div>
               </div>
               <div class="col-auto">
-                <q-icon name="receipt" size="48px" color="accent" />
+                <q-icon name="electric_bolt" size="48px" color="accent" />
               </div>
             </div>
           </q-card-section>
         </q-card>
       </div>
 
-      <div class="col-12 col-md-3">
-        <q-card class="stat-card">
+      <!-- Battery List Display -->
+      <div class="col-12">
+        <q-card>
           <q-card-section>
-            <div class="row items-center">
-              <div class="col">
-                <div class="text-overline text-grey-7">Total Revenue</div>
-                <div class="text-h4">{{ currencySymbol }}{{ stats.totalRevenue }}</div>
+            <div class="row items-center justify-between">
+              <div class="text-h6">Battery Status Overview</div>
+              <div class="row q-gutter-sm">
+                <q-input
+                  v-model="batterySearchQuery"
+                  outlined
+                  dense
+                  placeholder="Search by ID..."
+                  style="min-width: 200px"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="search" />
+                  </template>
+                </q-input>
+                <q-select
+                  v-model="batteryStatusFilter"
+                  outlined
+                  dense
+                  :options="statusFilterOptions"
+                  placeholder="Filter by status"
+                  style="min-width: 150px"
+                  clearable
+                />
               </div>
-              <div class="col-auto">
-                <q-icon name="attach_money" size="48px" color="warning" />
-              </div>
+            </div>
+          </q-card-section>
+          <q-card-section>
+            <q-list separator bordered>
+              <q-item
+                v-for="battery in filteredBatteryList"
+                :key="battery.battery_id"
+                clickable
+                @click="$router.push({ name: 'battery-detail', params: { id: battery.battery_id } })"
+              >
+                <q-item-section avatar>
+                  <q-avatar :color="getBatteryStatusColor(battery.status)" text-color="white" :icon="getBatteryStatusIcon(battery.status)" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>
+                    <strong>{{ battery.short_id || `Battery #${battery.battery_id}` }}</strong>
+                    <q-badge :color="getBatteryStatusColor(battery.status)" class="q-ml-sm">
+                      {{ formatBatteryStatus(battery.status) }}
+                    </q-badge>
+                  </q-item-label>
+                  <q-item-label caption>
+                    Location: {{ battery.hub_name || 'Unknown Hub' }}
+                    <template v-if="battery.battery_capacity_wh">
+                      | Capacity: {{ battery.battery_capacity_wh }}Wh
+                    </template>
+                  </q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <q-btn
+                    flat
+                    round
+                    dense
+                    icon="arrow_forward"
+                    color="primary"
+                    @click.stop="$router.push({ name: 'battery-detail', params: { id: battery.battery_id } })"
+                  />
+                </q-item-section>
+              </q-item>
+            </q-list>
+            <div v-if="filteredBatteryList.length === 0" class="text-center text-grey-7 q-pa-md">
+              <q-icon name="battery_unknown" size="48px" />
+              <div class="q-mt-sm">No batteries found</div>
             </div>
           </q-card-section>
         </q-card>
@@ -284,80 +438,6 @@
         </q-card>
       </div>
 
-      <!-- Hub Summary -->
-      <div class="col-12 col-md-8">
-        <q-card>
-          <q-card-section>
-            <div class="text-h6">Hub Summary</div>
-          </q-card-section>
-          <q-card-section>
-            <q-list v-if="hubSummary.length > 0" separator>
-              <q-item v-for="hub in hubSummary" :key="hub.hub_id">
-                <q-item-section>
-                  <q-item-label>{{ hub.hub_name }}</q-item-label>
-                  <q-item-label caption>
-                    {{ hub.total_batteries }} batteries, {{ hub.active_batteries }} active
-                  </q-item-label>
-                </q-item-section>
-                <q-item-section side>
-                  <q-btn
-                    flat
-                    round
-                    dense
-                    icon="arrow_forward"
-                    :to="{ name: 'hub-detail', params: { id: hub.hub_id } }"
-                  />
-                </q-item-section>
-              </q-item>
-            </q-list>
-            <div v-else class="text-center text-grey-7 q-pa-md">
-              No hubs available
-            </div>
-          </q-card-section>
-        </q-card>
-      </div>
-
-      <!-- Recent Activity -->
-      <div class="col-12 col-md-4">
-        <q-card>
-          <q-card-section>
-            <div class="text-h6">Quick Actions</div>
-          </q-card-section>
-          <q-card-section class="q-gutter-sm">
-            <q-btn
-              label="New Rental"
-              icon="add"
-              color="primary"
-              class="full-width"
-              :to="{ name: 'rentals' }"
-            />
-            <q-btn
-              label="Returns"
-              icon="assignment_return"
-              color="positive"
-              outline
-              class="full-width"
-              :to="{ name: 'rentals', query: { action: 'returns' } }"
-            />
-            <q-btn
-              label="Add Battery"
-              icon="battery_plus"
-              color="secondary"
-              outline
-              class="full-width"
-              :to="{ name: 'batteries' }"
-            />
-            <q-btn
-              label="View Analytics"
-              icon="analytics"
-              color="accent"
-              outline
-              class="full-width"
-              :to="{ name: 'analytics' }"
-            />
-          </q-card-section>
-        </q-card>
-      </div>
     </div>
 
     <!-- Rental Details Dialog -->
@@ -425,29 +505,60 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { hubsAPI, analyticsAPI, batteryRentalsAPI, pueRentalsAPI } from 'src/services/api'
+import { hubsAPI, rentalsAPI } from 'src/services/api'
 import { useQuasar, date } from 'quasar'
 import HubFilter from 'src/components/HubFilter.vue'
 import { useHubSettingsStore } from 'stores/hubSettings'
+import { useAuthStore } from 'stores/auth'
 
 const $q = useQuasar()
 const hubSettingsStore = useHubSettingsStore()
+const authStore = useAuthStore()
 const selectedHub = ref(null)
 
 const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
 const stats = ref({
-  totalHubs: 0,
-  activeBatteries: 0,
-  activeRentals: 0,
-  totalRevenue: 0
+  batteriesAvailable: 0,
+  batteriesMaintenance: 0,
+  batteriesRented: 0
 })
 
-const hubSummary = ref([])
+const batteryList = ref([])
+const batterySearchQuery = ref('')
+const batteryStatusFilter = ref(null)
 const overdueRentals = ref([])
 const upcomingRentals = ref([])
 const showRentalDialog = ref(false)
 const selectedRental = ref(null)
+
+const statusFilterOptions = [
+  { label: 'Available', value: 'available' },
+  { label: 'Rented', value: 'rented' },
+  { label: 'In Maintenance', value: 'maintenance' },
+  { label: 'Retired', value: 'retired' }
+]
+
+const filteredBatteryList = computed(() => {
+  let filtered = batteryList.value
+
+  // Filter by search query
+  if (batterySearchQuery.value) {
+    const query = batterySearchQuery.value.toLowerCase()
+    filtered = filtered.filter(b => {
+      const shortId = (b.short_id || '').toLowerCase()
+      const batteryId = String(b.battery_id || '')
+      return shortId.includes(query) || batteryId.includes(query)
+    })
+  }
+
+  // Filter by status
+  if (batteryStatusFilter.value) {
+    filtered = filtered.filter(b => b.status === batteryStatusFilter.value.value)
+  }
+
+  return filtered
+})
 
 // PUE Inspection alerts
 const overdueInspections = ref([])
@@ -463,6 +574,36 @@ const formatDate = (dateStr) => {
   return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm') + ' UTC'
 }
 
+const getBatteryStatusColor = (status) => {
+  const colors = {
+    'available': 'positive',
+    'rented': 'accent',
+    'maintenance': 'warning',
+    'retired': 'negative'
+  }
+  return colors[status] || 'grey'
+}
+
+const getBatteryStatusIcon = (status) => {
+  const icons = {
+    'available': 'battery_full',
+    'rented': 'electric_bolt',
+    'maintenance': 'build',
+    'retired': 'block'
+  }
+  return icons[status] || 'battery_unknown'
+}
+
+const formatBatteryStatus = (status) => {
+  const labels = {
+    'available': 'Available',
+    'rented': 'Rented',
+    'maintenance': 'In Maintenance',
+    'retired': 'Retired'
+  }
+  return labels[status] || status
+}
+
 const showRentalDetails = (rental) => {
   selectedRental.value = rental
   showRentalDialog.value = true
@@ -472,49 +613,59 @@ const loadDashboardData = async () => {
   $q.loading.show()
 
   try {
-    // Load hub summary with optional hub filter
-    const hubParams = selectedHub.value ? { hub_id: selectedHub.value } : {}
-    const hubsResponse = await analyticsAPI.hubSummary(hubParams)
-    hubSummary.value = hubsResponse.data
-
-    // Filter hub summary by selected hub if needed
-    const filteredHubSummary = selectedHub.value
-      ? hubSummary.value.filter(h => h.hub_id === selectedHub.value)
-      : hubSummary.value
-
-    // Calculate stats
-    stats.value.totalHubs = filteredHubSummary.length
-    stats.value.activeBatteries = filteredHubSummary.reduce(
-      (sum, hub) => sum + (hub.active_batteries || 0),
-      0
-    )
-
-    // Load active rentals count (active + overdue, excludes returned) - both battery and PUE rentals
+    // Load battery stats by status
     try {
-      const rentalParams = { status: 'active' }
+      let allBatteries = []
+
       if (selectedHub.value) {
-        rentalParams.hub_id = selectedHub.value
+        // Load batteries for selected hub only
+        const batteriesResponse = await hubsAPI.getBatteries(selectedHub.value)
+        const batteries = batteriesResponse.data || []
+
+        // Get hub info
+        const hubsResponse = await hubsAPI.list()
+        const hub = hubsResponse.data.find(h => h.hub_id === selectedHub.value)
+        const hubName = hub ? hub.what_three_word_location : 'Unknown Hub'
+
+        // Add hub name to each battery
+        allBatteries = batteries.map(b => ({
+          ...b,
+          hub_name: hubName
+        }))
+      } else {
+        // Load all hubs to get all batteries
+        const hubsResponse = await hubsAPI.list()
+        for (const hub of hubsResponse.data) {
+          const batteriesResponse = await hubsAPI.getBatteries(hub.hub_id)
+          const batteries = batteriesResponse.data || []
+
+          // Add hub name to each battery
+          const batteriesWithHub = batteries.map(b => ({
+            ...b,
+            hub_name: hub.what_three_word_location
+          }))
+
+          allBatteries.push(...batteriesWithHub)
+        }
       }
 
-      // Load both battery and PUE rentals in parallel
-      const [batteryResponse, pueResponse] = await Promise.all([
-        batteryRentalsAPI.list(rentalParams),
-        pueRentalsAPI.list(rentalParams)
-      ])
+      // Store full battery list for display
+      batteryList.value = allBatteries
 
-      // Count all items that are out (not returned) - includes both active and overdue
-      const batteryRentalsOut = (batteryResponse.data || []).filter(r => r.status !== 'returned')
-      const pueRentalsOut = (pueResponse.data || []).filter(r => r.status !== 'returned')
-
-      stats.value.activeRentals = batteryRentalsOut.length + pueRentalsOut.length
+      // Count batteries by status
+      stats.value.batteriesAvailable = allBatteries.filter(b => b.status === 'available').length
+      stats.value.batteriesMaintenance = allBatteries.filter(b =>
+        b.status === 'maintenance' || b.status === 'retired'
+      ).length
+      stats.value.batteriesRented = allBatteries.filter(b => b.status === 'rented').length
     } catch (error) {
-      console.error('Error loading active rentals:', error)
+      console.error('Error loading battery stats:', error)
     }
 
     // Load overdue and upcoming rentals
     try {
       const rentalsResponse = await rentalsAPI.getOverdueUpcoming()
-      // Filter by hub if selected
+      // Filter by hub if selected (for superadmin only)
       let overdue = rentalsResponse.data.overdue || []
       let upcoming = rentalsResponse.data.upcoming || []
 
@@ -527,20 +678,6 @@ const loadDashboardData = async () => {
       upcomingRentals.value = upcoming
     } catch (error) {
       console.error('Error loading rental alerts:', error)
-    }
-
-    // Load revenue data
-    try {
-      const revenueParams = { time_period: 'last_month' }
-      if (selectedHub.value) {
-        revenueParams.hub_id = selectedHub.value
-      }
-      const revenueResponse = await analyticsAPI.revenue(revenueParams)
-      if (revenueResponse.data?.total_revenue) {
-        stats.value.totalRevenue = revenueResponse.data.total_revenue.toFixed(2)
-      }
-    } catch (error) {
-      console.error('Error loading revenue:', error)
     }
 
     // Load PUE inspection alerts
@@ -591,6 +728,10 @@ const onHubChange = (hubId) => {
 }
 
 onMounted(() => {
+  // For non-superadmins, set selectedHub to their hub_id automatically
+  if (!authStore.isSuperAdmin && authStore.user?.hub_id) {
+    selectedHub.value = authStore.user.hub_id
+  }
   loadDashboardData()
 })
 </script>

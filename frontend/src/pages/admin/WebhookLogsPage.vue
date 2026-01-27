@@ -54,7 +54,7 @@
               </template>
             </q-input>
           </div>
-          <div class="col-12 col-md-3">
+          <div class="col-12 col-md-2">
             <q-btn
               label="Apply Filters"
               icon="filter_list"
@@ -62,6 +62,34 @@
               @click="loadLogs"
               class="full-width"
             />
+          </div>
+          <div class="col-12 col-md-4">
+            <div class="row q-gutter-sm">
+              <q-toggle
+                v-model="autoRefresh"
+                label="Auto-refresh"
+                color="primary"
+                @update:model-value="toggleAutoRefresh"
+              />
+              <q-select
+                v-model="refreshInterval"
+                :options="refreshIntervalOptions"
+                label="Interval"
+                outlined
+                dense
+                style="min-width: 100px"
+                :disable="!autoRefresh"
+              />
+              <q-chip
+                v-if="autoRefresh && timeUntilRefresh > 0"
+                color="primary"
+                text-color="white"
+                icon="schedule"
+                size="sm"
+              >
+                {{ timeUntilRefresh }}s
+              </q-chip>
+            </div>
           </div>
         </div>
 
@@ -167,7 +195,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { adminAPI, batteriesAPI } from 'src/services/api'
 import { useQuasar, date } from 'quasar'
 import { useHubSettingsStore } from 'stores/hubSettings'
@@ -181,6 +209,19 @@ const batteryOptions = ref([])
 const loading = ref(false)
 const showDetailsDialog = ref(false)
 const selectedLog = ref(null)
+
+// Auto-refresh state
+const autoRefresh = ref(false)
+const refreshInterval = ref(10)
+const refreshIntervalOptions = [
+  { label: '5 seconds', value: 5 },
+  { label: '10 seconds', value: 10 },
+  { label: '30 seconds', value: 30 },
+  { label: '60 seconds', value: 60 }
+]
+const timeUntilRefresh = ref(0)
+let refreshTimer = null
+let countdownTimer = null
 
 const filters = ref({
   battery_id: null,
@@ -303,9 +344,53 @@ const viewDetails = (log) => {
   showDetailsDialog.value = true
 }
 
+const toggleAutoRefresh = (enabled) => {
+  if (enabled) {
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+const startAutoRefresh = () => {
+  stopAutoRefresh() // Clear any existing timers
+
+  const interval = (refreshInterval.value?.value || refreshInterval.value || 10) * 1000
+  timeUntilRefresh.value = interval / 1000
+
+  // Countdown timer (updates every second)
+  countdownTimer = setInterval(() => {
+    timeUntilRefresh.value -= 1
+    if (timeUntilRefresh.value <= 0) {
+      timeUntilRefresh.value = interval / 1000
+    }
+  }, 1000)
+
+  // Refresh timer (refreshes data at interval)
+  refreshTimer = setInterval(() => {
+    loadLogs()
+  }, interval)
+}
+
+const stopAutoRefresh = () => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+  timeUntilRefresh.value = 0
+}
+
 onMounted(() => {
   loadBatteries()
   loadLogs()
+})
+
+onUnmounted(() => {
+  stopAutoRefresh()
 })
 </script>
 

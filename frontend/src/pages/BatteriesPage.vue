@@ -116,12 +116,12 @@
           <q-form @submit="saveBattery" class="q-gutter-md">
             <q-input
               v-if="!editingBattery"
-              v-model.number="formData.battery_id"
+              v-model="formData.battery_id"
               label="Battery ID"
-              type="number"
+              type="text"
               outlined
               :rules="[val => !!val || 'Battery ID is required']"
-              hint="Unique identifier for this battery"
+              hint="Unique identifier (e.g., BAT-001, B-123-ABC)"
             />
 
             <q-select
@@ -151,7 +151,7 @@
               outlined
             />
 
-            <div v-if="authStore.isSuperAdmin && !editingBattery" class="q-gutter-sm">
+            <div v-if="authStore.isAdmin && !editingBattery" class="q-gutter-sm">
               <q-input
                 v-model="formData.battery_secret"
                 label="Battery Secret (for API access)"

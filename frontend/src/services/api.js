@@ -89,6 +89,7 @@ export const hubsAPI = {
 
 // Users
 export const usersAPI = {
+  list: (params) => api.get('/users/', { params }),
   get: (userId) => api.get(`/users/${userId}`),
   getByShortId: (shortId) => api.get(`/users/by-short-id/${shortId}`),
   create: (data) => api.post('/users/', data),
@@ -97,7 +98,23 @@ export const usersAPI = {
   grantHubAccess: (userId, hubId) =>
     api.post(`/admin/user-hub-access/${userId}/${hubId}`),
   revokeHubAccess: (userId, hubId) =>
-    api.delete(`/admin/user-hub-access/${userId}/${hubId}`)
+    api.delete(`/admin/user-hub-access/${userId}/${hubId}`),
+  uploadIdPhoto: (userId, file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post(`/users/${userId}/upload-id-photo`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  resetPassword: (userId, password = null) =>
+    password
+      ? api.post(`/users/${userId}/reset-password`, { password })
+      : api.post(`/users/${userId}/reset-password`),
+  changeOwnPassword: (currentPassword, newPassword) =>
+    api.post('/users/me/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword
+    })
 }
 
 // Batteries
@@ -118,6 +135,7 @@ export const batteriesAPI = {
 
 // PUE (Productive Use Equipment)
 export const pueAPI = {
+  list: (params) => api.get('/pue/', { params }),
   get: (pueId) => api.get(`/pue/${pueId}`),
   create: (data) => api.post('/pue/', data),
   update: (pueId, data) => api.put(`/pue/${pueId}`, data),
@@ -235,7 +253,7 @@ export const settingsAPI = {
 
   // PUE Types
   getPUETypes: (hubId) =>
-    api.get('/settings/pue-types', { params: { hub_id: hubId } }),
+    api.get('/settings/pue-types', { params: hubId ? { hub_id: hubId } : {} }),
   createPUEType: (data) =>
     api.post('/settings/pue-types', null, { params: data }),
   updatePUEType: (typeId, data) =>
@@ -297,7 +315,17 @@ export const settingsAPI = {
   updateSubscriptionPackage: (packageId, data) =>
     api.put(`/settings/subscription-packages/${packageId}`, null, { params: data }),
   deleteSubscriptionPackage: (packageId) =>
-    api.delete(`/settings/subscription-packages/${packageId}`)
+    api.delete(`/settings/subscription-packages/${packageId}`),
+
+  // Customer Field Options (GESI, Business Category, Signup Reasons)
+  getCustomerFieldOptions: (params) =>
+    api.get('/settings/customer-field-options', { params }),
+  createCustomerFieldOption: (data) =>
+    api.post('/settings/customer-field-options', null, { params: data }),
+  updateCustomerFieldOption: (optionId, data) =>
+    api.put(`/settings/customer-field-options/${optionId}`, null, { params: data }),
+  deleteCustomerFieldOption: (optionId) =>
+    api.delete(`/settings/customer-field-options/${optionId}`)
 }
 
 // User Subscriptions
@@ -345,6 +373,47 @@ export const notificationsAPI = {
     api.put(`/notifications/${notificationId}/read`),
   markAllAsRead: (params) =>
     api.put('/notifications/mark-all-read', null, { params })
+}
+
+// Return Survey System
+export const surveyAPI = {
+  // Survey Builder (Settings)
+  getQuestions: (params) =>
+    api.get('/settings/return-survey-questions', { params }),
+  createQuestion: (data) =>
+    api.post('/settings/return-survey-questions', null, { params: data }),
+  updateQuestion: (questionId, data) =>
+    api.put(`/settings/return-survey-questions/${questionId}`, null, { params: data }),
+  deleteQuestion: (questionId) =>
+    api.delete(`/settings/return-survey-questions/${questionId}`),
+  addQuestionOption: (questionId, data) =>
+    api.post(`/settings/return-survey-questions/${questionId}/options`, null, { params: data }),
+  updateQuestionOption: (optionId, data) =>
+    api.put(`/settings/return-survey-question-options/${optionId}`, null, { params: data }),
+  deleteQuestionOption: (optionId) =>
+    api.delete(`/settings/return-survey-question-options/${optionId}`),
+
+  // Survey Responses
+  getActiveQuestions: (params) =>
+    api.get('/return-survey/questions', { params }),
+  submitResponses: (data) =>
+    api.post('/return-survey/responses', data),
+  getResponses: (params) =>
+    api.get('/return-survey/responses', { params }),
+  exportResponses: (params) =>
+    api.get('/return-survey/responses/export', { params, responseType: 'blob' })
+}
+
+// Job Cards / Maintenance Board
+export const jobCardsAPI = {
+  list: (params) => api.get('/job-cards/', { params }),
+  get: (cardId) => api.get(`/job-cards/${cardId}`),
+  create: (data) => api.post('/job-cards/', data),
+  update: (cardId, data) => api.put(`/job-cards/${cardId}`, data),
+  delete: (cardId) => api.delete(`/job-cards/${cardId}`),
+  addActivity: (cardId, data) => api.post(`/job-cards/${cardId}/activities`, data),
+  reorder: (updates) => api.put('/job-cards/reorder', updates),
+  getAdminUsers: () => api.get('/job-cards/admin-users')
 }
 
 export default api

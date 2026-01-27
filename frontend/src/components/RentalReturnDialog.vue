@@ -471,6 +471,16 @@
       </q-card-section>
     </q-card>
   </q-dialog>
+
+  <!-- Return Survey Dialog -->
+  <ReturnSurveyDialog
+    v-model="showSurveyDialog"
+    :rental-type="rentalType"
+    :rental-id="returnedRentalId"
+    :hub-id="props.rental?.hub_id"
+    @submitted="onSurveySubmitted"
+    @skipped="onSurveySkipped"
+  />
 </template>
 
 <script setup>
@@ -479,6 +489,7 @@ import { useQuasar, date } from 'quasar'
 import { batteryRentalsAPI, pueRentalsAPI, settingsAPI } from 'src/services/api'
 import { useHubSettingsStore } from 'stores/hubSettings'
 import { useAuthStore } from 'stores/auth'
+import ReturnSurveyDialog from './ReturnSurveyDialog.vue'
 
 const $q = useQuasar()
 const hubSettingsStore = useHubSettingsStore()
@@ -523,6 +534,10 @@ const loadingCost = ref(false)
 const saving = ref(false)
 const paymentReceived = ref(false)
 const confirmPaymentReceived = ref(false)
+
+// Survey dialog state
+const showSurveyDialog = ref(false)
+const returnedRentalId = ref(null)
 const paymentTypeOptions = ref([])
 
 const formData = ref({
@@ -751,8 +766,10 @@ const onConfirm = async () => {
       position: 'top'
     })
 
-    emit('returned')
+    // Close return dialog and show survey
     showDialog.value = false
+    returnedRentalId.value = rentalId
+    showSurveyDialog.value = true
   } catch (error) {
     $q.notify({
       type: 'negative',
@@ -770,6 +787,18 @@ const onCancel = () => {
 
 const onHide = () => {
   costCalculation.value = null
+}
+
+const onSurveySubmitted = () => {
+  // Survey completed, emit returned event to refresh parent
+  emit('returned')
+  returnedRentalId.value = null
+}
+
+const onSurveySkipped = () => {
+  // Survey skipped, still emit returned event to refresh parent
+  emit('returned')
+  returnedRentalId.value = null
 }
 
 const loadPaymentTypes = async () => {

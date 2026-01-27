@@ -81,7 +81,7 @@ dev:
 	@echo "Once running, access:"
 	@echo "  📊 Backend API:  http://localhost:8000"
 	@echo "  📚 API Docs:     http://localhost:8000/docs"
-	@echo "  💻 Frontend:     http://localhost:9000"
+  💻 Frontend:     http://localhost:9000"
 	@echo "==================================================================="
 
 # Start database only (for development)
@@ -255,7 +255,9 @@ frontend-install:
 	@echo "✅ Frontend dependencies installed"
 
 # Start frontend dev server
-frontend-dev:
+
+
+:
 	@echo "🚀 Starting frontend dev server..."
 	@echo "Frontend will be available at http://localhost:9000"
 	@cd frontend && npm run dev
@@ -393,7 +395,7 @@ subscription-billing-dry-run:
 	@echo "✅ Preview complete"
 
 
-#To test the cron job manually:
+#To testen cron job manually:
   # Dry run (no actual charges)
 process_recurring_pue_payments-dry-run:
 	docker compose exec api python scripts/process_recurring_pue_payments.py --dry-run

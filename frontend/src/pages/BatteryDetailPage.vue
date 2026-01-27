@@ -25,6 +25,16 @@
           size="sm"
           class="col-12 col-sm-auto"
         />
+        <q-btn
+          v-if="battery"
+          label="Create Job Card"
+          icon="add_task"
+          color="primary"
+          outline
+          @click="showJobCardDialog = true"
+          size="sm"
+          class="col-12 col-sm-auto"
+        />
       </div>
     </div>
 
@@ -425,6 +435,14 @@
         </q-card-section>
       </q-card>
     </q-dialog>
+
+    <!-- Create Job Card Dialog -->
+    <JobCardDialog
+      v-model="showJobCardDialog"
+      :linked-entity-type="'battery'"
+      :linked-entity-id="battery?.battery_id"
+      @saved="onJobCardSaved"
+    />
   </q-page>
 </template>
 
@@ -435,13 +453,14 @@ import { batteriesAPI, dataAPI, hubsAPI, batteryRentalsAPI, notificationsAPI } f
 import { useQuasar, date, copyToClipboard } from 'quasar'
 import { useAuthStore } from 'stores/auth'
 import ErrorHistoryTable from 'src/components/ErrorHistoryTable.vue'
+import JobCardDialog from 'src/components/JobCardDialog.vue'
 
 const $q = useQuasar()
 const route = useRoute()
 const authStore = useAuthStore()
 
 const battery = ref(null)
-const batteryId = computed(() => parseInt(route.params.id))
+const batteryId = computed(() => route.params.id)
 const latestData = ref(null)
 const loading = ref(true)
 const loadingData = ref(false)
@@ -451,6 +470,7 @@ const hubOptions = ref([])
 const activeRental = ref(null)
 const rentalHistory = ref([])
 const notes = ref([])
+const showJobCardDialog = ref(false)
 
 // Secret reset
 const showSecretDialog = ref(false)
@@ -758,6 +778,15 @@ const saveBattery = async () => {
   } finally {
     saving.value = false
   }
+}
+
+const onJobCardSaved = () => {
+  $q.notify({
+    type: 'positive',
+    message: 'Job card created successfully',
+    position: 'top'
+  })
+  showJobCardDialog.value = false
 }
 
 onMounted(() => {

@@ -59,7 +59,7 @@
                 flat
                 dense
                 color="primary"
-                :label="userData?.Name || userData?.username || `User ${rentalData?.user_id}`"
+                :label="getUserDisplayName(userData)"
                 icon="person"
                 :to="{ name: 'user-detail', params: { id: rentalData?.user_id } }"
                 class="q-ml-sm"
@@ -703,6 +703,7 @@ const loading = ref(true)
 const paymentHistory = ref([])
 const ownershipStatus = ref(null)
 const loadingOwnership = ref(false)
+const fullUserData = ref(null)
 
 // Computed properties to normalize data structure across rental types
 const rentalData = computed(() => {
@@ -745,8 +746,8 @@ const rentalData = computed(() => {
 const userData = computed(() => {
   if (!rental.value) return null
   if (route.name === 'battery-rental-detail' || route.name === 'pue-rental-detail') {
-    // New system - user data is at root level or needs to be fetched
-    return { user_id: rental.value.user_id }
+    // New system - return fetched user data or fallback to user_id only
+    return fullUserData.value || { user_id: rental.value.user_id }
   }
   return rental.value.user
 })
@@ -908,6 +909,19 @@ const formatDate = (dateStr) => {
   return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm') + ' UTC'
 }
 
+const getUserDisplayName = (user) => {
+  if (!user) return 'Unknown User'
+
+  // Try different field combinations
+  if (user.Name) return user.Name
+  if (user.first_name && user.last_name) return `${user.first_name} ${user.last_name}`
+  if (user.first_name) return user.first_name
+  if (user.username) return user.username
+  if (user.user_id) return `User ${user.user_id}`
+
+  return 'Unknown User'
+}
+
 const calculateDays = (rentalInfo) => {
   if (!rentalInfo || !rentalInfo.rental_date || !rentalInfo.expected_return_date) return 0
 
@@ -962,6 +976,17 @@ const loadRentalDetails = async () => {
     }
 
     rental.value = response.data
+
+    // Fetch full user data for new rental systems
+    if ((route.name === 'battery-rental-detail' || route.name === 'pue-rental-detail') && response.data.user_id) {
+      try {
+        const userResponse = await usersAPI.get(response.data.user_id)
+        fullUserData.value = userResponse.data
+      } catch (error) {
+        console.error('Failed to load user data:', error)
+        // Continue without user data
+      }
+    }
 
     // If this is a pay-to-own rental, load ownership status
     if (response.data.is_pay_to_own) {

@@ -216,6 +216,25 @@ else
 fi
 
 ###############################################################################
+# POPULATE PRODUCTION SETTINGS
+###############################################################################
+
+log_info "Populating production settings (surveys, custom fields)..."
+
+# Check if populate script exists
+if [ -f "$APP_DIR/scripts/populate_production_settings.py" ]; then
+    docker exec battery-hub-api python scripts/populate_production_settings.py
+
+    if [ $? -eq 0 ]; then
+        log_success "Production settings populated"
+    else
+        log_warning "Failed to populate settings (non-critical - may already exist)"
+    fi
+else
+    log_warning "Populate script not found - skipping settings population"
+fi
+
+###############################################################################
 # ENSURE SYSTEMD SERVICE IS CONFIGURED
 ###############################################################################
 

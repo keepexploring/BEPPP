@@ -45,6 +45,7 @@ services:
       - ./logs:/app/logs
       - ./api:/app/api
       - ./alembic:/app/alembic
+      - ./scripts:/app/scripts
       - ./models.py:/app/models.py
       - ./database.py:/app/database.py
       - ./config.py:/app/config.py

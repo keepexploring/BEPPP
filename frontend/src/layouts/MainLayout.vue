@@ -9,6 +9,14 @@
           Battery Hub Manager
         </q-toolbar-title>
 
+        <q-btn
+          flat
+          label="Dashboard"
+          icon="home"
+          :to="{ name: 'dashboard' }"
+          class="q-mr-sm"
+        />
+
         <q-space />
 
         <q-btn flat round dense icon="notifications">
@@ -217,6 +225,19 @@
             </q-item-section>
             <q-item-section>
               <q-item-label>Accounts</q-item-label>
+            </q-item-section>
+          </q-item>
+
+          <q-item
+            clickable
+            :to="{ name: 'job-cards' }"
+            v-ripple
+          >
+            <q-item-section avatar>
+              <q-icon name="dashboard" />
+            </q-item-section>
+            <q-item-section>
+              <q-item-label>Job Cards</q-item-label>
             </q-item-section>
           </q-item>
 

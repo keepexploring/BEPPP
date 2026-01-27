@@ -37,7 +37,6 @@ const routes = [
       {
         path: 'users',
         name: 'users',
-        meta: { requiresAdmin: true },
         component: () => import('pages/UsersPage.vue')
       },
       {
@@ -102,6 +101,11 @@ const routes = [
         name: 'accounts',
         meta: { requiresAdmin: true },
         component: () => import('pages/AccountsPage.vue')
+      },
+      {
+        path: 'job-cards',
+        name: 'job-cards',
+        component: () => import('pages/JobCardsPage.vue')
       },
       {
         path: 'help',

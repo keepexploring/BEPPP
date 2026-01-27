@@ -7,6 +7,16 @@
       </div>
       <div class="col-12 col-sm-auto q-gutter-sm">
         <q-btn
+          v-if="pue"
+          label="Create Job Card"
+          icon="add_task"
+          color="primary"
+          outline
+          @click="showJobCardDialog = true"
+          size="sm"
+          class="col-12 col-sm-auto"
+        />
+        <q-btn
           v-if="authStore.isAdmin && pue"
           label="Edit"
           icon="edit"
@@ -260,6 +270,23 @@
               rows="2"
             />
 
+            <q-select
+              v-model="editForm.pue_type_id"
+              :options="pueTypeOptions"
+              option-value="type_id"
+              option-label="type_name"
+              emit-value
+              map-options
+              label="Equipment Type"
+              outlined
+              clearable
+              hint="Optional - categorize this equipment"
+            >
+              <template v-slot:prepend>
+                <q-icon name="category" />
+              </template>
+            </q-select>
+
             <div class="row">
               <div class="col q-pr-sm">
                 <q-input
@@ -305,15 +332,24 @@
         </q-card-section>
       </q-card>
     </q-dialog>
+
+    <!-- Create Job Card Dialog -->
+    <JobCardDialog
+      v-model="showJobCardDialog"
+      :linked-entity-type="'pue'"
+      :linked-entity-id="pue?.pue_id"
+      @saved="onJobCardSaved"
+    />
   </q-page>
 </template>
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { pueAPI, pueInspectionsAPI, pueRentalsAPI } from 'src/services/api'
+import { pueAPI, pueInspectionsAPI, pueRentalsAPI, settingsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useQuasar, date } from 'quasar'
+import JobCardDialog from 'src/components/JobCardDialog.vue'
 
 const $q = useQuasar()
 const route = useRoute()
@@ -326,8 +362,10 @@ const loadingInspections = ref(false)
 const rentalHistory = ref([])
 const showRecordInspectionDialog = ref(false)
 const showEditDialog = ref(false)
+const showJobCardDialog = ref(false)
 const savingInspection = ref(false)
 const saving = ref(false)
+const pueTypeOptions = ref([])
 
 const inspectionForm = ref({
   inspection_date: new Date().toISOString().slice(0, 16),
@@ -342,7 +380,8 @@ const editForm = ref({
   power_rating_watts: null,
   usage_location: 'both',
   storage_location: '',
-  status: 'available'
+  status: 'available',
+  pue_type_id: null
 })
 
 const conditionOptions = ['Excellent', 'Good', 'Fair', 'Poor', 'Damaged']
@@ -401,7 +440,9 @@ const loadPUE = async () => {
   loading.value = true
   try {
     const pueId = route.params.id
+    console.log('[PUEDetailPage] Loading PUE with ID:', pueId)
     const response = await pueAPI.get(pueId)
+    console.log('[PUEDetailPage] PUE response:', response.data)
     pue.value = response.data
 
     // Load inspections
@@ -410,7 +451,8 @@ const loadPUE = async () => {
     // Load rental history
     await loadRentalHistory()
   } catch (error) {
-    console.error('Failed to load PUE:', error)
+    console.error('[PUEDetailPage] Failed to load PUE:', error)
+    console.error('[PUEDetailPage] Error details:', error.response?.data)
     $q.notify({
       type: 'negative',
       message: 'Failed to load equipment details',
@@ -495,14 +537,25 @@ const resetInspectionForm = () => {
   }
 }
 
-const editPUE = () => {
+const editPUE = async () => {
+  // Load PUE types for the hub
+  if (pue.value.hub_id) {
+    try {
+      const response = await settingsAPI.getPUETypes(pue.value.hub_id)
+      pueTypeOptions.value = response.data?.pue_types || []
+    } catch (error) {
+      console.error('Failed to load PUE types:', error)
+    }
+  }
+
   editForm.value = {
     name: pue.value.name,
     description: pue.value.description || '',
     power_rating_watts: pue.value.power_rating_watts,
     usage_location: pue.value.usage_location || 'both',
     storage_location: pue.value.storage_location || '',
-    status: pue.value.status
+    status: pue.value.status,
+    pue_type_id: pue.value.pue_type_id
   }
   showEditDialog.value = true
 }
@@ -531,6 +584,15 @@ const savePUE = async () => {
   } finally {
     saving.value = false
   }
+}
+
+const onJobCardSaved = () => {
+  $q.notify({
+    type: 'positive',
+    message: 'Job card created successfully',
+    position: 'top'
+  })
+  showJobCardDialog.value = false
 }
 
 onMounted(() => {

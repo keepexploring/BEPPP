@@ -39,8 +39,9 @@
     >
       <q-tab name="pue-types" label="PUE Types" />
       <q-tab name="payment-types" label="Payment Types" />
+      <q-tab name="customer-data" label="Customer Data" />
+      <q-tab name="return-surveys" label="Return Surveys" />
       <q-tab name="cost-structures" label="Cost Structures" />
-      <q-tab name="subscriptions" label="Subscriptions" />
       <q-tab name="hub" label="Hub Settings" />
     </q-tabs>
 
@@ -104,6 +105,278 @@
                 <q-tooltip>{{ props.row.is_active ? 'Deactivate' : 'Activate' }}</q-tooltip>
               </q-btn>
               <q-btn flat round dense icon="delete" color="negative" @click="deletePaymentType(props.row)" />
+            </q-td>
+          </template>
+        </q-table>
+      </q-tab-panel>
+
+      <!-- Customer Data Tab -->
+      <q-tab-panel name="customer-data">
+        <div class="text-h6 q-mb-md">Customer Data Configuration</div>
+
+        <div class="text-caption text-grey-7 q-mb-lg">
+          Configure dropdown options for customer demographic and business information fields.
+        </div>
+
+        <!-- GESI Status Section -->
+        <div class="q-mb-xl">
+          <div class="row justify-between items-center q-mb-md">
+            <div class="text-subtitle1 text-weight-medium">GESI Status Options</div>
+            <q-btn
+              color="primary"
+              label="Add Option"
+              icon="add"
+              size="sm"
+              @click="openAddCustomerOptionDialog('gesi_status')"
+            />
+          </div>
+          <div class="text-caption text-grey-7 q-mb-sm">
+            Gender Equality & Social Inclusion categories (e.g., Youth, Older adults, People with disabilities)
+          </div>
+          <q-table
+            :rows="gesiOptions"
+            :columns="customerFieldOptionColumns"
+            row-key="option_id"
+            :loading="loadingCustomerOptions"
+            dense
+            flat
+            bordered
+          >
+            <template v-slot:body-cell-is_active="props">
+              <q-td :props="props">
+                <q-badge :color="props.row.is_active ? 'positive' : 'grey'" :label="props.row.is_active ? 'Active' : 'Inactive'" />
+              </q-td>
+            </template>
+            <template v-slot:body-cell-actions="props">
+              <q-td :props="props">
+                <q-btn flat round dense icon="edit" color="primary" @click="editCustomerOption(props.row)" />
+                <q-btn flat round dense icon="delete" color="negative" @click="deleteCustomerOption(props.row)" />
+              </q-td>
+            </template>
+          </q-table>
+        </div>
+
+        <!-- Business Category Section -->
+        <div class="q-mb-xl">
+          <div class="row justify-between items-center q-mb-md">
+            <div class="text-subtitle1 text-weight-medium">Business Category Options</div>
+            <q-btn
+              color="primary"
+              label="Add Option"
+              icon="add"
+              size="sm"
+              @click="openAddCustomerOptionDialog('business_category')"
+            />
+          </div>
+          <div class="text-caption text-grey-7 q-mb-sm">
+            Business size categories (e.g., Micro, Small, Medium, Large)
+          </div>
+          <q-table
+            :rows="businessCategoryOptions"
+            :columns="customerFieldOptionColumns"
+            row-key="option_id"
+            :loading="loadingCustomerOptions"
+            dense
+            flat
+            bordered
+          >
+            <template v-slot:body-cell-is_active="props">
+              <q-td :props="props">
+                <q-badge :color="props.row.is_active ? 'positive' : 'grey'" :label="props.row.is_active ? 'Active' : 'Inactive'" />
+              </q-td>
+            </template>
+            <template v-slot:body-cell-actions="props">
+              <q-td :props="props">
+                <q-btn flat round dense icon="edit" color="primary" @click="editCustomerOption(props.row)" />
+                <q-btn flat round dense icon="delete" color="negative" @click="deleteCustomerOption(props.row)" />
+              </q-td>
+            </template>
+          </q-table>
+        </div>
+
+        <!-- Signup Reason Section -->
+        <div class="q-mb-xl">
+          <div class="row justify-between items-center q-mb-md">
+            <div class="text-subtitle1 text-weight-medium">Main Reason for Signing Up Options</div>
+            <q-btn
+              color="primary"
+              label="Add Option"
+              icon="add"
+              size="sm"
+              @click="openAddCustomerOptionDialog('main_reason_for_signup')"
+            />
+          </div>
+          <div class="text-caption text-grey-7 q-mb-sm">
+            Main motivations for customers (e.g., Reduce costs, Reliable power, Business operations)
+          </div>
+          <q-table
+            :rows="signupReasonOptions"
+            :columns="customerFieldOptionColumns"
+            row-key="option_id"
+            :loading="loadingCustomerOptions"
+            dense
+            flat
+            bordered
+          >
+            <template v-slot:body-cell-is_active="props">
+              <q-td :props="props">
+                <q-badge :color="props.row.is_active ? 'positive' : 'grey'" :label="props.row.is_active ? 'Active' : 'Inactive'" />
+              </q-td>
+            </template>
+            <template v-slot:body-cell-actions="props">
+              <q-td :props="props">
+                <q-btn flat round dense icon="edit" color="primary" @click="editCustomerOption(props.row)" />
+                <q-btn flat round dense icon="delete" color="negative" @click="deleteCustomerOption(props.row)" />
+              </q-td>
+            </template>
+          </q-table>
+        </div>
+      </q-tab-panel>
+
+      <!-- Return Surveys Tab -->
+      <q-tab-panel name="return-surveys">
+        <div class="row justify-between q-mb-md">
+          <div class="text-h6">Return Survey Builder</div>
+          <div class="q-gutter-sm">
+            <q-btn color="secondary" label="Export Responses" icon="download" @click="exportSurveyResponses" outline />
+            <q-btn color="primary" label="Add Question" icon="add" @click="resetSurveyQuestionForm(); editingSurveyQuestion = null; showAddSurveyQuestionDialog = true" />
+          </div>
+        </div>
+
+        <div class="text-caption text-grey-7 q-mb-md">
+          Configure survey questions that will be presented to customers when they return batteries or PUE items.
+          Questions support conditional logic and can be applied to specific rental types.
+        </div>
+
+        <!-- Survey Requirement Setting -->
+        <q-card flat bordered class="q-mb-md">
+          <q-card-section>
+            <div class="row items-center">
+              <div class="col">
+                <div class="text-subtitle2">Survey Requirement</div>
+                <div class="text-caption text-grey-7">
+                  Choose whether customers must complete the survey or can skip it when returning items
+                </div>
+              </div>
+              <div class="col-auto">
+                <q-toggle
+                  v-model="returnSurveyRequired"
+                  @update:model-value="updateReturnSurveyRequired"
+                  :label="returnSurveyRequired ? 'Required' : 'Optional'"
+                  color="primary"
+                  size="lg"
+                />
+              </div>
+            </div>
+          </q-card-section>
+        </q-card>
+
+        <!-- Filter -->
+        <div class="row q-gutter-md q-mb-md">
+          <q-select
+            v-model="surveyFilterType"
+            :options="[
+              { label: 'All Questions', value: 'all' },
+              { label: 'Battery Only', value: 'battery' },
+              { label: 'PUE Only', value: 'pue' },
+              { label: 'Both Types', value: 'both' }
+            ]"
+            emit-value
+            map-options
+            outlined
+            dense
+            label="Filter by Type"
+            style="min-width: 200px"
+            @update:model-value="loadSurveyQuestions"
+          />
+          <q-toggle
+            v-model="surveyShowInactive"
+            label="Show Inactive"
+            @update:model-value="loadSurveyQuestions"
+          />
+        </div>
+
+        <!-- Questions Table -->
+        <q-table
+          :rows="surveyQuestions"
+          :columns="surveyQuestionColumns"
+          row-key="question_id"
+          :loading="loadingSurveyQuestions"
+          :pagination="{ rowsPerPage: 20 }"
+        >
+          <template v-slot:body-cell-question_text="props">
+            <q-td :props="props">
+              <div>{{ props.row.question_text }}</div>
+              <div v-if="props.row.help_text" class="text-caption text-grey-7">{{ props.row.help_text }}</div>
+            </q-td>
+          </template>
+
+          <template v-slot:body-cell-question_type="props">
+            <q-td :props="props">
+              <q-badge :color="getQuestionTypeColor(props.row.question_type)">
+                {{ formatQuestionType(props.row.question_type) }}
+              </q-badge>
+            </q-td>
+          </template>
+
+          <template v-slot:body-cell-applies_to="props">
+            <q-td :props="props">
+              <div class="q-gutter-xs">
+                <q-badge v-if="props.row.applies_to_battery" color="blue">Battery</q-badge>
+                <q-badge v-if="props.row.applies_to_pue" color="purple">PUE</q-badge>
+              </div>
+            </q-td>
+          </template>
+
+          <template v-slot:body-cell-conditional="props">
+            <q-td :props="props">
+              <q-icon
+                v-if="props.row.parent_question_id"
+                name="call_split"
+                color="orange"
+                size="sm"
+              >
+                <q-tooltip>
+                  Conditional: Shows when parent question answered with {{ props.row.show_if_parent_answer }}
+                </q-tooltip>
+              </q-icon>
+            </q-td>
+          </template>
+
+          <template v-slot:body-cell-is_required="props">
+            <q-td :props="props">
+              <q-badge :color="props.row.is_required ? 'positive' : 'grey'">
+                {{ props.row.is_required ? 'Required' : 'Optional' }}
+              </q-badge>
+            </q-td>
+          </template>
+
+          <template v-slot:body-cell-is_active="props">
+            <q-td :props="props">
+              <q-badge :color="props.row.is_active ? 'positive' : 'grey'">
+                {{ props.row.is_active ? 'Active' : 'Inactive' }}
+              </q-badge>
+            </q-td>
+          </template>
+
+          <template v-slot:body-cell-options="props">
+            <q-td :props="props">
+              <q-btn
+                flat
+                dense
+                size="sm"
+                :label="`${props.row.options?.length || 0} options`"
+                color="primary"
+                @click="viewQuestionOptions(props.row)"
+                v-if="['multiple_choice', 'multiple_select', 'rating', 'yes_no'].includes(props.row.question_type)"
+              />
+            </q-td>
+          </template>
+
+          <template v-slot:body-cell-actions="props">
+            <q-td :props="props">
+              <q-btn flat round dense icon="edit" color="primary" @click="editSurveyQuestion(props.row)" />
+              <q-btn flat round dense icon="delete" color="negative" @click="deleteSurveyQuestion(props.row)" />
             </q-td>
           </template>
         </q-table>
@@ -314,92 +587,6 @@
         </q-form>
       </q-tab-panel>
 
-      <!-- Subscriptions Tab -->
-      <q-tab-panel name="subscriptions">
-        <div class="row justify-between q-mb-md">
-          <div class="text-h6">Subscription Packages</div>
-          <q-btn color="primary" label="Add Package" @click="showAddSubscriptionDialog = true" />
-        </div>
-
-        <!-- Search Input -->
-        <q-input
-          v-model="subscriptionSearch"
-          outlined
-          dense
-          placeholder="Search by package name, billing period, or price..."
-          class="q-mb-md"
-          clearable
-        >
-          <template v-slot:prepend>
-            <q-icon name="search" />
-          </template>
-        </q-input>
-
-        <q-table
-          :rows="filteredSubscriptionPackages"
-          :columns="subscriptionColumns"
-          row-key="package_id"
-          :loading="loading"
-        >
-          <template v-slot:body-cell-billing_period="props">
-            <q-td :props="props">
-              <q-badge :color="getBillingPeriodColor(props.row.billing_period)">
-                {{ formatBillingPeriod(props.row.billing_period) }}
-              </q-badge>
-            </q-td>
-          </template>
-
-          <template v-slot:body-cell-price="props">
-            <q-td :props="props">
-              {{ getCurrencySymbol(props.row.currency) }}{{ props.row.price.toFixed(2) }}
-            </q-td>
-          </template>
-
-          <template v-slot:body-cell-items="props">
-            <q-td :props="props">
-              <q-badge color="blue" v-if="props.row.items && props.row.items.length > 0">
-                {{ props.row.items.length }} items
-              </q-badge>
-              <span v-else class="text-grey">No items</span>
-            </q-td>
-          </template>
-
-          <template v-slot:body-cell-is_active="props">
-            <q-td :props="props">
-              <q-badge :color="props.row.is_active ? 'green' : 'grey'">
-                {{ props.row.is_active ? 'Active' : 'Inactive' }}
-              </q-badge>
-            </q-td>
-          </template>
-
-          <template v-slot:body-cell-actions="props">
-            <q-td :props="props">
-              <q-btn
-                flat
-                dense
-                round
-                icon="edit"
-                color="primary"
-                size="sm"
-                @click="editSubscriptionPackage(props.row)"
-              >
-                <q-tooltip>Edit Package</q-tooltip>
-              </q-btn>
-              <q-btn
-                flat
-                dense
-                round
-                icon="delete"
-                color="negative"
-                size="sm"
-                @click="confirmDeleteSubscriptionPackage(props.row)"
-              >
-                <q-tooltip>Delete Package</q-tooltip>
-              </q-btn>
-            </q-td>
-          </template>
-        </q-table>
-      </q-tab-panel>
     </q-tab-panels>
 
     <!-- Add/Edit Duration Dialog -->
@@ -474,6 +661,296 @@
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
           <q-btn flat label="Add" color="primary" @click="savePaymentType" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Add/Edit Survey Question Dialog -->
+    <q-dialog v-model="showAddSurveyQuestionDialog" persistent>
+      <q-card style="min-width: 600px; max-width: 800px">
+        <q-card-section>
+          <div class="text-h6">{{ editingSurveyQuestion ? 'Edit' : 'Add' }} Survey Question</div>
+        </q-card-section>
+
+        <q-card-section class="q-gutter-md" style="max-height: 60vh; overflow-y: auto;">
+          <!-- Question Text -->
+          <q-input
+            v-model="newSurveyQuestion.question_text"
+            label="Question Text *"
+            type="textarea"
+            outlined
+            rows="2"
+            :rules="[val => !!val || 'Question text is required']"
+            hint="The question to ask the customer"
+          />
+
+          <!-- Help Text -->
+          <q-input
+            v-model="newSurveyQuestion.help_text"
+            label="Help Text (Optional)"
+            type="textarea"
+            outlined
+            rows="2"
+            hint="Additional explanation or context for the question"
+          />
+
+          <!-- Question Type -->
+          <q-select
+            v-model="newSurveyQuestion.question_type"
+            :options="questionTypeOptions"
+            emit-value
+            map-options
+            outlined
+            label="Question Type *"
+            hint="How the user will answer this question"
+          />
+
+          <!-- Applies To -->
+          <div>
+            <div class="text-subtitle2 q-mb-sm">Applies To *</div>
+            <div class="row q-gutter-md">
+              <q-checkbox v-model="newSurveyQuestion.applies_to_battery" label="Battery Rentals" />
+              <q-checkbox v-model="newSurveyQuestion.applies_to_pue" label="PUE Rentals" />
+            </div>
+          </div>
+
+          <!-- Required -->
+          <q-checkbox
+            v-model="newSurveyQuestion.is_required"
+            label="This question is required"
+          />
+
+          <!-- Active -->
+          <q-checkbox
+            v-model="newSurveyQuestion.is_active"
+            label="Question is active"
+          />
+
+          <!-- Sort Order -->
+          <q-input
+            v-model.number="newSurveyQuestion.sort_order"
+            type="number"
+            label="Sort Order"
+            outlined
+            hint="Controls the display order (lower numbers appear first)"
+          />
+
+          <!-- Rating Scale Fields (only for rating type) -->
+          <div v-if="newSurveyQuestion.question_type === 'rating'">
+            <q-separator class="q-my-md" />
+            <div class="text-subtitle2 q-mb-sm">Rating Scale Configuration</div>
+            <div class="row q-col-gutter-md">
+              <div class="col-6">
+                <q-input
+                  v-model.number="newSurveyQuestion.rating_min"
+                  type="number"
+                  label="Minimum Value *"
+                  outlined
+                  :rules="[val => val !== null && val !== undefined || 'Required']"
+                  hint="E.g., 1"
+                />
+              </div>
+              <div class="col-6">
+                <q-input
+                  v-model.number="newSurveyQuestion.rating_max"
+                  type="number"
+                  label="Maximum Value *"
+                  outlined
+                  :rules="[val => val !== null && val !== undefined || 'Required']"
+                  hint="E.g., 10"
+                />
+              </div>
+            </div>
+            <div class="row q-col-gutter-md q-mt-xs">
+              <div class="col-6">
+                <q-input
+                  v-model="newSurveyQuestion.rating_min_label"
+                  label="Minimum Label *"
+                  outlined
+                  :rules="[val => !!val || 'Required']"
+                  hint="E.g., 'Very Dissatisfied'"
+                />
+              </div>
+              <div class="col-6">
+                <q-input
+                  v-model="newSurveyQuestion.rating_max_label"
+                  label="Maximum Label *"
+                  outlined
+                  :rules="[val => !!val || 'Required']"
+                  hint="E.g., 'Very Satisfied'"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Answer Options (for multiple choice, select, yes/no - NOT rating) -->
+          <div v-if="['multiple_choice', 'multiple_select', 'yes_no'].includes(newSurveyQuestion.question_type)">
+            <q-separator class="q-my-md" />
+            <div class="text-subtitle2 q-mb-sm">
+              Answer Options *
+              <span v-if="newSurveyQuestion.question_type === 'yes_no'" class="text-caption text-grey-7">
+                (Yes/No options will be created automatically)
+              </span>
+            </div>
+            <div v-if="newSurveyQuestion.question_type === 'yes_no'" class="text-caption text-grey-7 q-mb-md">
+              No need to add options - Yes/No will be created automatically when you save.
+            </div>
+            <div v-else class="text-caption text-grey-7 q-mb-md">
+              Define the choices available for this question
+            </div>
+
+            <!-- Options List (only show for non-yes_no types) -->
+            <q-list v-if="newSurveyQuestion.question_type !== 'yes_no'" bordered separator class="q-mb-md">
+              <q-item v-for="(option, index) in currentQuestionOptions" :key="index">
+                <q-item-section>
+                  <q-item-label>{{ option.option_text }}</q-item-label>
+                  <q-item-label caption>Value: {{ option.option_value }}</q-item-label>
+                  <q-item-label caption v-if="option.is_open_text_trigger">
+                    <q-badge color="blue" label="Triggers text input" />
+                  </q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <div class="row q-gutter-xs">
+                    <q-btn flat dense round icon="edit" size="sm" @click="editOptionInList(index)" />
+                    <q-btn flat dense round icon="delete" size="sm" color="negative" @click="removeOptionFromList(index)" />
+                  </div>
+                </q-item-section>
+              </q-item>
+              <q-item v-if="currentQuestionOptions.length === 0">
+                <q-item-section class="text-grey-7 text-center">
+                  No options added yet. Click "Add Option" below.
+                </q-item-section>
+              </q-item>
+            </q-list>
+
+            <!-- Add/Edit Option Form (only for non-yes_no types) -->
+            <q-card v-if="newSurveyQuestion.question_type !== 'yes_no'" flat bordered class="q-pa-md">
+              <div class="q-gutter-sm">
+                <q-input
+                  v-model="newQuestionOption.option_text"
+                  label="Option Text *"
+                  outlined
+                  dense
+                  hint="The text shown to the user"
+                />
+                <q-input
+                  v-model="newQuestionOption.option_value"
+                  label="Option Value *"
+                  outlined
+                  dense
+                  hint="The value stored in the database (e.g., 'yes', '1', '2')"
+                />
+                <q-input
+                  v-model.number="newQuestionOption.sort_order"
+                  type="number"
+                  label="Sort Order"
+                  outlined
+                  dense
+                  hint="Controls display order"
+                />
+                <q-checkbox
+                  v-model="newQuestionOption.is_open_text_trigger"
+                  label="Trigger additional text input"
+                  dense
+                >
+                  <template v-slot:default>
+                    <div>
+                      <div>Trigger additional text input</div>
+                      <div class="text-caption text-grey-7">
+                        When this option is selected by a user, an additional text field will appear asking them to provide more details. Useful for "Other" options or when you want elaboration.
+                      </div>
+                    </div>
+                  </template>
+                </q-checkbox>
+                <div class="row q-gutter-sm justify-end">
+                  <q-btn
+                    v-if="editingOptionIndex !== null"
+                    flat
+                    label="Cancel Edit"
+                    size="sm"
+                    @click="cancelEditOption"
+                  />
+                  <q-btn
+                    flat
+                    :label="editingOptionIndex !== null ? 'Update Option' : 'Add Option'"
+                    color="primary"
+                    size="sm"
+                    icon="add"
+                    @click="addOptionToList"
+                  />
+                </div>
+              </div>
+            </q-card>
+          </div>
+
+          <!-- Conditional Logic -->
+          <q-expansion-item
+            label="Conditional Logic (Advanced)"
+            icon="call_split"
+            caption="Show this question only when a previous question is answered in a specific way"
+          >
+            <q-card flat bordered class="q-mt-sm">
+              <q-card-section class="q-gutter-md">
+                <q-select
+                  v-model="newSurveyQuestion.parent_question_id"
+                  :options="surveyQuestions.filter(q => q.question_id !== editingSurveyQuestion?.question_id)"
+                  option-value="question_id"
+                  option-label="question_text"
+                  emit-value
+                  map-options
+                  outlined
+                  clearable
+                  label="Parent Question"
+                  hint="The question that determines if this question should be shown"
+                />
+
+                <q-input
+                  v-if="newSurveyQuestion.parent_question_id"
+                  v-model="newSurveyQuestion.show_if_parent_answer"
+                  label="Show if parent answer is"
+                  outlined
+                  hint='Enter answer values as JSON array, e.g., ["yes"] or ["2", "3"]'
+                  placeholder='["answer_value"]'
+                />
+              </q-card-section>
+            </q-card>
+          </q-expansion-item>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" @click="showAddSurveyQuestionDialog = false; editingSurveyQuestion = null; resetSurveyQuestionForm()" />
+          <q-btn flat label="Save Question" color="primary" @click="saveSurveyQuestion" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- View Question Options Dialog -->
+    <q-dialog v-model="showQuestionOptionsDialog">
+      <q-card style="min-width: 500px">
+        <q-card-section>
+          <div class="text-h6">Question Options</div>
+          <div class="text-caption text-grey-7">{{ viewingQuestionOptions?.question_text }}</div>
+        </q-card-section>
+
+        <q-card-section>
+          <q-list bordered separator>
+            <q-item v-for="option in viewingQuestionOptions?.options" :key="option.option_id">
+              <q-item-section>
+                <q-item-label>{{ option.option_text }}</q-item-label>
+                <q-item-label caption>Value: {{ option.option_value }}</q-item-label>
+              </q-item-section>
+              <q-item-section side>
+                <div class="q-gutter-xs">
+                  <q-badge v-if="option.is_open_text_trigger" color="orange" label="Text Input" />
+                  <q-badge color="grey" :label="`Order: ${option.sort_order}`" />
+                </div>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Close" v-close-popup />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -896,6 +1373,19 @@
           <!-- Duration Options Section (hidden for pay-to-own) -->
           <template v-if="!newStructure.is_pay_to_own">
             <q-separator class="q-my-md" />
+
+            <!-- Allow Custom Duration Control -->
+            <q-checkbox
+              v-model="newStructure.allow_custom_duration"
+              label="Allow Custom Duration Input"
+              dense
+              class="q-mb-md"
+            >
+              <q-tooltip>
+                When enabled, users can enter custom rental durations. When disabled, users can only select from predefined duration options.
+              </q-tooltip>
+            </q-checkbox>
+
             <div class="text-subtitle2 q-mt-md">Duration Options</div>
             <div class="text-caption text-grey-7 q-mb-sm">
               Define how users will select rental duration (e.g., dropdown with 1, 2, 5 days or custom input)
@@ -1353,354 +1843,122 @@
       </q-card>
     </q-dialog>
 
-    <!-- Add/Edit Subscription Package Dialog -->
-    <q-dialog v-model="showAddSubscriptionDialog" persistent>
-      <q-card style="min-width: 700px; max-width: 800px">
+    <!-- Add GESI Status Option Dialog -->
+    <q-dialog v-model="showAddGesiDialog">
+      <q-card style="min-width: 400px">
         <q-card-section>
-          <div class="text-h6">{{ isEditingSubscription ? 'Edit' : 'Add' }} Subscription Package</div>
+          <div class="text-h6">Add GESI Status Option</div>
         </q-card-section>
 
-        <q-card-section class="q-pt-none" style="max-height: 70vh; overflow-y: auto">
-          <!-- Package Name -->
+        <q-card-section>
           <q-input
-            v-model="newSubscriptionPackage.package_name"
-            label="Package Name"
+            v-model="newCustomerOption.option_value"
+            label="Option Value *"
             outlined
-            dense
-            class="q-mb-md"
-            :rules="[val => !!val || 'Package name is required']"
+            hint="e.g., Youth (<18), Older (>55)"
           />
-
-          <!-- Description -->
           <q-input
-            v-model="newSubscriptionPackage.description"
+            v-model="newCustomerOption.description"
             label="Description"
             type="textarea"
             outlined
-            dense
             rows="2"
-            class="q-mb-md"
+            class="q-mt-md"
+            hint="Optional description"
           />
-
-          <!-- Billing Period and Price -->
-          <div class="row q-col-gutter-md q-mb-md">
-            <div class="col-6">
-              <q-select
-                v-model="newSubscriptionPackage.billing_period"
-                :options="[
-                  {label: 'Daily', value: 'daily'},
-                  {label: 'Weekly', value: 'weekly'},
-                  {label: 'Monthly', value: 'monthly'},
-                  {label: 'Yearly', value: 'yearly'}
-                ]"
-                label="Billing Period"
-                outlined
-                dense
-                emit-value
-                map-options
-                :rules="[val => !!val || 'Billing period is required']"
-              />
-            </div>
-            <div class="col-6">
-              <q-input
-                v-model.number="newSubscriptionPackage.price"
-                type="number"
-                label="Price"
-                :prefix="currentCurrencySymbol"
-                outlined
-                dense
-                step="0.01"
-                :rules="[val => val >= 0 || 'Price must be positive']"
-              />
-            </div>
-          </div>
-
-          <!-- Concurrent Limits -->
-          <div class="row q-col-gutter-md q-mb-md">
-            <div class="col-6">
-              <q-input
-                v-model.number="newSubscriptionPackage.max_concurrent_batteries"
-                type="number"
-                label="Max Concurrent Batteries"
-                outlined
-                dense
-                min="1"
-                step="1"
-                hint="Enter a whole number, or leave empty for unlimited"
-                :rules="[val => val === null || val === undefined || val === '' || (Number.isInteger(val) && val > 0) || 'Must be a positive whole number or empty']"
-                @keypress="onlyNumbersKeypress"
-              />
-            </div>
-            <div class="col-6">
-              <q-input
-                v-model.number="newSubscriptionPackage.max_concurrent_pue"
-                type="number"
-                label="Max Concurrent PUE Items"
-                outlined
-                dense
-                min="1"
-                step="1"
-                hint="Enter a whole number, or leave empty for unlimited"
-                :rules="[val => val === null || val === undefined || val === '' || (Number.isInteger(val) && val > 0) || 'Must be a positive whole number or empty']"
-                @keypress="onlyNumbersKeypress"
-              />
-            </div>
-          </div>
-
-          <!-- kWh Limits -->
-          <div class="row q-col-gutter-md q-mb-md">
-            <div class="col-6">
-              <q-input
-                v-model.number="newSubscriptionPackage.included_kwh"
-                type="number"
-                label="Included kWh per Period"
-                outlined
-                dense
-                step="0.1"
-                min="0"
-                hint="Leave empty for unlimited"
-                clearable
-                @keypress="onlyDecimalKeypress"
-              />
-            </div>
-            <div class="col-6">
-              <q-input
-                v-model.number="newSubscriptionPackage.overage_rate_kwh"
-                type="number"
-                label="Overage Rate per kWh"
-                :prefix="currentCurrencySymbol"
-                outlined
-                dense
-                step="0.01"
-                min="0"
-                hint="Charge for kWh over included amount"
-                clearable
-                @keypress="onlyDecimalKeypress"
-              />
-            </div>
-          </div>
-
-          <!-- Auto Renew -->
-          <q-checkbox
-            v-model="newSubscriptionPackage.auto_renew"
-            label="Auto-renew by default"
-            class="q-mb-md"
+          <q-input
+            v-model.number="newCustomerOption.sort_order"
+            label="Sort Order"
+            type="number"
+            outlined
+            class="q-mt-md"
+            hint="Lower numbers appear first"
           />
-
-          <!-- Package Items -->
-          <div class="text-subtitle2 q-mb-sm">Included Items</div>
-          <q-card flat bordered class="q-mb-md">
-            <q-card-section>
-              <div v-if="newSubscriptionPackage.items.length === 0" class="text-grey text-center q-pa-md">
-                No items added yet
-              </div>
-
-              <div v-for="(item, index) in newSubscriptionPackage.items" :key="index" class="q-mb-sm">
-                <q-card flat bordered>
-                  <q-card-section class="row items-center q-pa-sm">
-                    <div class="col">
-                      <div class="text-weight-medium">{{ getItemTypeLabel(item.item_type) }}</div>
-                      <div class="text-caption text-grey">{{ getItemReferenceLabel(item) }}</div>
-                      <div class="text-caption" v-if="item.quantity_limit">
-                        Limit: {{ item.quantity_limit }} item(s)
-                      </div>
-                    </div>
-                    <div>
-                      <q-btn
-                        flat
-                        dense
-                        round
-                        icon="delete"
-                        color="negative"
-                        size="sm"
-                        @click="removeSubscriptionItem(index)"
-                      />
-                    </div>
-                  </q-card-section>
-                </q-card>
-              </div>
-
-              <q-btn
-                flat
-                color="primary"
-                icon="add"
-                label="Add Item"
-                @click="showAddSubscriptionItemDialog = true"
-                class="q-mt-sm full-width"
-              />
-            </q-card-section>
-          </q-card>
         </q-card-section>
 
         <q-card-actions align="right">
-          <q-btn flat label="Cancel" v-close-popup @click="resetSubscriptionForm" />
-          <q-btn
-            flat
-            :label="isEditingSubscription ? 'Update' : 'Create'"
-            color="primary"
-            @click="saveSubscriptionPackage"
-            :loading="saving"
-          />
+          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn flat label="Add" color="primary" @click="saveCustomerOption('gesi_status')" />
         </q-card-actions>
       </q-card>
     </q-dialog>
 
-    <!-- Add Subscription Item Dialog -->
-    <q-dialog v-model="showAddSubscriptionItemDialog">
+    <!-- Add Business Category Option Dialog -->
+    <q-dialog v-model="showAddBusinessCategoryDialog">
       <q-card style="min-width: 400px">
         <q-card-section>
-          <div class="text-h6">Add Item to Package</div>
+          <div class="text-h6">Add Business Category Option</div>
         </q-card-section>
 
-        <q-card-section class="q-pt-none">
-          <!-- Item Type -->
-          <q-select
-            v-model="newSubscriptionItem.item_type"
-            :options="[
-              {label: 'All Batteries', value: 'battery', description: 'Applies to all batteries'},
-              {label: 'Specific Battery Capacity', value: 'battery_capacity', description: 'Applies to specific capacity'},
-              {label: 'Specific Battery', value: 'battery_item', description: 'Applies to one specific battery'},
-              {label: 'All PUE Items', value: 'pue', description: 'Applies to all PUE equipment'},
-              {label: 'Specific PUE Type', value: 'pue_type', description: 'Applies to specific PUE type'},
-              {label: 'Specific PUE Item', value: 'pue_item', description: 'Applies to one PUE item'}
-            ]"
-            label="Item Type"
-            outlined
-            dense
-            emit-value
-            map-options
-            @update:model-value="onSubscriptionItemTypeChange"
-            class="q-mb-md"
-          >
-            <template v-slot:option="scope">
-              <q-item v-bind="scope.itemProps">
-                <q-item-section>
-                  <q-item-label>{{ scope.opt.label }}</q-item-label>
-                  <q-item-label caption>{{ scope.opt.description }}</q-item-label>
-                </q-item-section>
-              </q-item>
-            </template>
-          </q-select>
-
-          <!-- Item Reference (conditional) -->
-          <q-select
-            v-if="newSubscriptionItem.item_type === 'battery_capacity'"
-            v-model="newSubscriptionItem.item_reference"
-            :options="batteryCapacityOptions"
-            label="Battery Capacity"
-            outlined
-            dense
-            use-input
-            input-debounce="300"
-            @filter="filterBatteryCapacities"
-            hint="Type to search capacity (Wh)"
-            class="q-mb-md"
-          />
-
-          <q-select
-            v-if="newSubscriptionItem.item_type === 'battery_item'"
-            v-model="newSubscriptionItem.item_reference"
-            :options="filteredBatteriesForSubscription"
-            option-value="battery_id"
-            option-label="label"
-            emit-value
-            map-options
-            use-input
-            input-debounce="300"
-            @filter="filterBatteriesForSubscription"
-            label="Battery"
-            outlined
-            dense
-            hint="Type to search by model or ID"
-            class="q-mb-md"
-          >
-            <template v-slot:no-option>
-              <q-item>
-                <q-item-section class="text-grey">
-                  No batteries found
-                </q-item-section>
-              </q-item>
-            </template>
-          </q-select>
-
-          <q-select
-            v-if="newSubscriptionItem.item_type === 'pue_type'"
-            v-model="newSubscriptionItem.item_reference"
-            :options="filteredPUETypesForSubscription"
-            option-value="type_id"
-            option-label="type_name"
-            emit-value
-            map-options
-            use-input
-            input-debounce="300"
-            @filter="filterPUETypesForSubscription"
-            label="PUE Type"
-            outlined
-            dense
-            hint="Type to search PUE types"
-            class="q-mb-md"
-          >
-            <template v-slot:no-option>
-              <q-item>
-                <q-item-section class="text-grey">
-                  No PUE types found
-                </q-item-section>
-              </q-item>
-            </template>
-          </q-select>
-
-          <q-select
-            v-if="newSubscriptionItem.item_type === 'pue_item'"
-            v-model="newSubscriptionItem.item_reference"
-            :options="filteredPUEItemsForSubscription"
-            option-value="pue_id"
-            :option-label="(item) => item ? `${item.pue_id} - ${item.name}` : ''"
-            emit-value
-            map-options
-            use-input
-            input-debounce="300"
-            @filter="filterPUEItemsForSubscription"
-            label="PUE Item"
-            outlined
-            dense
-            hint="Type to search by ID or name"
-            class="q-mb-md"
-          >
-            <template v-slot:no-option>
-              <q-item>
-                <q-item-section class="text-grey">
-                  No PUE items found
-                </q-item-section>
-              </q-item>
-            </template>
-            <template v-slot:option="scope">
-              <q-item v-bind="scope.itemProps">
-                <q-item-section>
-                  <q-item-label>{{ scope.opt.pue_id }} - {{ scope.opt.name }}</q-item-label>
-                  <q-item-label caption v-if="scope.opt.description">{{ scope.opt.description }}</q-item-label>
-                </q-item-section>
-              </q-item>
-            </template>
-          </q-select>
-
-          <!-- Quantity Limit -->
+        <q-card-section>
           <q-input
-            v-model.number="newSubscriptionItem.quantity_limit"
-            type="number"
-            label="Quantity Limit"
+            v-model="newCustomerOption.option_value"
+            label="Option Value *"
             outlined
-            dense
-            min="1"
-            step="1"
-            hint="Leave empty for unlimited (whole numbers only)"
-            clearable
-            @keypress="onlyNumbersKeypress"
+            hint="e.g., Micro Business, Small Business"
+          />
+          <q-input
+            v-model="newCustomerOption.description"
+            label="Description"
+            type="textarea"
+            outlined
+            rows="2"
+            class="q-mt-md"
+            hint="Optional description"
+          />
+          <q-input
+            v-model.number="newCustomerOption.sort_order"
+            label="Sort Order"
+            type="number"
+            outlined
+            class="q-mt-md"
+            hint="Lower numbers appear first"
           />
         </q-card-section>
 
         <q-card-actions align="right">
-          <q-btn flat label="Cancel" v-close-popup @click="resetSubscriptionItemForm" />
-          <q-btn flat label="Add" color="primary" @click="addSubscriptionItem" />
+          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn flat label="Add" color="primary" @click="saveCustomerOption('business_category')" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Add Signup Reason Option Dialog -->
+    <q-dialog v-model="showAddSignupReasonDialog">
+      <q-card style="min-width: 400px">
+        <q-card-section>
+          <div class="text-h6">Add Signup Reason Option</div>
+        </q-card-section>
+
+        <q-card-section>
+          <q-input
+            v-model="newCustomerOption.option_value"
+            label="Option Value *"
+            outlined
+            hint="e.g., Reduce Energy Costs, Reliable Power"
+          />
+          <q-input
+            v-model="newCustomerOption.description"
+            label="Description"
+            type="textarea"
+            outlined
+            rows="2"
+            class="q-mt-md"
+            hint="Optional description"
+          />
+          <q-input
+            v-model.number="newCustomerOption.sort_order"
+            label="Sort Order"
+            type="number"
+            outlined
+            class="q-mt-md"
+            hint="Lower numbers appear first"
+          />
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn flat label="Add" color="primary" @click="saveCustomerOption('main_reason_for_signup')" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -1708,8 +1966,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { settingsAPI, hubsAPI, pueAPI } from 'src/services/api'
+import { ref, computed, onMounted, watch } from 'vue'
+import { settingsAPI, hubsAPI, pueAPI, surveyAPI } from 'src/services/api'
 import { useQuasar } from 'quasar'
 import { useAuthStore } from 'stores/auth'
 
@@ -1738,11 +1996,6 @@ const pueTypesAtHub = ref([])
 const filteredPUETypes = ref([])
 const pueItemsAtHub = ref([])
 const filteredPUEItems = ref([])
-
-// Filtered options for subscription dialog (separate from pricing)
-const filteredBatteriesForSubscription = ref([])
-const filteredPUETypesForSubscription = ref([])
-const filteredPUEItemsForSubscription = ref([])
 
 // Duration Presets
 const durationPresets = ref([])
@@ -1795,6 +2048,87 @@ const typeColumns = [
   { name: 'actions', label: 'Actions', align: 'center' }
 ]
 
+// Customer Field Options (GESI, Business Category, Signup Reasons)
+const gesiOptions = ref([])
+const businessCategoryOptions = ref([])
+const signupReasonOptions = ref([])
+const loadingCustomerOptions = ref(false)
+const showAddGesiDialog = ref(false)
+const showAddBusinessCategoryDialog = ref(false)
+const showAddSignupReasonDialog = ref(false)
+const showEditCustomerOptionDialog = ref(false)
+const editingCustomerOption = ref(null)
+const newCustomerOption = ref({
+  field_name: '',
+  option_value: '',
+  description: '',
+  sort_order: 0
+})
+
+const customerFieldOptionColumns = [
+  { name: 'option_value', label: 'Option', field: 'option_value', align: 'left', sortable: true },
+  { name: 'description', label: 'Description', field: 'description', align: 'left' },
+  { name: 'sort_order', label: 'Order', field: 'sort_order', align: 'center', sortable: true },
+  { name: 'is_active', label: 'Status', field: 'is_active', align: 'center' },
+  { name: 'actions', label: 'Actions', align: 'center' }
+]
+
+// Return Survey System
+const surveyQuestions = ref([])
+const loadingSurveyQuestions = ref(false)
+const surveyFilterType = ref('all')
+const surveyShowInactive = ref(false)
+const returnSurveyRequired = ref(false)
+const showAddSurveyQuestionDialog = ref(false)
+const showEditSurveyQuestionDialog = ref(false)
+const showQuestionOptionsDialog = ref(false)
+const editingSurveyQuestion = ref(null)
+const viewingQuestionOptions = ref(null)
+const newSurveyQuestion = ref({
+  question_text: '',
+  question_type: 'open_text',
+  help_text: '',
+  applies_to_battery: true,
+  applies_to_pue: true,
+  parent_question_id: null,
+  show_if_parent_answer: '',
+  rating_min: 1,
+  rating_max: 10,
+  rating_min_label: '',
+  rating_max_label: '',
+  is_required: true,
+  is_active: true,
+  sort_order: 0
+})
+const newQuestionOption = ref({
+  option_text: '',
+  option_value: '',
+  is_open_text_trigger: false,
+  sort_order: 0
+})
+const currentQuestionOptions = ref([]) // Options for the question being created/edited
+const editingOptionIndex = ref(null) // Track which option is being edited
+
+const surveyQuestionColumns = [
+  { name: 'sort_order', label: 'Order', field: 'sort_order', align: 'center', sortable: true },
+  { name: 'question_text', label: 'Question', field: 'question_text', align: 'left', sortable: true },
+  { name: 'question_type', label: 'Type', field: 'question_type', align: 'center' },
+  { name: 'applies_to', label: 'Applies To', align: 'center' },
+  { name: 'conditional', label: 'Conditional', align: 'center' },
+  { name: 'is_required', label: 'Required', field: 'is_required', align: 'center' },
+  { name: 'is_active', label: 'Status', field: 'is_active', align: 'center' },
+  { name: 'options', label: 'Options', align: 'center' },
+  { name: 'actions', label: 'Actions', align: 'center' }
+]
+
+const questionTypeOptions = [
+  { label: 'Open Text', value: 'open_text' },
+  { label: 'Multiple Choice', value: 'multiple_choice' },
+  { label: 'Multiple Select', value: 'multiple_select' },
+  { label: 'Rating', value: 'rating' },
+  { label: 'Yes/No', value: 'yes_no' }
+]
+
 // Pricing
 const pricingConfigs = ref([])
 const showAddPricingDialog = ref(false)
@@ -1822,7 +2156,6 @@ const pricingColumns = [
 // Cost Structures
 const costStructures = ref([])
 const costStructureSearch = ref('')
-const subscriptionSearch = ref('')
 const showAddStructureDialog = ref(false)
 const structureTab = ref('basic')  // Tab state for cost structure dialog
 const editingStructure = ref(null)
@@ -1836,7 +2169,8 @@ const newStructure = ref({
   count_initial_checkout_as_recharge: false,
   is_pay_to_own: false,
   item_total_cost: null,
-  allow_multiple_items: true
+  allow_multiple_items: true,
+  allow_custom_duration: true
 })
 
 const structureColumns = [
@@ -1893,38 +2227,6 @@ const filteredCostStructures = computed(() => {
 // Check if the current structure has any per_recharge components
 const hasPerRechargeComponent = computed(() => {
   return newStructure.value.components.some(comp => comp.unit_type === 'per_recharge')
-})
-
-// Filtered subscription packages based on search
-const filteredSubscriptionPackages = computed(() => {
-  if (!subscriptionSearch.value) {
-    return subscriptionPackages.value
-  }
-
-  const searchLower = subscriptionSearch.value.toLowerCase()
-  return subscriptionPackages.value.filter(pkg => {
-    // Search in package name
-    if (pkg.package_name && pkg.package_name.toLowerCase().includes(searchLower)) {
-      return true
-    }
-
-    // Search in description
-    if (pkg.description && pkg.description.toLowerCase().includes(searchLower)) {
-      return true
-    }
-
-    // Search in billing period
-    if (pkg.billing_period && pkg.billing_period.toLowerCase().includes(searchLower)) {
-      return true
-    }
-
-    // Search in price
-    if (pkg.price && String(pkg.price).includes(searchLower)) {
-      return true
-    }
-
-    return false
-  })
 })
 
 const isStructureValid = computed(() => {
@@ -2024,8 +2326,9 @@ const loadTypes = async () => {
   try {
     loading.value = true
     const response = await settingsAPI.getPUETypes(activeHubId.value)
-    pueTypes.value = response.data.types
+    pueTypes.value = response.data.pue_types || []
   } catch (error) {
+    console.error('Failed to load PUE types:', error)
     $q.notify({ type: 'negative', message: 'Failed to load PUE types', position: 'top' })
   } finally {
     loading.value = false
@@ -2244,6 +2547,542 @@ const deletePaymentType = async (paymentType) => {
   })
 }
 
+// ============================================================================
+// Customer Field Options Functions
+// ============================================================================
+
+const loadCustomerFieldOptions = async () => {
+  if (!activeHubId.value) return
+  loadingCustomerOptions.value = true
+  try {
+    const response = await settingsAPI.getCustomerFieldOptions({
+      hub_id: activeHubId.value
+    })
+    const options = response.data || []
+
+    // Separate options by field_name
+    gesiOptions.value = options.filter(opt => opt.field_name === 'gesi_status')
+    businessCategoryOptions.value = options.filter(opt => opt.field_name === 'business_category')
+    signupReasonOptions.value = options.filter(opt => opt.field_name === 'main_reason_for_signup')
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to load customer field options',
+      position: 'top'
+    })
+  } finally {
+    loadingCustomerOptions.value = false
+  }
+}
+
+const openAddCustomerOptionDialog = (fieldName) => {
+  newCustomerOption.value = {
+    field_name: fieldName,
+    option_value: '',
+    description: '',
+    sort_order: 0
+  }
+
+  if (fieldName === 'gesi_status') {
+    showAddGesiDialog.value = true
+  } else if (fieldName === 'business_category') {
+    showAddBusinessCategoryDialog.value = true
+  } else if (fieldName === 'main_reason_for_signup') {
+    showAddSignupReasonDialog.value = true
+  }
+}
+
+const saveCustomerOption = async (fieldName) => {
+  if (!newCustomerOption.value.option_value) {
+    $q.notify({
+      type: 'warning',
+      message: 'Please enter an option value',
+      position: 'top'
+    })
+    return
+  }
+
+  try {
+    await settingsAPI.createCustomerFieldOption({
+      field_name: fieldName,
+      option_value: newCustomerOption.value.option_value,
+      description: newCustomerOption.value.description,
+      sort_order: newCustomerOption.value.sort_order,
+      hub_id: activeHubId.value
+    })
+
+    $q.notify({
+      type: 'positive',
+      message: 'Option created successfully',
+      position: 'top'
+    })
+
+    // Close the appropriate dialog
+    if (fieldName === 'gesi_status') {
+      showAddGesiDialog.value = false
+    } else if (fieldName === 'business_category') {
+      showAddBusinessCategoryDialog.value = false
+    } else if (fieldName === 'main_reason_for_signup') {
+      showAddSignupReasonDialog.value = false
+    }
+
+    newCustomerOption.value = { field_name: '', option_value: '', description: '', sort_order: 0 }
+    await loadCustomerFieldOptions()
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: error.response?.data?.detail || 'Failed to create option',
+      position: 'top'
+    })
+  }
+}
+
+const editCustomerOption = async (option) => {
+  editingCustomerOption.value = option
+
+  $q.dialog({
+    title: 'Edit Option',
+    message: 'Update option details',
+    prompt: {
+      model: option.option_value,
+      type: 'text',
+      label: 'Option Value'
+    },
+    cancel: true
+  }).onOk(async (newValue) => {
+    try {
+      await settingsAPI.updateCustomerFieldOption(option.option_id, {
+        option_value: newValue
+      })
+
+      $q.notify({
+        type: 'positive',
+        message: 'Option updated',
+        position: 'top'
+      })
+
+      await loadCustomerFieldOptions()
+    } catch (error) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to update option',
+        position: 'top'
+      })
+    }
+  })
+}
+
+const deleteCustomerOption = async (option) => {
+  $q.dialog({
+    title: 'Confirm Delete',
+    message: `Delete option "${option.option_value}"?`,
+    cancel: true,
+    persistent: true
+  }).onOk(async () => {
+    try {
+      await settingsAPI.deleteCustomerFieldOption(option.option_id)
+
+      $q.notify({
+        type: 'positive',
+        message: 'Option deleted',
+        position: 'top'
+      })
+
+      await loadCustomerFieldOptions()
+    } catch (error) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to delete option',
+        position: 'top'
+      })
+    }
+  })
+}
+
+// Return Survey Functions
+const loadHubSurveySettings = async () => {
+  if (!activeHubId.value) return
+
+  try {
+    const response = await hubsAPI.get(activeHubId.value)
+    returnSurveyRequired.value = response.data.return_survey_required || false
+  } catch (error) {
+    console.error('Failed to load hub survey settings:', error)
+  }
+}
+
+const updateReturnSurveyRequired = async (value) => {
+  if (!activeHubId.value) return
+
+  try {
+    await hubsAPI.update(activeHubId.value, {
+      return_survey_required: value
+    })
+
+    $q.notify({
+      type: 'positive',
+      message: `Return surveys are now ${value ? 'required' : 'optional'}`,
+      position: 'top'
+    })
+  } catch (error) {
+    console.error('Failed to update return survey setting:', error)
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to update return survey setting',
+      position: 'top'
+    })
+    // Revert the change on error
+    returnSurveyRequired.value = !value
+  }
+}
+
+const loadSurveyQuestions = async () => {
+  loadingSurveyQuestions.value = true
+  try {
+    const params = {
+      hub_id: activeHubId.value,
+      is_active: surveyShowInactive.value ? undefined : true
+    }
+
+    if (surveyFilterType.value === 'battery') {
+      params.applies_to_battery = true
+    } else if (surveyFilterType.value === 'pue') {
+      params.applies_to_pue = true
+    }
+
+    const response = await surveyAPI.getQuestions(params)
+    surveyQuestions.value = response.data.questions || []
+  } catch (error) {
+    console.error('Failed to load survey questions:', error)
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to load survey questions',
+      position: 'top'
+    })
+  } finally {
+    loadingSurveyQuestions.value = false
+  }
+}
+
+// Option management functions
+const addOptionToList = () => {
+  if (!newQuestionOption.value.option_text || !newQuestionOption.value.option_value) {
+    $q.notify({
+      type: 'warning',
+      message: 'Please enter both option text and value',
+      position: 'top'
+    })
+    return
+  }
+
+  if (editingOptionIndex.value !== null) {
+    // Update existing option
+    currentQuestionOptions.value[editingOptionIndex.value] = { ...newQuestionOption.value }
+    editingOptionIndex.value = null
+  } else {
+    // Add new option
+    currentQuestionOptions.value.push({ ...newQuestionOption.value })
+  }
+
+  // Reset form
+  newQuestionOption.value = {
+    option_text: '',
+    option_value: '',
+    is_open_text_trigger: false,
+    sort_order: 0
+  }
+}
+
+const editOptionInList = (index) => {
+  editingOptionIndex.value = index
+  newQuestionOption.value = { ...currentQuestionOptions.value[index] }
+}
+
+const removeOptionFromList = (index) => {
+  currentQuestionOptions.value.splice(index, 1)
+}
+
+const cancelEditOption = () => {
+  editingOptionIndex.value = null
+  newQuestionOption.value = {
+    option_text: '',
+    option_value: '',
+    is_open_text_trigger: false,
+    sort_order: 0
+  }
+}
+
+const saveSurveyQuestion = async () => {
+  try {
+    // Validate rating fields
+    if (newSurveyQuestion.value.question_type === 'rating') {
+      if (!newSurveyQuestion.value.rating_min || !newSurveyQuestion.value.rating_max) {
+        $q.notify({
+          type: 'warning',
+          message: 'Please specify minimum and maximum rating values',
+          position: 'top'
+        })
+        return
+      }
+      if (!newSurveyQuestion.value.rating_min_label || !newSurveyQuestion.value.rating_max_label) {
+        $q.notify({
+          type: 'warning',
+          message: 'Please provide labels for minimum and maximum rating values',
+          position: 'top'
+        })
+        return
+      }
+      if (newSurveyQuestion.value.rating_min >= newSurveyQuestion.value.rating_max) {
+        $q.notify({
+          type: 'warning',
+          message: 'Maximum rating must be greater than minimum rating',
+          position: 'top'
+        })
+        return
+      }
+    }
+
+    // Auto-create Yes/No options if question type is yes_no
+    let optionsToSave = [...currentQuestionOptions.value]
+    if (newSurveyQuestion.value.question_type === 'yes_no') {
+      optionsToSave = [
+        { option_text: 'Yes', option_value: 'yes', is_open_text_trigger: false, sort_order: 0 },
+        { option_text: 'No', option_value: 'no', is_open_text_trigger: false, sort_order: 1 }
+      ]
+    }
+
+    // Validate options if question type requires them (but not rating)
+    const requiresOptions = ['multiple_choice', 'multiple_select'].includes(newSurveyQuestion.value.question_type)
+    if (requiresOptions && optionsToSave.length === 0) {
+      $q.notify({
+        type: 'warning',
+        message: 'Please add at least one answer option',
+        position: 'top'
+      })
+      return
+    }
+
+    let questionId
+    if (editingSurveyQuestion.value) {
+      // Update existing question
+      questionId = editingSurveyQuestion.value.question_id
+      await surveyAPI.updateQuestion(questionId, newSurveyQuestion.value)
+
+      // Delete existing options and recreate them
+      const needsOptions = ['multiple_choice', 'multiple_select', 'yes_no'].includes(newSurveyQuestion.value.question_type)
+      if (needsOptions && editingSurveyQuestion.value.options) {
+        for (const option of editingSurveyQuestion.value.options) {
+          try {
+            await surveyAPI.deleteQuestionOption(option.option_id)
+          } catch (e) {
+            console.error('Failed to delete option:', e)
+          }
+        }
+      }
+
+      $q.notify({
+        type: 'positive',
+        message: 'Survey question updated',
+        position: 'top'
+      })
+    } else {
+      // Create new question
+      const response = await surveyAPI.createQuestion({
+        ...newSurveyQuestion.value,
+        hub_id: activeHubId.value
+      })
+      questionId = response.data.question_id
+
+      $q.notify({
+        type: 'positive',
+        message: 'Survey question created',
+        position: 'top'
+      })
+    }
+
+    // Save options if question type requires them
+    const needsOptions = ['multiple_choice', 'multiple_select', 'yes_no'].includes(newSurveyQuestion.value.question_type)
+    if (needsOptions && optionsToSave.length > 0) {
+      for (const option of optionsToSave) {
+        try {
+          await surveyAPI.addQuestionOption(questionId, option)
+        } catch (e) {
+          console.error('Failed to save option:', e)
+        }
+      }
+    }
+
+    showAddSurveyQuestionDialog.value = false
+    showEditSurveyQuestionDialog.value = false
+    editingSurveyQuestion.value = null
+    resetSurveyQuestionForm()
+    await loadSurveyQuestions()
+  } catch (error) {
+    console.error('Failed to save survey question:', error)
+    $q.notify({
+      type: 'negative',
+      message: error.response?.data?.detail || 'Failed to save survey question',
+      position: 'top'
+    })
+  }
+}
+
+const editSurveyQuestion = (question) => {
+  editingSurveyQuestion.value = question
+  newSurveyQuestion.value = {
+    question_text: question.question_text,
+    question_type: question.question_type,
+    help_text: question.help_text || '',
+    applies_to_battery: question.applies_to_battery,
+    applies_to_pue: question.applies_to_pue,
+    parent_question_id: question.parent_question_id,
+    show_if_parent_answer: question.show_if_parent_answer || '',
+    rating_min: question.rating_min || 1,
+    rating_max: question.rating_max || 10,
+    rating_min_label: question.rating_min_label || '',
+    rating_max_label: question.rating_max_label || '',
+    is_required: question.is_required,
+    is_active: question.is_active,
+    sort_order: question.sort_order
+  }
+
+  // Load existing options if question has them
+  if (question.options && question.options.length > 0) {
+    currentQuestionOptions.value = question.options.map(opt => ({
+      option_text: opt.option_text,
+      option_value: opt.option_value,
+      is_open_text_trigger: opt.is_open_text_trigger || false,
+      sort_order: opt.sort_order || 0
+    }))
+  } else {
+    currentQuestionOptions.value = []
+  }
+
+  showAddSurveyQuestionDialog.value = true
+}
+
+const deleteSurveyQuestion = async (question) => {
+  $q.dialog({
+    title: 'Confirm Delete',
+    message: `Delete survey question "${question.question_text}"? This will also delete all associated options and responses.`,
+    cancel: true,
+    persistent: true
+  }).onOk(async () => {
+    try {
+      await surveyAPI.deleteQuestion(question.question_id)
+      $q.notify({
+        type: 'positive',
+        message: 'Survey question deleted',
+        position: 'top'
+      })
+      await loadSurveyQuestions()
+    } catch (error) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to delete survey question',
+        position: 'top'
+      })
+    }
+  })
+}
+
+const viewQuestionOptions = (question) => {
+  viewingQuestionOptions.value = question
+  showQuestionOptionsDialog.value = true
+}
+
+const resetSurveyQuestionForm = () => {
+  newSurveyQuestion.value = {
+    question_text: '',
+    question_type: 'open_text',
+    help_text: '',
+    applies_to_battery: true,
+    applies_to_pue: true,
+    parent_question_id: null,
+    show_if_parent_answer: '',
+    rating_min: 1,
+    rating_max: 10,
+    rating_min_label: '',
+    rating_max_label: '',
+    is_required: true,
+    is_active: true,
+    sort_order: 0
+  }
+  currentQuestionOptions.value = []
+  editingOptionIndex.value = null
+  newQuestionOption.value = {
+    option_text: '',
+    option_value: '',
+    is_open_text_trigger: false,
+    sort_order: 0
+  }
+}
+
+const getQuestionTypeColor = (type) => {
+  const colors = {
+    'open_text': 'blue-grey',
+    'multiple_choice': 'blue',
+    'multiple_select': 'purple',
+    'rating': 'orange',
+    'yes_no': 'teal'
+  }
+  return colors[type] || 'grey'
+}
+
+const formatQuestionType = (type) => {
+  const labels = {
+    'open_text': 'Open Text',
+    'multiple_choice': 'Multiple Choice',
+    'multiple_select': 'Multiple Select',
+    'rating': 'Rating',
+    'yes_no': 'Yes/No'
+  }
+  return labels[type] || type
+}
+
+const exportSurveyResponses = async () => {
+  try {
+    const params = {
+      hub_id: activeHubId.value
+    }
+
+    console.log('Exporting survey responses with params:', params)
+    const response = await surveyAPI.exportResponses(params)
+    console.log('Export response:', response)
+
+    // The response.data is already a blob when using responseType: 'blob'
+    const blob = response.data
+
+    // Create download link
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `survey_responses_${new Date().toISOString().split('T')[0]}.csv`)
+    document.body.appendChild(link)
+    link.click()
+
+    // Clean up
+    setTimeout(() => {
+      window.URL.revokeObjectURL(url)
+      link.remove()
+    }, 100)
+
+    $q.notify({
+      type: 'positive',
+      message: 'Survey responses exported successfully',
+      position: 'top'
+    })
+  } catch (error) {
+    console.error('Failed to export survey responses:', error)
+    console.error('Error details:', error.response?.data)
+    $q.notify({
+      type: 'negative',
+      message: error.response?.data?.detail || 'Failed to export survey responses',
+      position: 'top'
+    })
+  }
+}
+
 const addPricing = async () => {
   try {
     // Set hub_id to activeHubId before submitting
@@ -2291,260 +3130,6 @@ const saveHubSettings = async () => {
   } catch (error) {
     $q.notify({ type: 'negative', message: 'Failed to save settings', position: 'top' })
   }
-}
-
-// ============================================================================
-// SUBSCRIPTION PACKAGES
-// ============================================================================
-
-const subscriptionPackages = ref([])
-const showAddSubscriptionDialog = ref(false)
-const showAddSubscriptionItemDialog = ref(false)
-const isEditingSubscription = ref(false)
-const saving = ref(false)
-
-const newSubscriptionPackage = ref({
-  package_name: '',
-  description: '',
-  billing_period: 'monthly',
-  price: 0,
-  max_concurrent_batteries: null,
-  max_concurrent_pue: null,
-  included_kwh: null,
-  overage_rate_kwh: null,
-  auto_renew: true,
-  items: []
-})
-
-const newSubscriptionItem = ref({
-  item_type: 'battery',
-  item_reference: 'all',
-  quantity_limit: null
-})
-
-const subscriptionColumns = [
-  { name: 'package_name', label: 'Package Name', field: 'package_name', align: 'left', sortable: true },
-  { name: 'billing_period', label: 'Billing', field: 'billing_period', align: 'center', sortable: true },
-  { name: 'price', label: 'Price', field: 'price', align: 'right', sortable: true },
-  { name: 'items', label: 'Items', align: 'center' },
-  { name: 'is_active', label: 'Status', field: 'is_active', align: 'center', sortable: true },
-  { name: 'actions', label: 'Actions', align: 'center' }
-]
-
-const loadSubscriptionPackages = async () => {
-  if (!activeHubId.value) return
-  try {
-    const response = await settingsAPI.getSubscriptionPackages(activeHubId.value, true)
-    subscriptionPackages.value = response.data.packages || []
-  } catch (error) {
-    console.error('Failed to load subscription packages:', error)
-    $q.notify({ type: 'negative', message: 'Failed to load subscription packages', position: 'top' })
-  }
-}
-
-const saveSubscriptionPackage = async () => {
-  if (!newSubscriptionPackage.value.package_name) {
-    $q.notify({ type: 'warning', message: 'Package name is required', position: 'top' })
-    return
-  }
-
-  saving.value = true
-  try {
-    const packageData = {
-      hub_id: activeHubId.value,
-      package_name: newSubscriptionPackage.value.package_name,
-      description: newSubscriptionPackage.value.description,
-      billing_period: newSubscriptionPackage.value.billing_period,
-      price: newSubscriptionPackage.value.price,
-      currency: hubSettings.value.default_currency || 'USD',
-      max_concurrent_batteries: newSubscriptionPackage.value.max_concurrent_batteries || null,
-      max_concurrent_pue: newSubscriptionPackage.value.max_concurrent_pue || null,
-      included_kwh: newSubscriptionPackage.value.included_kwh || null,
-      overage_rate_kwh: newSubscriptionPackage.value.overage_rate_kwh || null,
-      auto_renew: newSubscriptionPackage.value.auto_renew,
-      items: JSON.stringify(newSubscriptionPackage.value.items)
-    }
-
-    if (isEditingSubscription.value && newSubscriptionPackage.value.package_id) {
-      // Update existing
-      await settingsAPI.updateSubscriptionPackage(newSubscriptionPackage.value.package_id, packageData)
-      $q.notify({ type: 'positive', message: 'Subscription package updated', position: 'top' })
-    } else {
-      // Create new
-      await settingsAPI.createSubscriptionPackage(packageData)
-      $q.notify({ type: 'positive', message: 'Subscription package created', position: 'top' })
-    }
-
-    showAddSubscriptionDialog.value = false
-    resetSubscriptionForm()
-    await loadSubscriptionPackages()
-  } catch (error) {
-    console.error('Failed to save subscription package:', error)
-    $q.notify({ type: 'negative', message: 'Failed to save subscription package', position: 'top' })
-  } finally {
-    saving.value = false
-  }
-}
-
-const editSubscriptionPackage = (pkg) => {
-  isEditingSubscription.value = true
-  newSubscriptionPackage.value = {
-    package_id: pkg.package_id,
-    package_name: pkg.package_name,
-    description: pkg.description || '',
-    billing_period: pkg.billing_period,
-    price: pkg.price,
-    max_concurrent_batteries: pkg.max_concurrent_batteries,
-    max_concurrent_pue: pkg.max_concurrent_pue,
-    included_kwh: pkg.included_kwh,
-    overage_rate_kwh: pkg.overage_rate_kwh,
-    auto_renew: pkg.auto_renew,
-    items: pkg.items || []
-  }
-  showAddSubscriptionDialog.value = true
-}
-
-const confirmDeleteSubscriptionPackage = (pkg) => {
-  $q.dialog({
-    title: 'Confirm Delete',
-    message: `Delete subscription package "${pkg.package_name}"? This cannot be undone if there are active subscriptions.`,
-    cancel: true
-  }).onOk(async () => {
-    try {
-      await settingsAPI.deleteSubscriptionPackage(pkg.package_id)
-      $q.notify({ type: 'positive', message: 'Subscription package deleted', position: 'top' })
-      await loadSubscriptionPackages()
-    } catch (error) {
-      $q.notify({ type: 'negative', message: 'Failed to delete package. It may have active subscriptions.', position: 'top' })
-    }
-  })
-}
-
-const resetSubscriptionForm = () => {
-  isEditingSubscription.value = false
-  newSubscriptionPackage.value = {
-    package_name: '',
-    description: '',
-    billing_period: 'monthly',
-    price: 0,
-    max_concurrent_batteries: null,
-    max_concurrent_pue: null,
-    included_kwh: null,
-    overage_rate_kwh: null,
-    auto_renew: true,
-    items: []
-  }
-}
-
-const onSubscriptionItemTypeChange = async (type) => {
-  // Auto-set reference to 'all' for battery and pue types
-  if (type === 'battery' || type === 'pue') {
-    newSubscriptionItem.value.item_reference = 'all'
-  } else {
-    newSubscriptionItem.value.item_reference = ''
-  }
-
-  // Load data if not already loaded
-  if (activeHubId.value) {
-    // Initialize filtered lists with full data
-    filteredBatteriesForSubscription.value = batteriesAtHub.value
-    filteredPUETypesForSubscription.value = pueTypesAtHub.value
-    filteredPUEItemsForSubscription.value = pueItemsAtHub.value
-
-    // If data is empty, load it
-    if (batteriesAtHub.value.length === 0 || pueItemsAtHub.value.length === 0) {
-      await onPricingHubChange(activeHubId.value)
-      // Re-initialize after loading
-      filteredBatteriesForSubscription.value = batteriesAtHub.value
-      filteredPUETypesForSubscription.value = pueTypesAtHub.value
-      filteredPUEItemsForSubscription.value = pueItemsAtHub.value
-    }
-  }
-}
-
-const addSubscriptionItem = () => {
-  if (!newSubscriptionItem.value.item_type) {
-    $q.notify({ type: 'warning', message: 'Please select an item type', position: 'top' })
-    return
-  }
-
-  if (!newSubscriptionItem.value.item_reference) {
-    $q.notify({ type: 'warning', message: 'Please select an item', position: 'top' })
-    return
-  }
-
-  newSubscriptionPackage.value.items.push({
-    item_type: newSubscriptionItem.value.item_type,
-    item_reference: String(newSubscriptionItem.value.item_reference),
-    quantity_limit: newSubscriptionItem.value.quantity_limit || null
-  })
-
-  showAddSubscriptionItemDialog.value = false
-  resetSubscriptionItemForm()
-}
-
-const removeSubscriptionItem = (index) => {
-  newSubscriptionPackage.value.items.splice(index, 1)
-}
-
-const resetSubscriptionItemForm = () => {
-  newSubscriptionItem.value = {
-    item_type: 'battery',
-    item_reference: 'all',
-    quantity_limit: null
-  }
-}
-
-const getItemTypeLabel = (itemType) => {
-  const labels = {
-    'battery': 'All Batteries',
-    'battery_capacity': 'Battery Capacity',
-    'battery_item': 'Specific Battery',
-    'pue': 'All PUE Items',
-    'pue_type': 'PUE Type',
-    'pue_item': 'PUE Item'
-  }
-  return labels[itemType] || itemType
-}
-
-const getItemReferenceLabel = (item) => {
-  if (item.item_reference === 'all') {
-    return 'All items'
-  }
-  // For specific items, show the reference
-  if (item.item_type === 'battery_capacity') {
-    return `${item.item_reference} Wh`
-  }
-  if (item.item_type === 'battery_item') {
-    // Find the battery to show its label
-    const battery = batteriesAtHub.value.find(b => b.battery_id === parseInt(item.item_reference))
-    return battery ? battery.label : `Battery ID: ${item.item_reference}`
-  }
-  if (item.item_type === 'pue_item') {
-    // Find the PUE item to show its name
-    const pueItem = pueItemsAtHub.value.find(p => p.pue_id === parseInt(item.item_reference))
-    return pueItem ? pueItem.name || `PUE ${pueItem.pue_id}` : `PUE ID: ${item.item_reference}`
-  }
-  if (item.item_type === 'pue_type') {
-    // Find the PUE type to show its name
-    const pueType = pueTypesAtHub.value.find(t => t.type_name === item.item_reference || t.type_id === parseInt(item.item_reference))
-    return pueType ? pueType.type_name : item.item_reference
-  }
-  return `ID: ${item.item_reference}`
-}
-
-const getBillingPeriodColor = (period) => {
-  const colors = {
-    'daily': 'orange',
-    'weekly': 'blue',
-    'monthly': 'green',
-    'yearly': 'purple'
-  }
-  return colors[period] || 'grey'
-}
-
-const formatBillingPeriod = (period) => {
-  return period.charAt(0).toUpperCase() + period.slice(1)
 }
 
 // Utility function to only allow whole number keys
@@ -2651,19 +3236,16 @@ const onPricingHubChange = async (selectedHubId) => {
       label: `${b.model || 'Battery'} (${b.battery_capacity_wh}Wh) - ID: ${b.battery_id}`
     }))
     filteredBatteries.value = batteriesAtHub.value
-    filteredBatteriesForSubscription.value = batteriesAtHub.value
 
     // Load PUE types at this hub
     const typesResponse = await settingsAPI.getPUETypes(selectedHubId)
     pueTypesAtHub.value = typesResponse.data.types || []
     filteredPUETypes.value = pueTypesAtHub.value
-    filteredPUETypesForSubscription.value = pueTypesAtHub.value
 
     // Load PUE items at this hub
     const pueResponse = await hubsAPI.getPUE(selectedHubId)
     pueItemsAtHub.value = pueResponse.data || []
     filteredPUEItems.value = pueItemsAtHub.value
-    filteredPUEItemsForSubscription.value = pueItemsAtHub.value
   } catch (error) {
     console.error('Failed to load hub data for pricing:', error)
   }
@@ -2749,51 +3331,6 @@ const filterPUEItemsForPricing = (val, update) => {
       const needle = val.toLowerCase()
       filteredPUEItems.value = pueItemsAtHub.value.filter(
         p => p.name.toLowerCase().includes(needle) ||
-             (p.description && p.description.toLowerCase().includes(needle)) ||
-             String(p.pue_id).includes(needle)
-      )
-    }
-  })
-}
-
-// Filter functions for subscription dialog
-const filterBatteriesForSubscription = (val, update) => {
-  update(() => {
-    if (val === '') {
-      filteredBatteriesForSubscription.value = batteriesAtHub.value
-    } else {
-      const needle = val.toLowerCase()
-      filteredBatteriesForSubscription.value = batteriesAtHub.value.filter(
-        b => b.label.toLowerCase().includes(needle) ||
-             String(b.battery_id).includes(needle)
-      )
-    }
-  })
-}
-
-const filterPUETypesForSubscription = (val, update) => {
-  update(() => {
-    if (val === '') {
-      filteredPUETypesForSubscription.value = pueTypesAtHub.value
-    } else {
-      const needle = val.toLowerCase()
-      filteredPUETypesForSubscription.value = pueTypesAtHub.value.filter(
-        t => t.type_name.toLowerCase().includes(needle) ||
-             (t.description && t.description.toLowerCase().includes(needle))
-      )
-    }
-  })
-}
-
-const filterPUEItemsForSubscription = (val, update) => {
-  update(() => {
-    if (val === '') {
-      filteredPUEItemsForSubscription.value = pueItemsAtHub.value
-    } else {
-      const needle = val.toLowerCase()
-      filteredPUEItemsForSubscription.value = pueItemsAtHub.value.filter(
-        p => (p.item_name && p.item_name.toLowerCase().includes(needle)) ||
-             (p.name && p.name.toLowerCase().includes(needle)) ||
              (p.description && p.description.toLowerCase().includes(needle)) ||
              String(p.pue_id).includes(needle)
       )
@@ -2907,7 +3444,7 @@ const getIntervalUnit = (unitType) => {
 const addDurationOption = () => {
   newStructure.value.duration_options.push({
     input_type: 'dropdown',
-    label: '',
+    label: 'Rental Duration',
     custom_unit: 'days',
     default_value: null,
     min_value: null,
@@ -3007,7 +3544,8 @@ const saveStructure = async () => {
       count_initial_checkout_as_recharge: newStructure.value.count_initial_checkout_as_recharge,
       is_pay_to_own: newStructure.value.is_pay_to_own,
       item_total_cost: newStructure.value.item_total_cost,
-      allow_multiple_items: newStructure.value.allow_multiple_items
+      allow_multiple_items: newStructure.value.allow_multiple_items,
+      allow_custom_duration: newStructure.value.allow_custom_duration
     }
 
     if (editingStructure.value) {
@@ -3069,7 +3607,8 @@ const editStructure = (structure) => {
     count_initial_checkout_as_recharge: structure.count_initial_checkout_as_recharge !== undefined ? structure.count_initial_checkout_as_recharge : false,
     is_pay_to_own: structure.is_pay_to_own !== undefined ? structure.is_pay_to_own : false,
     item_total_cost: structure.item_total_cost || null,
-    allow_multiple_items: structure.allow_multiple_items !== undefined ? structure.allow_multiple_items : true
+    allow_multiple_items: structure.allow_multiple_items !== undefined ? structure.allow_multiple_items : true,
+    allow_custom_duration: structure.allow_custom_duration !== undefined ? structure.allow_custom_duration : true
   }
   showAddStructureDialog.value = true
 }
@@ -3120,9 +3659,25 @@ const resetStructureForm = () => {
     count_initial_checkout_as_recharge: false,
     is_pay_to_own: false,
     item_total_cost: null,
-    allow_multiple_items: true
+    allow_multiple_items: true,
+    allow_custom_duration: true
   }
 }
+
+// Watch for hub changes and reload settings
+watch(activeHubId, (newHubId, oldHubId) => {
+  if (newHubId && newHubId !== oldHubId) {
+    // Reload all hub-specific settings when hub changes
+    loadHubSettings()
+    loadDurations()
+    loadTypes()
+    loadPaymentTypes()
+    loadPricing()
+    loadCostStructures()
+    loadHubSurveySettings()
+    onPricingHubChange(newHubId)
+  }
+})
 
 onMounted(async () => {
   // Load hubs first for superadmin
@@ -3137,9 +3692,11 @@ onMounted(async () => {
   loadDurations()
   loadTypes()
   loadPaymentTypes()
+  loadCustomerFieldOptions()
+  loadSurveyQuestions()
+  loadHubSurveySettings()
   loadPricing()
   loadCostStructures()
-  loadSubscriptionPackages()
   loadHubSettings()
 
   // Load data for pricing dialog

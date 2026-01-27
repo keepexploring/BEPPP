@@ -124,12 +124,12 @@
           <q-form @submit="savePUE" class="q-gutter-md">
             <q-input
               v-if="!editingPUE"
-              v-model.number="formData.pue_id"
+              v-model="formData.pue_id"
               label="PUE ID"
-              type="number"
+              type="text"
               outlined
               :rules="[val => !!val || 'PUE ID is required']"
-              hint="Unique identifier for this equipment"
+              hint="Unique identifier (e.g., PUE-001, P-123-ABC)"
             />
 
             <q-select
@@ -142,7 +142,27 @@
               label="Hub"
               outlined
               :rules="[val => !!val || 'Hub is required']"
+              :disable="!!editingPUE"
+              @update:model-value="onHubSelected"
             />
+
+            <q-select
+              v-model="formData.pue_type_id"
+              :options="pueTypeOptions"
+              option-value="type_id"
+              option-label="type_name"
+              emit-value
+              map-options
+              label="Equipment Type"
+              outlined
+              clearable
+              :disable="!formData.hub_id && !editingPUE"
+              :hint="formData.hub_id || editingPUE ? 'Optional - categorize this equipment' : 'Select a hub first'"
+            >
+              <template v-slot:prepend>
+                <q-icon name="category" />
+              </template>
+            </q-select>
 
             <q-input
               v-model="formData.name"
@@ -333,7 +353,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { pueAPI, hubsAPI, pueInspectionsAPI } from 'src/services/api'
+import { pueAPI, hubsAPI, pueInspectionsAPI, settingsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useQuasar } from 'quasar'
 import HubFilter from 'src/components/HubFilter.vue'
@@ -344,6 +364,7 @@ const authStore = useAuthStore()
 
 const pueItems = ref([])
 const hubOptions = ref([])
+const pueTypeOptions = ref([])
 const loading = ref(false)
 const filter = ref('')
 const showCreateDialog = ref(false)
@@ -355,6 +376,7 @@ const formData = ref({
   hub_id: null,
   name: '',
   description: '',
+  pue_type_id: null,
   power_rating_watts: null,
   usage_location: 'both',
   storage_location: '',
@@ -543,23 +565,31 @@ const resetInspectionForm = () => {
 const loadPUE = async () => {
   loading.value = true
   try {
+    console.log('[PUEPage] Loading PUE for hub:', selectedHub.value)
     if (selectedHub.value) {
       // Load PUE for selected hub only
       const pueResponse = await hubsAPI.getPUE(selectedHub.value)
+      console.log('[PUEPage] PUE response for hub:', pueResponse.data)
       pueItems.value = pueResponse.data
     } else {
       // Load all hubs to get all PUE
       const hubsResponse = await hubsAPI.list()
+      console.log('[PUEPage] Loaded hubs:', hubsResponse.data)
       const allPUE = []
 
       for (const hub of hubsResponse.data) {
+        console.log('[PUEPage] Loading PUE for hub:', hub.hub_id)
         const pueResponse = await hubsAPI.getPUE(hub.hub_id)
+        console.log('[PUEPage] PUE response:', pueResponse.data)
         allPUE.push(...pueResponse.data)
       }
 
+      console.log('[PUEPage] Total PUE items loaded:', allPUE.length)
       pueItems.value = allPUE
     }
   } catch (error) {
+    console.error('[PUEPage] Failed to load PUE:', error)
+    console.error('[PUEPage] Error details:', error.response?.data)
     $q.notify({
       type: 'negative',
       message: 'Failed to load equipment',
@@ -584,9 +614,41 @@ const loadHubs = async () => {
   }
 }
 
-const editPUE = (pue) => {
+const loadPUETypes = async (hubId = null) => {
+  try {
+    console.log('[PUEPage] Loading PUE types for hubId:', hubId)
+    const response = await settingsAPI.getPUETypes(hubId)
+    console.log('[PUEPage] PUE types response:', response.data)
+    pueTypeOptions.value = response.data?.pue_types || []
+    console.log('[PUEPage] Loaded PUE type options:', pueTypeOptions.value)
+  } catch (error) {
+    console.error('[PUEPage] Failed to load PUE types:', error)
+    console.error('[PUEPage] Error details:', error.response?.data)
+  }
+}
+
+const onHubSelected = (hubId) => {
+  // Clear the PUE type selection when hub changes
+  formData.value.pue_type_id = null
+  // Load PUE types for the selected hub
+  if (hubId) {
+    loadPUETypes(hubId)
+  } else {
+    pueTypeOptions.value = []
+  }
+}
+
+const editPUE = async (pue) => {
+  console.log('[PUEPage] Editing PUE:', pue)
   editingPUE.value = pue
   formData.value = { ...pue }
+  console.log('[PUEPage] Form data set:', formData.value)
+  // Load PUE types for the hub when editing
+  if (pue.hub_id) {
+    console.log('[PUEPage] Loading PUE types for edit, hub_id:', pue.hub_id)
+    await loadPUETypes(pue.hub_id)
+    console.log('[PUEPage] PUE types loaded, count:', pueTypeOptions.value.length)
+  }
   showCreateDialog.value = true
 }
 
@@ -656,6 +718,7 @@ const resetForm = () => {
     hub_id: null,
     name: '',
     description: '',
+    pue_type_id: null,
     power_rating_watts: null,
     usage_location: 'both',
     storage_location: '',
@@ -667,5 +730,6 @@ const resetForm = () => {
 onMounted(() => {
   loadPUE()
   loadHubs()
+  // PUE types will be loaded when a hub is selected
 })
 </script>

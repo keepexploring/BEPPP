@@ -5,7 +5,7 @@
         <div class="text-h5">Rentals</div>
       </div>
       <div class="col-12 col-sm row items-center q-gutter-sm">
-        <HubFilter v-model="selectedHub" @change="onHubChange" />
+        <HubFilter v-if="authStore.role !== 'hub_admin'" v-model="selectedHub" @change="onHubChange" />
         <q-btn
           label="Returns"
           icon="assignment_return"
@@ -61,10 +61,10 @@
       narrow-indicator
       @update:model-value="loadRentals"
     >
-      <q-tab name="all" label="All Rentals" />
       <q-tab name="active" label="Active" />
-      <q-tab name="returned" label="Returned" />
       <q-tab name="overdue" label="Overdue" />
+      <q-tab name="returned" label="Returned" />
+      <q-tab name="all" label="All Rentals" />
     </q-tabs>
 
     <q-card class="q-mt-md">
@@ -138,7 +138,10 @@
           <template v-slot:body-cell-user="props">
             <q-td :props="props">
               <div>
-                <div>{{ props.row.user?.Name || props.row.user?.username || `User ${props.row.user_id}` }}</div>
+                <div>
+                  {{ props.row.user?.Name || props.row.user?.username || `User ${props.row.user_id}` }}
+                  <span v-if="props.row.user?.short_id" class="text-grey-7 text-caption"> ({{ props.row.user.short_id }})</span>
+                </div>
                 <div v-if="props.row.user?.account_balance !== undefined"
                      class="text-caption"
                      :class="props.row.user.account_balance >= 0 ? 'text-positive' : 'text-negative'">
@@ -262,1115 +265,12 @@
 
     <!-- Create/Edit Dialog -->
     <q-dialog v-model="showCreateDialog" persistent>
-      <q-card style="min-width: 600px">
-        <q-card-section>
-          <div class="text-h6">{{ editingRental ? 'Edit Rental' : 'New Rental' }}</div>
-        </q-card-section>
-
-        <q-card-section>
-          <q-form @submit="saveRental">
-            <!-- Auto-generated Rental ID (read-only display) -->
-            <q-input
-              v-if="formData.rental_unique_id"
-              v-model="formData.rental_unique_id"
-              label="Rental ID"
-              outlined
-              readonly
-              hint="Automatically generated unique rental ID"
-              bg-color="grey-2"
-              class="q-mb-md"
-            >
-              <template v-slot:prepend>
-                <q-icon name="tag" />
-              </template>
-            </q-input>
-
-            <q-select
-              v-model="formData.hub_id"
-              :options="hubOptions"
-              option-value="hub_id"
-              option-label="what_three_word_location"
-              emit-value
-              map-options
-              label="Hub"
-              outlined
-              :rules="[val => !!val || 'Hub is required']"
-              @update:model-value="onHubChange"
-              class="q-mb-md"
-            />
-
-            <q-select
-              v-model="formData.user_id"
-              :options="filteredUsers"
-              option-value="user_id"
-              option-label="username"
-              emit-value
-              map-options
-              label="User"
-              outlined
-              use-input
-              input-debounce="0"
-              @filter="filterUsers"
-              @update:model-value="loadUserAccount"
-              :rules="[val => !!val || 'User is required']"
-              :disable="!formData.hub_id"
-              :hint="!formData.hub_id ? 'Select a hub first' : ''"
-              class="q-mb-md"
-            >
-              <template v-slot:option="scope">
-                <q-item v-bind="scope.itemProps">
-                  <q-item-section>
-                    <q-item-label>{{ scope.opt.username }} - {{ scope.opt.Name }}</q-item-label>
-                    <q-item-label caption>
-                      User ID: {{ scope.opt.user_id }}
-                      <template v-if="scope.opt.mobile_number"> | Mobile: {{ scope.opt.mobile_number }}</template>
-                    </q-item-label>
-                  </q-item-section>
-                </q-item>
-              </template>
-              <template v-slot:no-option>
-                <q-item>
-                  <q-item-section class="text-grey">
-                    No users found
-                  </q-item-section>
-                </q-item>
-              </template>
-            </q-select>
-
-            <!-- User Summary (Credit & Subscriptions) -->
-            <div v-if="formData.user_id && (userAccount || userSubscriptions.length > 0)" class="q-mb-md">
-              <q-banner class="bg-blue-1 text-dark">
-                <template v-slot:avatar>
-                  <q-icon name="person" color="primary" size="md" />
-                </template>
-                <div class="text-subtitle1 text-weight-medium q-mb-sm">
-                  User Selected: {{ userOptions.find(u => u.user_id === formData.user_id)?.Name || `User ${formData.user_id}` }}
-                </div>
-                <div class="row q-col-gutter-sm">
-                  <div v-if="userAccount" class="col-12 col-md-6">
-                    <div class="text-caption text-grey-8">💰 Credit Available:</div>
-                    <div class="text-body1 text-weight-bold" :class="userAccount.balance > 0 ? 'text-positive' : 'text-grey'">
-                      {{ currentCurrencySymbol }}{{ Math.max(0, userAccount.balance || 0).toFixed(2) }}
-                      <span v-if="userAccount.balance > 0" class="text-caption text-grey-7">(apply at return/payment)</span>
-                    </div>
-                  </div>
-                  <div v-if="userSubscriptions.length > 0" class="col-12 col-md-6">
-                    <div class="text-caption text-grey-8">📋 Active Subscriptions:</div>
-                    <div class="text-body1 text-weight-bold text-positive">
-                      {{ userSubscriptions.length }} subscription(s)
-                      <span class="text-caption">(select below to auto-fill)</span>
-                    </div>
-                  </div>
-                </div>
-              </q-banner>
-            </div>
-
-            <!-- User Account Balance Display -->
-            <div v-if="userAccount" class="q-mb-md">
-              <q-card flat bordered>
-                <q-card-section class="q-pa-md">
-                  <div class="row items-center q-mb-sm">
-                    <q-icon name="account_balance_wallet" size="sm" color="primary" class="q-mr-sm" />
-                    <div class="text-subtitle2">Account Balance</div>
-                  </div>
-                  <div class="row q-col-gutter-md">
-                    <div class="col-4">
-                      <div class="text-caption text-grey-7">Current Balance</div>
-                      <div class="text-h6" :class="userAccount.balance >= 0 ? 'text-positive' : 'text-negative'">
-                        {{ currentCurrencySymbol }}{{ userAccount.balance?.toFixed(2) || '0.00' }}
-                      </div>
-                    </div>
-                    <div class="col-4">
-                      <div class="text-caption text-grey-7">Total Owed</div>
-                      <div class="text-body1 text-negative">
-                        {{ currentCurrencySymbol }}{{ userAccount.total_owed?.toFixed(2) || '0.00' }}
-                      </div>
-                    </div>
-                    <div class="col-4">
-                      <div class="text-caption text-grey-7">Available Credit</div>
-                      <div class="text-body1 text-positive">
-                        {{ currentCurrencySymbol }}{{ Math.max(0, userAccount.balance || 0).toFixed(2) }}
-                      </div>
-                    </div>
-                  </div>
-                </q-card-section>
-
-                <!-- Apply Credit Option - Only shown when collecting upfront payment -->
-                <q-card-section v-if="false" class="q-pt-none">
-                  <!-- Credit application is handled in the Payment Collection section below -->
-                  <div class="text-caption text-grey-7">
-                    💡 Tip: Credit can be applied in the Payment Collection section below
-                  </div>
-                </q-card-section>
-              </q-card>
-            </div>
-
-            <!-- User Subscriptions -->
-            <div v-if="userSubscriptions.length > 0" class="q-mb-md">
-              <q-card flat bordered>
-                <q-card-section>
-                  <div class="row items-center q-mb-sm">
-                    <q-icon name="subscriptions" size="sm" color="primary" class="q-mr-sm" />
-                    <div class="text-subtitle2">Active Subscriptions</div>
-                  </div>
-                  <q-select
-                    v-model="selectedSubscription"
-                    :options="userSubscriptions"
-                    option-value="subscription_id"
-                    option-label="package_name"
-                    emit-value
-                    map-options
-                    label="Use Subscription"
-                    outlined
-                    clearable
-                    @update:model-value="onSubscriptionSelect"
-                  >
-                    <template v-slot:prepend>
-                      <q-icon name="subscriptions" />
-                    </template>
-                    <template v-slot:option="scope">
-                      <q-item v-bind="scope.itemProps">
-                        <q-item-section>
-                          <q-item-label>{{ scope.opt.package_name }}</q-item-label>
-                          <q-item-label caption>
-                            {{ currentCurrencySymbol }}{{ scope.opt.price?.toFixed(2) }} per {{ scope.opt.billing_period }}
-                          </q-item-label>
-                        </q-item-section>
-                        <q-item-section side>
-                          <q-chip dense size="sm" :color="getSubscriptionStatusColor(scope.opt.status)" text-color="white">
-                            {{ scope.opt.status }}
-                          </q-chip>
-                        </q-item-section>
-                      </q-item>
-                    </template>
-                    <template v-slot:hint v-if="selectedSubscription">
-                      Using subscription will auto-select compatible batteries and PUE items
-                    </template>
-                  </q-select>
-                </q-card-section>
-              </q-card>
-            </div>
-
-            <!-- Subscription Coverage Banner -->
-            <div v-if="isSubscriptionRental" class="q-mb-md">
-              <q-banner class="bg-green-1 text-dark">
-                <template v-slot:avatar>
-                  <q-icon name="check_circle" color="positive" size="md" />
-                </template>
-                <div class="text-subtitle1 text-weight-medium q-mb-xs">
-                  Subscription Applied: {{ selectedSubscriptionDetails?.package_name }}
-                </div>
-                <div class="text-body2">
-                  This rental is covered by the user's active subscription.
-                  The subscription fee of {{ currentCurrencySymbol }}{{ selectedSubscriptionDetails?.price?.toFixed(2) }}
-                  per {{ selectedSubscriptionDetails?.billing_period }} will be charged automatically.
-                </div>
-                <div class="q-mt-sm text-caption text-grey-8">
-                  You may still collect an optional deposit or add extra charges below.
-                </div>
-              </q-banner>
-            </div>
-
-            <q-select
-              v-model="formData.battery_id"
-              :options="filteredBatteries"
-              option-value="battery_id"
-              option-label="battery_id"
-              emit-value
-              map-options
-              label="Battery"
-              outlined
-              use-input
-              input-debounce="0"
-              @filter="filterBatteries"
-              @update:model-value="onBatterySelected"
-              :rules="[val => !!val || 'Battery is required']"
-              :disable="!formData.hub_id"
-              :hint="!formData.hub_id ? 'Select a hub first' : availableBatteries.length === 0 ? 'No available batteries in this hub' : ''"
-              class="q-mb-md"
-            >
-              <template v-slot:option="scope">
-                <q-item v-bind="scope.itemProps">
-                  <q-item-section>
-                    <q-item-label>Battery ID: {{ scope.opt.battery_id }}</q-item-label>
-                    <q-item-label caption>
-                      {{ scope.opt.battery_capacity_wh ? scope.opt.battery_capacity_wh + 'Wh' : 'Capacity not specified' }} -
-                      {{ scope.opt.status }}
-                    </q-item-label>
-                  </q-item-section>
-                </q-item>
-              </template>
-              <template v-slot:no-option>
-                <q-item>
-                  <q-item-section class="text-grey">
-                    No batteries available
-                  </q-item-section>
-                </q-item>
-              </template>
-            </q-select>
-
-            <!-- Cost Structure Selector (FIRST) -->
-            <q-separator class="q-my-md" />
-            <div class="row items-center q-mb-md">
-              <div class="text-subtitle2">Pricing & Duration</div>
-              <q-space />
-              <q-chip
-                v-if="costEstimate"
-                color="primary"
-                text-color="white"
-                icon="calculate"
-                size="md"
-              >
-                Total: {{ currentCurrencySymbol }}{{ costEstimate.total.toFixed(2) }}
-              </q-chip>
-            </div>
-
-            <div class="q-mb-md">
-              <q-select
-                v-model="selectedCostStructure"
-                :options="availableCostStructures"
-                option-value="structure_id"
-                option-label="name"
-                emit-value
-                map-options
-                label="Cost Structure"
-                outlined
-                :loading="loadingCostStructures"
-                @update:model-value="onCostStructureChange"
-                hint="Select a pricing template first"
-                clearable
-              >
-                <template v-slot:prepend>
-                  <q-icon name="receipt_long" />
-                </template>
-                <template v-slot:option="scope">
-                  <q-item v-bind="scope.itemProps">
-                    <q-item-section>
-                      <q-item-label>{{ scope.opt.name }}</q-item-label>
-                      <q-item-label caption>{{ scope.opt.description }}</q-item-label>
-                      <q-item-label caption class="text-grey-6">
-                        {{ scope.opt.components.length }} components
-                      </q-item-label>
-                    </q-item-section>
-                  </q-item>
-                </template>
-              </q-select>
-            </div>
-
-            <!-- Dynamic inputs based on cost structure requirements -->
-            <div v-if="selectedCostStructureObject">
-
-              <!-- Rental Start Date (always shown) -->
-              <div class="row q-col-gutter-md q-mb-md">
-                <div class="col-12">
-                  <q-input
-                    v-model="formData.timestamp_taken"
-                    label="Rental Start Date"
-                    type="datetime-local"
-                    outlined
-                    :rules="[
-                      val => !!val || 'Rental date is required',
-                      val => new Date(val) >= new Date(new Date().setHours(0, 0, 0, 0)) || 'Cannot select a past date'
-                    ]"
-                    @update:model-value="onStartDateChange"
-                  />
-                </div>
-              </div>
-
-              <!-- Duration inputs (only if structure uses time-based components) -->
-              <div v-if="requiresDuration">
-                <div class="row q-col-gutter-md q-mb-md">
-                  <div class="col-12">
-                    <q-select
-                      v-model="selectedDuration"
-                      :options="durationOptions"
-                      option-value="value"
-                      option-label="label"
-                      emit-value
-                      map-options
-                      label="Rental Duration"
-                      outlined
-                      :loading="loadingDurations"
-                      @update:model-value="onDurationChange"
-                    >
-                      <template v-slot:hint>
-                        Required for {{ getTimeBasedComponents() }}
-                      </template>
-                    </q-select>
-                  </div>
-                </div>
-
-                <!-- Custom duration inputs (only shown when custom is selected) -->
-                <div v-if="isCustomDuration" class="row q-col-gutter-md q-mb-md">
-                  <div class="col-6">
-                    <q-input
-                      v-model.number="customDurationValue"
-                      type="number"
-                      label="Duration Value"
-                      outlined
-                      min="1"
-                      step="1"
-                      hint="Enter number of units"
-                      :rules="[
-                        val => val !== null && val !== '' || 'Please enter a value',
-                        val => val > 0 || 'Must be greater than 0',
-                        val => Number.isInteger(Number(val)) || 'Must be a whole number'
-                      ]"
-                      @update:model-value="onCustomDurationChange"
-                    />
-                  </div>
-                  <div class="col-6">
-                    <q-select
-                      v-model="customDurationUnit"
-                      :options="['hours', 'days', 'weeks', 'months']"
-                      label="Duration Unit"
-                      outlined
-                      hint="Select time unit"
-                      @update:model-value="onCustomDurationChange"
-                    />
-                  </div>
-                </div>
-
-                <!-- Due back date -->
-                <div class="row q-col-gutter-md q-mb-md">
-                  <div class="col-12">
-                    <q-input
-                      v-model="formData.due_back"
-                      label="Due Back Date"
-                      type="datetime-local"
-                      outlined
-                      :rules="[
-                        val => !!val || 'Due back date is required',
-                        val => new Date(val) > new Date(formData.timestamp_taken) || 'Due date must be after start date'
-                      ]"
-                      :readonly="!isCustomDuration"
-                      :bg-color="!isCustomDuration ? 'grey-2' : 'white'"
-                      :hint="isCustomDuration ? 'Manually adjust if needed' : 'Automatically calculated from duration'"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <!-- Due back date only (for fixed/kwh only structures) -->
-              <div v-if="!requiresDuration" class="row q-col-gutter-md q-mb-md">
-                <div class="col-12">
-                  <q-input
-                    v-model="formData.due_back"
-                    label="Expected Return Date"
-                    type="datetime-local"
-                    outlined
-                    :rules="[
-                      val => !!val || 'Return date is required',
-                      val => new Date(val) > new Date(formData.timestamp_taken) || 'Return date must be after start date'
-                    ]"
-                  >
-                    <template v-slot:hint>
-                      <span class="text-grey-6">Duration not needed for this pricing structure</span>
-                    </template>
-                  </q-input>
-                </div>
-              </div>
-
-              <!-- kWh Estimate (only if structure uses per_kwh component) -->
-              <div v-if="requiresKwhEstimate" class="row q-col-gutter-md q-mb-md">
-                <div class="col-12">
-                  <q-input
-                    v-model.number="estimatedKwh"
-                    label="Estimated kWh Usage"
-                    type="number"
-                    step="0.1"
-                    outlined
-                    prefix="kWh"
-                    :hint="kwhEstimateHint"
-                    @update:model-value="onKwhChange"
-                  >
-                    <template v-slot:prepend>
-                      <q-icon name="battery_charging_full" />
-                    </template>
-                  </q-input>
-                  <div v-if="selectedBatteryCapacity" class="q-mt-xs q-ml-sm">
-                    <q-chip size="sm" color="blue-1" text-color="blue-9" icon="info">
-                      Battery Capacity: {{ (selectedBatteryCapacity / 1000).toFixed(2) }} kWh
-                    </q-chip>
-                    <q-chip size="sm" color="green-1" text-color="green-9" icon="tips_and_updates">
-                      Typical usage: {{ typicalUsageEstimate }} kWh
-                    </q-chip>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Cost Breakdown Display -->
-            <div v-if="costEstimate" class="q-pa-md bg-grey-1 rounded-borders q-mb-md">
-              <div class="text-caption text-grey-7 q-mb-sm">Cost Breakdown:</div>
-
-              <div v-for="(item, idx) in costEstimate.breakdown" :key="idx" class="row items-center q-mb-xs">
-                <div class="col">
-                  <span class="text-body2">{{ item.component_name }}</span>
-                  <span class="text-caption text-grey-6">
-                    ({{ item.quantity }} × {{ currentCurrencySymbol }}{{ item.rate }})
-                  </span>
-                  <q-badge v-if="item.is_calculated_on_return" color="orange" class="q-ml-xs">
-                    Calculated on return
-                  </q-badge>
-                </div>
-                <div class="col-auto text-weight-medium">
-                  {{ currentCurrencySymbol }}{{ item.amount.toFixed(2) }}
-                </div>
-              </div>
-
-              <q-separator class="q-my-sm" />
-
-              <div class="row items-center q-mb-xs">
-                <div class="col text-body2">Subtotal:</div>
-                <div class="col-auto text-weight-medium">{{ currentCurrencySymbol }}{{ costEstimate.subtotal.toFixed(2) }}</div>
-              </div>
-
-              <div class="row items-center q-mb-xs">
-                <div class="col text-body2">
-                  VAT ({{ costEstimate.vat_percentage }}%):
-                </div>
-                <div class="col-auto text-weight-medium">{{ currentCurrencySymbol }}{{ costEstimate.vat_amount.toFixed(2) }}</div>
-              </div>
-
-              <q-separator class="q-my-sm" />
-
-              <div class="row items-center">
-                <div class="col text-h6 text-primary">Total:</div>
-                <div class="col-auto text-h6 text-primary">{{ currentCurrencySymbol }}{{ costEstimate.total.toFixed(2) }}</div>
-              </div>
-
-              <!-- Deposit Information (if applicable) -->
-              <div v-if="costEstimate.deposit_amount && costEstimate.deposit_amount > 0" class="q-mt-md">
-                <q-separator class="q-my-sm" />
-                <div class="bg-orange-1 q-pa-sm rounded-borders">
-                  <div class="row items-center">
-                    <q-icon name="info" color="orange" class="q-mr-sm" />
-                    <div class="col text-body2">
-                      <span class="text-weight-medium">Deposit Required:</span>
-                      {{ currentCurrencySymbol }}{{ costEstimate.deposit_amount.toFixed(2) }}
-                    </div>
-                  </div>
-                  <div class="text-caption text-grey-7 q-mt-xs">
-                    This deposit is required for this rental type
-                  </div>
-                </div>
-              </div>
-
-            </div>
-
-            <!-- Payment Method -->
-            <q-separator class="q-my-md" />
-            <div v-if="!isSubscriptionRental">
-              <div class="text-subtitle2 q-mb-md">Payment Options</div>
-              <div class="row q-col-gutter-md q-mb-md">
-                <div class="col-12">
-                  <q-select
-                    v-model="formData.payment_method"
-                    :options="paymentMethodOptions"
-                    label="Payment Method"
-                    outlined
-                    emit-value
-                    map-options
-                    hint="How will the customer pay?"
-                  >
-                    <template v-slot:prepend>
-                      <q-icon name="payment" />
-                    </template>
-                  </q-select>
-                </div>
-              </div>
-
-              <!-- Account Credit Available - Only for upfront/partial payments -->
-              <div v-if="userAccount && userAccount.balance > 0 && (formData.payment_method === 'upfront' || formData.payment_method === 'partial')" class="q-mb-md">
-                <div class="bg-green-1 q-pa-md rounded-borders">
-                  <div class="row items-center q-mb-sm">
-                    <q-icon name="account_balance_wallet" color="positive" size="sm" class="q-mr-sm" />
-                    <div class="col">
-                      <div class="text-body2 text-weight-medium">Account Credit Available</div>
-                      <div class="text-h6 text-positive">
-                        {{ currentCurrencySymbol }}{{ userAccount.balance.toFixed(2) }}
-                      </div>
-                    </div>
-                    <div class="col-auto">
-                      <q-btn
-                        color="positive"
-                        icon="add"
-                        label="Apply to Rental"
-                        @click="showApplyCreditDialog = true"
-                        unelevated
-                        no-caps
-                      />
-                    </div>
-                  </div>
-                  <div v-if="formData.credit_used && formData.credit_used > 0" class="bg-white q-pa-sm rounded-borders">
-                    <div class="row items-center">
-                      <div class="col text-caption">Credit Applied:</div>
-                      <div class="col-auto text-body2 text-positive text-weight-medium">
-                        -{{ currentCurrencySymbol }}{{ formData.credit_used.toFixed(2) }}
-                      </div>
-                    </div>
-                    <div class="row items-center q-mt-xs">
-                      <div class="col text-caption">Remaining to Pay:</div>
-                      <div class="col-auto text-body1 text-weight-bold">
-                        {{ currentCurrencySymbol }}{{ Math.max(0, costEstimate.total - formData.credit_used).toFixed(2) }}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div v-else>
-              <div class="text-subtitle2 q-mb-md">Additional Charges (Optional)</div>
-              <div class="q-mb-sm text-caption text-grey-7">
-                Rental is covered by subscription. You may optionally collect deposits or add additional charges.
-              </div>
-            </div>
-
-            <!-- Deposit & Payment Collection -->
-            <div class="q-mb-md">
-              <div v-if="!isSubscriptionRental" class="text-subtitle2 q-mb-sm">Payment Collection</div>
-              <div class="row q-col-gutter-md">
-                <!-- Deposit Collection (available for all rentals) -->
-                <div class="col-12 col-md-6">
-                  <q-card flat bordered>
-                    <q-card-section class="row items-center">
-                      <div class="col">
-                        <div class="text-caption text-grey-7">Deposit Amount</div>
-                        <div class="text-h6 text-positive">
-                          {{ currentCurrencySymbol }}{{ formData.deposit_amount?.toFixed(2) || '0.00' }}
-                        </div>
-                        <div v-if="isSubscriptionRental" class="text-caption text-grey-6 q-mt-xs">
-                          Optional security deposit
-                        </div>
-                      </div>
-                      <div class="col-auto">
-                        <q-btn
-                          color="positive"
-                          icon="add_circle"
-                          :label="isSubscriptionRental ? 'Add Deposit' : 'Collect Deposit'"
-                          @click="showDepositDialog = true"
-                          flat
-                        />
-                      </div>
-                    </q-card-section>
-                  </q-card>
-                </div>
-
-                <!-- Payment Collection (show for upfront and partial only for non-subscription rentals) -->
-                <div v-if="!isSubscriptionRental && (formData.payment_method === 'upfront' || formData.payment_method === 'partial')" class="col-12 col-md-6">
-                  <q-card flat bordered>
-                    <q-card-section class="row items-center">
-                      <div class="col">
-                        <div class="text-caption text-grey-7">Payment Collected</div>
-                        <div class="text-h6 text-primary">
-                          {{ currentCurrencySymbol }}{{ ((formData.amount_paid || 0) + (formData.credit_used || 0)).toFixed(2) }}
-                        </div>
-                        <div v-if="(formData.amount_paid || 0) + (formData.credit_used || 0) > 0" class="text-caption text-grey-7 q-mt-xs">
-                          Est. remaining at return: {{ currentCurrencySymbol }}{{ Math.max(0, costEstimate.total - (formData.amount_paid || 0) - (formData.credit_used || 0)).toFixed(2) }}
-                        </div>
-                      </div>
-                      <div class="col-auto">
-                        <q-btn
-                          color="primary"
-                          icon="payments"
-                          label="Collect Payment"
-                          @click="showPaymentCollectionDialog = true"
-                          flat
-                        />
-                      </div>
-                    </q-card-section>
-                  </q-card>
-                </div>
-
-                <!-- Add Credit to Account (for subscription rentals) -->
-                <div v-if="isSubscriptionRental" class="col-12 col-md-6">
-                  <q-card flat bordered class="bg-blue-1">
-                    <q-card-section class="row items-center">
-                      <div class="col">
-                        <div class="text-caption text-grey-7">Add Credit to User Account</div>
-                        <div class="text-body2 q-mt-xs">
-                          Add funds to user's account balance
-                        </div>
-                      </div>
-                      <div class="col-auto">
-                        <q-btn
-                          color="primary"
-                          icon="account_balance_wallet"
-                          label="Add Credit"
-                          @click="showApplyCreditDialog = true"
-                          flat
-                        />
-                      </div>
-                    </q-card-section>
-                  </q-card>
-                </div>
-              </div>
-            </div>
-
-            <!-- Payment Status (Auto-calculated) - Hide for subscription rentals -->
-            <div v-if="!isSubscriptionRental && formData.payment_method !== 'on_return'" class="q-mb-md">
-              <q-card flat bordered>
-                <q-card-section>
-                  <div class="text-subtitle2 q-mb-md">Payment Status</div>
-                  <div class="row q-col-gutter-md items-center">
-                    <div class="col-auto">
-                      <q-badge
-                        :color="getPaymentStatusColor(computedPaymentStatus)"
-                        :label="computedPaymentStatus"
-                        size="lg"
-                        class="text-capitalize"
-                      />
-                    </div>
-                    <div class="col">
-                      <div class="text-caption text-grey-7">
-                        {{ getPaymentStatusDescription(computedPaymentStatus) }}
-                      </div>
-                    </div>
-                  </div>
-                  <div v-if="costEstimate && costEstimate.has_estimated_component" class="q-mt-sm">
-                    <q-banner dense class="bg-orange-1 text-orange-9">
-                      <template v-slot:avatar>
-                        <q-icon name="info" color="orange" />
-                      </template>
-                      This rental includes estimated costs. Status will be "partial" until final usage is determined.
-                    </q-banner>
-                  </div>
-                </q-card-section>
-              </q-card>
-            </div>
-
-            <div class="row justify-end q-gutter-sm q-mt-md">
-              <q-btn label="Cancel" flat @click="closeDialog" />
-              <q-btn
-                label="Save"
-                type="submit"
-                color="primary"
-                :loading="saving"
-              />
-            </div>
-          </q-form>
-        </q-card-section>
-      </q-card>
+      <BatteryRentalForm @success="onBatteryRentalSuccess" @cancel="closeBatteryRentalDialog" />
     </q-dialog>
 
     <!-- PUE Rental Dialog -->
     <q-dialog v-model="showPUERentalDialog" persistent>
-      <q-card style="min-width: 700px; max-width: 900px">
-        <q-card-section>
-          <div class="text-h6">New PUE Rental</div>
-        </q-card-section>
-
-        <q-card-section class="q-pt-none" style="max-height: 70vh; overflow-y: auto">
-          <q-form @submit="savePUERental">
-            <!-- Hub Selection -->
-            <q-select
-              v-model="pueFormData.hub_id"
-              :options="hubOptions"
-              option-value="hub_id"
-              option-label="what_three_word_location"
-              emit-value
-              map-options
-              label="Hub *"
-              outlined
-              :rules="[val => !!val || 'Hub is required']"
-              @update:model-value="onPUEHubChange"
-              class="q-mb-md"
-            >
-              <template v-slot:prepend>
-                <q-icon name="store" />
-              </template>
-            </q-select>
-
-            <!-- User Selection -->
-            <q-select
-              v-model="pueFormData.user_id"
-              :options="filteredUsers"
-              option-value="user_id"
-              option-label="username"
-              emit-value
-              map-options
-              label="User *"
-              outlined
-              use-input
-              input-debounce="0"
-              @filter="filterUsers"
-              :rules="[val => !!val || 'User is required']"
-              @update:model-value="onPUEUserChange"
-              class="q-mb-md"
-            >
-              <template v-slot:prepend>
-                <q-icon name="person" />
-              </template>
-              <template v-slot:option="scope">
-                <q-item v-bind="scope.itemProps">
-                  <q-item-section>
-                    <q-item-label>{{ scope.opt.username }}</q-item-label>
-                    <q-item-label caption>{{ scope.opt.Name }} - {{ scope.opt.Phone_Number }}</q-item-label>
-                  </q-item-section>
-                </q-item>
-              </template>
-            </q-select>
-
-            <!-- User Account Balance Display -->
-            <div v-if="pueUserAccount" class="q-mb-md">
-              <q-banner dense class="bg-green-1" v-if="pueUserAccount.balance > 0">
-                <template v-slot:avatar>
-                  <q-icon name="account_balance_wallet" color="positive" />
-                </template>
-                <div class="text-body2">
-                  User Selected: {{ userOptions.find(u => u.user_id === pueFormData.user_id)?.Name || `User ${pueFormData.user_id}` }}
-                </div>
-                <div class="row q-col-gutter-sm">
-                  <div class="col-12 col-md-6">
-                    <div class="text-caption text-grey-8">💰 Credit Available:</div>
-                    <div class="text-body1 text-weight-bold" :class="pueUserAccount.balance > 0 ? 'text-positive' : 'text-grey'">
-                      {{ currentCurrencySymbol }}{{ Math.max(0, pueUserAccount.balance || 0).toFixed(2) }}
-                      <span v-if="pueUserAccount.balance > 0" class="text-caption text-grey-7">(apply at return/payment)</span>
-                    </div>
-                  </div>
-                </div>
-              </q-banner>
-            </div>
-
-            <q-separator class="q-my-md" />
-
-            <!-- PUE Item Selection -->
-            <div class="text-subtitle2 q-mb-md">Equipment Selection</div>
-
-            <q-select
-              v-model="pueFormData.pue_id"
-              :options="filteredPUE"
-              option-value="pue_id"
-              option-label="name"
-              emit-value
-              map-options
-              label="Select PUE Item *"
-              outlined
-              use-input
-              input-debounce="0"
-              @filter="filterPUE"
-              :disable="!pueFormData.hub_id"
-              :hint="!pueFormData.hub_id ? 'Select a hub first' : ''"
-              :rules="[val => !!val || 'PUE item is required']"
-              @update:model-value="onPUEItemSelect"
-              class="q-mb-md"
-            >
-              <template v-slot:prepend>
-                <q-icon name="devices" />
-              </template>
-              <template v-slot:option="scope">
-                <q-item v-bind="scope.itemProps">
-                  <q-item-section>
-                    <q-item-label>{{ scope.opt.name }} (ID: {{ scope.opt.pue_id }})</q-item-label>
-                    <q-item-label caption>
-                      {{ scope.opt.description || 'No description' }} - {{ scope.opt.status }}
-                    </q-item-label>
-                  </q-item-section>
-                </q-item>
-              </template>
-              <template v-slot:no-option>
-                <q-item>
-                  <q-item-section class="text-grey">
-                    No equipment available
-                  </q-item-section>
-                </q-item>
-              </template>
-            </q-select>
-
-            <q-separator class="q-my-md" />
-
-            <!-- Cost Structure Selection -->
-            <div class="text-subtitle2 q-mb-md">Pricing & Duration</div>
-
-            <q-select
-              v-model="pueFormData.cost_structure_id"
-              :options="availablePUECostStructures"
-              option-value="structure_id"
-              option-label="name"
-              emit-value
-              map-options
-              label="Cost Structure *"
-              outlined
-              :loading="loadingPUECostStructures"
-              @update:model-value="onPUERentalCostStructureChange"
-              :disable="!pueFormData.pue_id"
-              :hint="!pueFormData.pue_id ? 'Select a PUE item first' : 'Select a pricing template'"
-              :rules="[val => !!val || 'Cost structure is required']"
-              class="q-mb-md"
-            >
-              <template v-slot:prepend>
-                <q-icon name="receipt" />
-              </template>
-            </q-select>
-
-            <!-- Pay-to-Own Banner -->
-            <q-banner v-if="isPUEPayToOwn" class="bg-purple-1 q-mb-md" rounded>
-              <template v-slot:avatar>
-                <q-icon name="account_balance" color="purple" />
-              </template>
-              <div class="text-h6">Pay to Own</div>
-              <div class="text-body2">
-                Total Item Cost: {{ currentCurrencySymbol}}{{ selectedPUECostStructureObject?.item_total_cost?.toFixed(2) || '0.00' }}
-              </div>
-              <div class="text-caption q-mt-xs">
-                This rental will allow the customer to gradually own this item through payments.
-              </div>
-            </q-banner>
-
-            <!-- Recurring Payment Option -->
-            <q-checkbox
-              v-model="pueFormData.has_recurring_payment"
-              label="Set up recurring payment"
-              dense
-              class="q-mb-md"
-              @update:model-value="onRecurringPaymentToggle"
-            >
-              <q-tooltip>
-                Enable this if the customer will make regular payments according to the cost structure (e.g., monthly). This is useful for pay-to-own items or long-term rentals.
-              </q-tooltip>
-            </q-checkbox>
-
-            <!-- Duration Selection (hidden for pay-to-own) -->
-            <q-select
-              v-if="pueFormData.cost_structure_id && !isPUEPayToOwn"
-              v-model="pueFormData.duration_preset"
-              :options="pueDurationOptions"
-              option-value="value"
-              option-label="label"
-              emit-value
-              map-options
-              label="Duration *"
-              outlined
-              @update:model-value="onPUERentalDurationChange"
-              :rules="[val => !!val || 'Duration is required']"
-              class="q-mb-md"
-            >
-              <template v-slot:prepend>
-                <q-icon name="schedule" />
-              </template>
-            </q-select>
-
-            <!-- Custom Duration Inputs (if custom selected) -->
-            <div v-if="isPUECustomDuration" class="row q-col-gutter-md q-mb-md">
-              <div class="col-6">
-                <q-input
-                  v-model.number="pueFormData.custom_duration_value"
-                  type="number"
-                  label="Duration Value"
-                  outlined
-                  min="1"
-                  @update:model-value="onPUERentalCustomDurationChange"
-                />
-              </div>
-              <div class="col-6">
-                <q-select
-                  v-model="pueFormData.custom_duration_unit"
-                  :options="['hours', 'days', 'weeks', 'months']"
-                  label="Duration Unit"
-                  outlined
-                  @update:model-value="onPUERentalCustomDurationChange"
-                />
-              </div>
-            </div>
-
-            <!-- Rental Dates -->
-            <div class="row q-col-gutter-md q-mb-md">
-              <div class="col-6">
-                <q-input
-                  v-model="pueFormData.rental_start_date"
-                  type="datetime-local"
-                  label="Rental Start"
-                  outlined
-                  :rules="[val => !!val || 'Start date is required']"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="event" />
-                  </template>
-                </q-input>
-              </div>
-              <div class="col-6">
-                <q-input
-                  v-model="pueFormData.due_date"
-                  type="datetime-local"
-                  label="Due Date"
-                  outlined
-                  readonly
-                  bg-color="grey-2"
-                  hint="Automatically calculated from duration"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="event_available" />
-                  </template>
-                </q-input>
-              </div>
-            </div>
-
-            <!-- Cost Estimate Display -->
-            <div v-if="pueCostEstimate" class="q-mb-md">
-              <q-card flat bordered class="bg-blue-1">
-                <q-card-section>
-                  <div class="text-subtitle2 q-mb-sm">
-                    Cost Estimate
-                    <span v-if="recurringFrequencyDisplay" class="text-caption text-purple-8 q-ml-sm">({{ recurringFrequencyDisplay }})</span>
-                  </div>
-                  <div class="row q-col-gutter-sm">
-                    <div class="col-6">
-                      <div class="text-caption text-grey-7">Subtotal:</div>
-                      <div class="text-body1">
-                        {{ currentCurrencySymbol }}{{ pueCostEstimate.subtotal?.toFixed(2) || '0.00' }}
-                        <span v-if="recurringFrequencyDisplay" class="text-caption text-grey-7">/{{ recurringFrequencyDisplay.replace('per ', '') }}</span>
-                      </div>
-                    </div>
-                    <div class="col-6">
-                      <div class="text-caption text-grey-7">VAT ({{ pueCostEstimate.vat_percentage || 0 }}%):</div>
-                      <div class="text-body1">{{ currentCurrencySymbol }}{{ pueCostEstimate.vat_amount?.toFixed(2) || '0.00' }}</div>
-                    </div>
-                    <div class="col-12">
-                      <q-separator class="q-my-xs" />
-                      <div class="text-caption text-grey-7">Total:</div>
-                      <div class="text-h6 text-primary">
-                        {{ currentCurrencySymbol }}{{ pueCostEstimate.total?.toFixed(2) || '0.00' }}
-                        <span v-if="recurringFrequencyDisplay" class="text-body2 text-purple-8">/{{ recurringFrequencyDisplay.replace('per ', '') }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </q-card-section>
-              </q-card>
-            </div>
-
-            <q-separator class="q-my-md" />
-
-            <!-- Payment Method -->
-            <div class="text-subtitle2 q-mb-md">Payment Options</div>
-            <div class="row q-col-gutter-md q-mb-md">
-              <div class="col-12">
-                <q-select
-                  v-model="pueFormData.payment_method"
-                  :options="paymentMethodOptions"
-                  label="Payment Method *"
-                  outlined
-                  emit-value
-                  map-options
-                  hint="How will the customer pay?"
-                  :rules="[val => !!val || 'Payment method is required']"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="payment" />
-                  </template>
-                </q-select>
-              </div>
-            </div>
-
-            <!-- Account Credit Available - Only for upfront/partial payments -->
-            <div v-if="pueUserAccount && pueUserAccount.balance > 0 && (pueFormData.payment_method === 'upfront' || pueFormData.payment_method === 'partial')" class="q-mb-md">
-              <div class="bg-green-1 q-pa-md rounded-borders">
-                <div class="row items-center q-mb-sm">
-                  <q-icon name="account_balance_wallet" color="positive" size="sm" class="q-mr-sm" />
-                  <div class="col">
-                    <div class="text-body2 text-weight-medium">Account Credit Available</div>
-                    <div class="text-h6 text-positive">
-                      {{ currentCurrencySymbol }}{{ pueUserAccount.balance.toFixed(2) }}
-                    </div>
-                  </div>
-                  <div class="col-auto">
-                    <q-btn
-                      color="positive"
-                      icon="add"
-                      label="Apply to Rental"
-                      @click="showPUEApplyCreditDialog = true"
-                      unelevated
-                      no-caps
-                    />
-                  </div>
-                </div>
-                <div v-if="pueFormData.credit_used && pueFormData.credit_used > 0" class="bg-white q-pa-sm rounded-borders">
-                  <div class="row items-center">
-                    <div class="col text-caption">Credit Applied:</div>
-                    <div class="col-auto text-body2 text-positive text-weight-medium">
-                      -{{ currentCurrencySymbol }}{{ pueFormData.credit_used.toFixed(2) }}
-                    </div>
-                  </div>
-                  <div class="row items-center q-mt-xs">
-                    <div class="col text-caption">Remaining to Pay:</div>
-                    <div class="col-auto text-body1 text-weight-bold">
-                      {{ currentCurrencySymbol }}{{ Math.max(0, (pueCostEstimate?.total || 0) - pueFormData.credit_used).toFixed(2) }}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <q-separator class="q-my-md" />
-
-            <!-- Deposit & Payment Collection -->
-            <div class="q-mb-md">
-              <div class="text-subtitle2 q-mb-sm">Payment Collection</div>
-              <div class="row q-col-gutter-md">
-                <!-- Deposit Collection -->
-                <div class="col-12 col-md-6">
-                  <q-card flat bordered>
-                    <q-card-section class="row items-center">
-                      <div class="col">
-                        <div class="text-caption text-grey-7">Deposit Amount</div>
-                        <div class="text-h6 text-positive">
-                          {{ currentCurrencySymbol }}{{ pueFormData.deposit_amount?.toFixed(2) || '0.00' }}
-                        </div>
-                      </div>
-                      <div class="col-auto">
-                        <q-btn
-                          color="positive"
-                          icon="add_circle"
-                          label="Collect Deposit"
-                          @click="showPUEDepositDialog = true"
-                          flat
-                        />
-                      </div>
-                    </q-card-section>
-                  </q-card>
-                </div>
-
-                <!-- Payment Collection (show for upfront and partial only) -->
-                <div v-if="pueFormData.payment_method === 'upfront' || pueFormData.payment_method === 'partial'" class="col-12 col-md-6">
-                  <q-card flat bordered>
-                    <q-card-section class="row items-center">
-                      <div class="col">
-                        <div class="text-caption text-grey-7">Payment Collected</div>
-                        <div class="text-h6 text-primary">
-                          {{ currentCurrencySymbol }}{{ ((pueFormData.amount_paid || 0) + (pueFormData.credit_used || 0)).toFixed(2) }}
-                        </div>
-                        <div v-if="(pueFormData.amount_paid || 0) + (pueFormData.credit_used || 0) > 0" class="text-caption text-grey-7 q-mt-xs">
-                          Est. remaining at return: {{ currentCurrencySymbol }}{{ Math.max(0, (pueCostEstimate?.total || 0) - (pueFormData.amount_paid || 0) - (pueFormData.credit_used || 0)).toFixed(2) }}
-                        </div>
-                      </div>
-                      <div class="col-auto">
-                        <q-btn
-                          color="primary"
-                          icon="payments"
-                          label="Collect Payment"
-                          @click="showPUEPaymentCollectionDialog = true"
-                          flat
-                        />
-                      </div>
-                    </q-card-section>
-                  </q-card>
-                </div>
-              </div>
-            </div>
-
-            <div class="row justify-end q-gutter-sm q-mt-md">
-              <q-btn label="Cancel" flat @click="closeDialog" />
-              <q-btn
-                label="Create Rental"
-                type="submit"
-                color="purple"
-                :loading="saving"
-                :disable="!pueFormData.pue_id || !pueFormData.cost_structure_id"
-              />
-            </div>
-          </q-form>
-        </q-card-section>
-      </q-card>
+      <PUERentalForm @success="onPUERentalSuccess" @cancel="closePUERentalDialog" />
     </q-dialog>
 
     <!-- PUE Cost Structure Selection Dialog -->
@@ -1960,6 +860,8 @@ import { useQuasar, date } from 'quasar'
 import { useRoute, useRouter } from 'vue-router'
 import RentalReturnDialog from 'components/RentalReturnDialog.vue'
 import HubFilter from 'src/components/HubFilter.vue'
+import BatteryRentalForm from 'src/components/BatteryRentalForm.vue'
+import PUERentalForm from 'src/components/PUERentalForm.vue'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
@@ -1978,7 +880,7 @@ const filteredPUE = ref([])
 const selectedPUE = ref(null)
 const loading = ref(false)
 const filter = ref('')
-const statusFilter = ref('all')
+const statusFilter = ref('active')
 const rentalTypeFilter = ref('all')
 const selectedHub = ref(null)
 const showCreateDialog = ref(false)
@@ -2351,7 +1253,11 @@ const columns = [
   }, align: 'left', sortable: true },
   { name: 'rental_type', label: 'Type', field: 'rental_type', align: 'center', sortable: true },
   { name: 'hub', label: 'Hub', field: row => row.hub?.what_three_word_location || `Hub ${row.hub?.hub_id || '-'}`, align: 'left', sortable: true },
-  { name: 'user', label: 'User', field: row => row.user?.Name || row.user?.username || `User ${row.user_id}`, align: 'left', sortable: true },
+  { name: 'user', label: 'User', field: row => {
+    const userName = row.user?.Name || row.user?.username || `User ${row.user_id}`
+    const shortId = row.user?.short_id ? ` (${row.user.short_id})` : ''
+    return `${userName}${shortId}`
+  }, align: 'left', sortable: true },
   { name: 'battery', label: 'Item', field: row => {
     if (row.rental_type === 'pue') {
       return row.pue_name || `PUE ${row.pue_id}`
@@ -3982,12 +2888,48 @@ const confirmReturn = async () => {
 
 const openBatteryRentalDialog = () => {
   resetForm()
+  // Auto-select hub for hub_admin users
+  if (authStore.role === 'hub_admin' && authStore.currentHubId) {
+    formData.value.hub_id = authStore.currentHubId
+  }
   showCreateDialog.value = true
 }
 
 const openPUERentalDialog = () => {
   resetPUEForm()
+  // Auto-select hub for hub_admin users
+  if (authStore.role === 'hub_admin' && authStore.currentHubId) {
+    pueFormData.value.hub_id = authStore.currentHubId
+  }
   showPUERentalDialog.value = true
+}
+
+// Battery Rental Form Component Handlers
+const onBatteryRentalSuccess = () => {
+  showCreateDialog.value = false
+  loadRentals()
+  $q.notify({
+    type: 'positive',
+    message: 'Battery rental created successfully'
+  })
+}
+
+const closeBatteryRentalDialog = () => {
+  showCreateDialog.value = false
+}
+
+// PUE Rental Form Component Handlers
+const onPUERentalSuccess = () => {
+  showPUERentalDialog.value = false
+  loadRentals()
+  $q.notify({
+    type: 'positive',
+    message: 'PUE rental created successfully'
+  })
+}
+
+const closePUERentalDialog = () => {
+  showPUERentalDialog.value = false
 }
 
 // PUE Rental Form Handlers
@@ -4460,6 +3402,11 @@ const resetForm = () => {
 }
 
 onMounted(() => {
+  // Auto-select hub for hub_admin users
+  if (authStore.role === 'hub_admin' && authStore.currentHubId) {
+    selectedHub.value = authStore.currentHubId
+  }
+
   loadRentals()
   loadHubs()
 
