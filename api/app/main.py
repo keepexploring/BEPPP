@@ -2301,6 +2301,7 @@ async def battery_login(
         token = create_battery_token(battery_login.battery_id)
 
         # Log successful battery login (to file AND database)
+        # NOTE: Logging full token temporarily for debugging - REMOVE in production
         log_webhook_event(
             event_type="battery_login_success",
             battery_id=battery_login.battery_id,
@@ -2308,7 +2309,8 @@ async def battery_login(
             additional_info={
                 "battery_id": str(battery_login.battery_id),
                 "token_expires_in_hours": BATTERY_TOKEN_EXPIRE_HOURS,
-                "scope": "webhook_write"
+                "scope": "webhook_write",
+                "token": token  # TEMPORARY: Full token for debugging hardware issues
             },
             request_headers=headers,
             db=db  # NEW: Pass db to save to database
