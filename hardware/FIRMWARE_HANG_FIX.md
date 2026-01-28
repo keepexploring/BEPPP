@@ -32,16 +32,37 @@ This is a **regression** from the Pico 1 version which had a proper 60-second ti
 
 ### ✅ PPP disconnect() is SAFE to Call Anytime
 
+**This was one of your original suspicions (line 678), but the C code proves it's NOT the problem.**
+
 **Verified in**:
 - [micropython/extmod/network_ppp_lwip.c](https://github.com/micropython/micropython/blob/master/extmod/network_ppp_lwip.c)
 - [lwip/src/netif/ppp/ppp.c](https://github.com/lwip-tcpip/lwip/blob/master/src/netif/ppp/ppp.c)
 
-- Only disconnects if in `CONNECTING` or `CONNECTED` state ✅
-- Silently returns if called in other states (no crash) ✅
-- Handles all PPP phases gracefully ✅
-- Safe to call even if `connect()` failed ✅
+The C source code shows `disconnect()` implementation:
 
-**Conclusion**: The `stop_ppp()` call in the `finally` block (line 678) is completely safe. Line 678 is NOT the cause of the hang.
+```c
+static mp_obj_t network_ppp_disconnect(mp_obj_t self_in) {
+    network_ppp_obj_t *self = MP_OBJ_TO_PTR(self_in);
+
+    // Only calls ppp_close() if already connecting/connected
+    if (self->state == STATE_CONNECTING || self->state == STATE_CONNECTED) {
+        ppp_close(self->pcb, 0);
+    }
+
+    // Otherwise just returns - NO ERROR, NO CRASH
+    return mp_const_none;
+}
+```
+
+**What this means**:
+- ✅ If PPP was never initialized → Just returns, does nothing (no crash)
+- ✅ If `connect()` was never called → Just returns, does nothing (no crash)
+- ✅ If `connect()` failed early → Just returns, does nothing (no crash)
+- ✅ If `connect()` is in progress → Safely closes
+- ✅ If already connected → Safely closes
+- ✅ Can be called multiple times safely (idempotent)
+
+**Conclusion**: The `stop_ppp()` call in the `finally` block (line 678 of cebattery.py) is **completely safe** and is **NOT the cause of the hang**. You can call `stop_ppp()` even if `start_ppp()` never completed or failed - it will just return without doing anything.
 
 ---
 
@@ -52,6 +73,12 @@ This is a **regression** from the Pico 1 version which had a proper 60-second ti
 **File**: [pimoroni-pico-rp2350/lte.py](https://github.com/pimoroni/pimoroni-pico-rp2350/blob/feature/can-haz-ppp-plz/micropython/modules_py/lte.py)
 
 **Location**: `start_ppp()` method
+
+**Where this is called from in cebattery.py**:
+- Line 649: `self.networkLte.start_ppp()` (first attempt)
+- Line 654: `self.networkLte.start_ppp()` (retry after failure)
+
+**The buggy code in lte.py**:
 
 ```python
 def start_ppp(self, baudrate=DEFAULT_UART_BAUD, connect=True):
@@ -67,13 +94,119 @@ def start_ppp(self, baudrate=DEFAULT_UART_BAUD, connect=True):
     return self._ppp.ifconfig()
 ```
 
+### How the Infinite Loop Works (Step-by-Step)
+
+Let's trace exactly what happens when this code executes:
+
+```python
+# Line 1: Create PPP object
+self._ppp = PPP(self._uart)
+
+# Line 2: Start connection (asynchronous - returns immediately)
+self._ppp.connect()
+
+# Line 3-4: THE INFINITE LOOP
+while self._ppp.status() != 4:
+    time.sleep(1.0)
+```
+
+**Step-by-step execution**:
+
+1. **`self._ppp.connect()` is called**
+   - This starts PPP negotiation with the carrier (asynchronous)
+   - Returns immediately (does NOT wait for connection to complete)
+   - PPP state machine begins: DEAD → INITIALIZE → ESTABLISH → etc.
+
+2. **First iteration of loop**:
+   - Checks: `self._ppp.status()` returns 0, 1, 2, or 3 (not yet connected)
+   - Condition `!= 4` is TRUE
+   - Sleeps 1 second
+   - Loop continues
+
+3. **Second iteration** (1 second later):
+   - Checks: `self._ppp.status()` returns 0, 1, 2, or 3 (still negotiating)
+   - Condition `!= 4` is TRUE
+   - Sleeps 1 second
+   - Loop continues
+
+4. **Third iteration** (2 seconds later):
+   - Same as above
+   - Loop continues
+
+5. **Normal case** (connection succeeds after ~10-30 seconds):
+   - Checks: `self._ppp.status()` **NOW returns 4** (connection complete!)
+   - Condition `!= 4` is FALSE
+   - Loop exits
+   - Function returns `self._ppp.ifconfig()` ✅
+   - Firmware continues to line 658 (get token)
+
+6. **🚨 PROBLEM CASE** (connection gets stuck):
+   - After 10, 20, 30, 60, 120+ seconds...
+   - Checks: `self._ppp.status()` **STILL returns 0, 1, 2, or 3** (stuck!)
+   - Condition `!= 4` is TRUE (forever!)
+   - Sleeps 1 second
+   - Loop continues **FOREVER**
+   - Function **NEVER returns**
+   - Firmware **NEVER reaches line 658**
+   - Battery is **HUNG FOREVER** 🚨
+
+**The critical flaw**: There's no timeout check inside the loop. The code assumes PPP will eventually reach status 4, but there are many reasons it might not (see below). When it doesn't, the firmware hangs forever with no recovery mechanism.
+
 ### Why This Hangs
 
-PPP `status()` returns values 0-4:
-- **4 = Fully connected** (required state)
-- 0-3 = Various intermediate states or errors
+PPP `status()` returns values 0-4 representing the connection phase:
+- **0** = `PPP_PHASE_DEAD` - Not connected
+- **1** = `PPP_PHASE_INITIALIZE` - Starting connection
+- **2** = `PPP_PHASE_ESTABLISH` - LCP negotiation (Link Control Protocol)
+- **3** = `PPP_PHASE_AUTHENTICATE` - Authentication in progress
+- **4** = `PPP_PHASE_RUNNING` - **Fully connected** (required state)
 
-If PPP fails to reach state 4 (due to network issues, modem errors, incomplete handshake), the firmware **hangs forever** in this while loop.
+The code waits in an infinite loop for status to become 4. **If PPP gets stuck in any earlier phase and never reaches phase 4, the firmware hangs forever.**
+
+### What Causes PPP to Get Stuck (Never Reach Status 4)
+
+There are many network and modem conditions that can prevent PPP from reaching the RUNNING phase:
+
+#### 1. Modem/Hardware Issues
+- **Modem not responding to ATD*99# command** - The dial command fails silently
+- **UART communication errors** - Data corruption on serial line
+- **Modem firmware crash** - SIM7600 module hangs internally
+- **Power supply issues** - Modem brownout during connection attempt
+- **Temperature-related modem instability** - Common with SIM7600 series
+
+#### 2. Network/Carrier Issues
+- **Weak cellular signal** - PPP negotiation times out waiting for carrier responses
+- **Carrier network congestion** - Carrier delays or drops PPP packets
+- **APN misconfiguration** - Wrong APN settings prevent IPCP negotiation
+- **Network temporarily unavailable** - Tower maintenance, no capacity, etc.
+- **SIM card issues** - Not provisioned for data, expired, suspended account
+
+#### 3. PPP Protocol Negotiation Failures
+- **LCP negotiation fails** (Phase 2) - Modem and network can't agree on link parameters
+- **Authentication fails** (Phase 3) - PAP/CHAP credentials rejected (though we use authmode 0)
+- **IPCP negotiation fails** (Phase 3→4) - Can't get IP address from network
+- **DNS configuration fails** - Network won't provide DNS servers
+- **MTU negotiation issues** - Modem and network disagree on maximum packet size
+
+#### 4. Timing/Race Conditions
+- **Modem sends PPP frames before MicroPython is ready** - Packets lost
+- **UART buffer overflow** - PPP negotiation packets dropped
+- **Modem goes to sleep mid-connection** - Power saving mode kicks in
+- **Previous connection state not cleared** - Modem thinks it's still connected
+
+#### 5. Why This is Intermittent
+
+The hang is intermittent because:
+- **Most of the time**, network conditions are good and PPP reaches status 4 quickly (works fine)
+- **Occasionally**, one of the above issues occurs and PPP gets stuck in phase 0-3 (hangs forever)
+- The failure rate depends on:
+  - Local signal strength (batteries in weak signal areas hang more often)
+  - Time of day (network congestion varies)
+  - Weather (affects cellular signal)
+  - Modem temperature (affects stability)
+  - Battery charge level (affects modem power stability)
+
+**The key problem**: Without a timeout, there's no recovery mechanism. The firmware just waits forever instead of giving up and retrying.
 
 ### Comparison with Working Pico 1 Version
 
@@ -98,34 +231,98 @@ def start_ppp(self, baudrate=DEFAULT_UART_BAUD, connect=True, timeout=60):
 
 ---
 
-## How the Hang Manifests
+## How the Hang Manifests in Your System
 
-### Scenario 1: Hang During Initial Connection
+### Scenario 1: Hang During Initial Connection (Never Gets Token)
 
+**Sequence**:
 ```
-1. Battery starts up
+1. Battery powers up and starts firmware
 2. Calls start_ppp() at cebattery.py line 649
-3. PPP connection fails to reach status 4 (network issue, modem error, etc.)
-4. start_ppp() HANGS in infinite loop waiting for status 4
-5. Firmware never reaches token request (line 658)
-6. User sees: "Battery hung, never sent data"
+3. LTE modem starts PPP negotiation with carrier
+4. PPP gets stuck in phase 0-3 (e.g., waiting for IPCP response from carrier)
+5. start_ppp() enters infinite loop checking status: while self._ppp.status() != 4
+6. Status stays at 0, 1, 2, or 3 forever - never reaches 4
+7. Firmware HANGS in this loop forever
+8. Never reaches line 658 (token request)
+9. Battery never logs in, never sends data
 ```
 
-### Scenario 2: Hang After Getting Token
+**User observation**: Battery appears dead or frozen. No data uploaded. No logs after "start LTE ppp network".
 
+**Duration**: Forever (until battery power dies or manual reset)
+
+---
+
+### Scenario 2: Hang After Getting Token (Most Confusing!)
+
+**This scenario matches your description: "Battery hangs after getting token successfully but then never sends the data"**
+
+**Sequence**:
 ```
-1. Battery starts up
-2. start_ppp() succeeds and PPP connection established
-3. Battery successfully gets token (line 659) ✅
-4. Tries to send data (line 666)
-5. Network conditions change, PPP connection degrades
-6. Response never arrives, but socket timeout works so request fails
-7. Exception handler calls start_ppp() again (line 654)
-8. This time start_ppp() HANGS in infinite loop
-9. User sees: "Battery got token but never sent data"
+1. Battery powers up
+2. First call to start_ppp() at line 649 succeeds (PPP reaches status 4)
+3. Battery successfully gets authentication token at line 659 ✅
+4. Battery tries to send data at line 666
+5. Network conditions degrade (signal fades, tower switches, packet loss, etc.)
+6. Socket timeout at line 666 works correctly and raises exception
+   OR JSON decoding fails due to incomplete/corrupted response
+7. Exception handler catches error at line 670
+8. Line 653: Exception handler tries to recover by calling stop_ppp()
+9. Line 654: Exception handler calls start_ppp() AGAIN for retry
+10. THIS TIME PPP negotiation fails (network conditions still bad)
+11. start_ppp() HANGS in infinite loop at line 649/654
+12. Battery is now frozen forever with valid token but no data sent
 ```
 
-This explains the **intermittent** nature of the hang - it depends on network conditions and PPP connection stability.
+**User observation**:
+- Webhook logs show battery successfully logged in (got token)
+- But no data ever arrives
+- Battery appears to hang "after getting token"
+- Very confusing because login worked!
+
+**Duration**: Forever (until battery power dies or manual reset)
+
+**Why this is the confusing case**: The battery DID successfully connect once and got a token. This makes it look like the problem is with sending data (line 666) or JSON parsing (line 659). But actually, the hang is in the RETRY logic (line 654) when `start_ppp()` is called a second time and fails.
+
+---
+
+### Scenario 3: Successful Operation (For Comparison)
+
+**When everything works**:
+```
+1. Battery powers up
+2. start_ppp() at line 649 succeeds quickly (PPP reaches status 4 in ~10-30 seconds)
+3. Battery gets token at line 659 ✅
+4. Battery sends data at line 666 ✅
+5. stop_ppp() at line 678 safely disconnects ✅
+6. Battery goes back to sleep until next cycle
+```
+
+**Duration**: 30-60 seconds total
+
+**User observation**: Data appears in dashboard as expected
+
+---
+
+### Why Scenario 2 Explains Your Symptoms
+
+You reported: "Battery occasionally hangs after getting token successfully, then never sends the data"
+
+This perfectly matches **Scenario 2**:
+- Token request succeeds (line 659) ✅
+- You see this in webhook logs ✅
+- But then data never arrives
+- The hang is actually in the RETRY at line 654, not in the data send at line 666
+
+**The misleading part**: The symptoms make it look like the problem is at line 658, 659, or 678 (your original suspicions). But actually, the hang is in the retry logic when network conditions have degraded and `start_ppp()` is called a second time.
+
+**Why it's intermittent**:
+- Sometimes the first `start_ppp()` call fails → Scenario 1
+- Sometimes the first call succeeds but retry fails → Scenario 2
+- Most of the time both succeed → Scenario 3 (works fine)
+
+The failure rate depends on how often PPP negotiation fails due to the network/modem issues listed above.
 
 ---
 
