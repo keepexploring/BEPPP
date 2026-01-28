@@ -2137,27 +2137,65 @@ async def battery_login(
 ):
     """Battery self-authentication"""
     try:
+        # Log battery login attempt
+        log_webhook_event(
+            event_type="battery_login_attempt",
+            battery_id=battery_login.battery_id,
+            status="info",
+            additional_info={"battery_id": str(battery_login.battery_id)}
+        )
+
         battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_login.battery_id).first()
         if not battery:
+            log_webhook_event(
+                event_type="battery_login_failed",
+                battery_id=battery_login.battery_id,
+                status="error",
+                error_message="Battery not found"
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid battery credentials"
             )
-        
+
         if not battery.battery_secret:
+            log_webhook_event(
+                event_type="battery_login_failed",
+                battery_id=battery_login.battery_id,
+                status="error",
+                error_message="Battery not configured for authentication"
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Battery not configured for authentication"
             )
-        
+
         if battery.battery_secret != battery_login.battery_secret:
+            log_webhook_event(
+                event_type="battery_login_failed",
+                battery_id=battery_login.battery_id,
+                status="error",
+                error_message="Invalid battery secret"
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid battery credentials"
             )
-        
+
         token = create_battery_token(battery_login.battery_id)
-        
+
+        # Log successful battery login
+        log_webhook_event(
+            event_type="battery_login_success",
+            battery_id=battery_login.battery_id,
+            status="success",
+            additional_info={
+                "battery_id": str(battery_login.battery_id),
+                "token_expires_in_hours": BATTERY_TOKEN_EXPIRE_HOURS,
+                "scope": "webhook_write"
+            }
+        )
+
         return {
             "access_token": token,
             "token_type": "bearer",
@@ -2166,10 +2204,16 @@ async def battery_login(
             "expires_in_hours": BATTERY_TOKEN_EXPIRE_HOURS,
             "scope": "webhook_write"
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
+        log_webhook_event(
+            event_type="battery_login_error",
+            battery_id=battery_login.battery_id,
+            status="error",
+            error_message=str(e)
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Battery authentication error: {str(e)}"
