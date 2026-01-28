@@ -2026,7 +2026,8 @@ async def create_token(
         log_webhook_event(
             event_type="user_login_attempt",
             status="info",
-            additional_info={"endpoint": "/auth/token", "client_ip": request.client.host if request.client else "unknown"}
+            additional_info={"endpoint": "/auth/token", "client_ip": request.client.host if request.client else "unknown"},
+            db=db  # NEW: Pass db for database logging
         )
 
         if user_login is None:
@@ -2045,14 +2046,16 @@ async def create_token(
         log_webhook_event(
             event_type="user_login_credentials_received",
             status="info",
-            additional_info={"username": username}
+            additional_info={"username": username},
+            db=db  # NEW: Pass db for database logging
         )
 
         if not username or not password:
             log_webhook_event(
                 event_type="user_login_failed_missing_credentials",
                 status="error",
-                error_message="Username or password missing"
+                error_message="Username or password missing",
+                db=db  # NEW: Pass db for database logging
             )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -2066,7 +2069,8 @@ async def create_token(
                 event_type="user_login_failed_user_not_found",
                 status="error",
                 additional_info={"username": username},
-                error_message=f"User not found: {username}"
+                error_message=f"User not found: {username}",
+                db=db  # NEW: Pass db for database logging
             )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -2078,7 +2082,8 @@ async def create_token(
                 event_type="user_login_failed_invalid_password",
                 status="error",
                 additional_info={"username": username, "user_id": user.user_id},
-                error_message=f"Invalid password for user: {username}"
+                error_message=f"Invalid password for user: {username}",
+                db=db  # NEW: Pass db for database logging
             )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -2103,7 +2108,8 @@ async def create_token(
                 "role": user.user_access_level,
                 "hub_id": user.hub_id,
                 "token_prefix": token[:20] + "..."
-            }
+            },
+            db=db  # NEW: Pass db for database logging
         )
 
         return {
