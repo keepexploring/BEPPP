@@ -119,23 +119,24 @@ class TimePeriod(str, Enum):
 # ============================================================================
 
 def setup_webhook_logging():
-    if not DEBUG:
-        webhook_logger = logging.getLogger('webhook')
-        webhook_logger.addHandler(logging.NullHandler())
-        return webhook_logger
-    
+    # IMPORTANT: Always set up logging in production AND debug mode
+    # We need authentication logs visible in production for security monitoring
+
     log_dir = "logs"
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
-    
+
     webhook_logger = logging.getLogger('webhook')
-    webhook_logger.setLevel(logging.DEBUG if DEBUG else logging.WARNING)
-    
+    # Use INFO level in production (not WARNING) so we can see login events
+    webhook_logger.setLevel(logging.DEBUG if DEBUG else logging.INFO)
+
     webhook_handler = logging.FileHandler(f'{log_dir}/webhook.log')
-    webhook_handler.setLevel(logging.DEBUG if DEBUG else logging.WARNING)
-    
+    # Use INFO level in production so authentication events are logged
+    webhook_handler.setLevel(logging.DEBUG if DEBUG else logging.INFO)
+
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO if DEBUG else logging.ERROR)
+    # Keep console at INFO in production for visibility
+    console_handler.setLevel(logging.INFO)
     
     if DEBUG:
         formatter = logging.Formatter(
