@@ -398,7 +398,10 @@ const toggleAutoRefresh = (enabled) => {
 const startAutoRefresh = () => {
   stopAutoRefresh() // Clear any existing timers
 
-  const interval = (refreshInterval.value?.value || refreshInterval.value || 10) * 1000
+  const intervalValue = typeof refreshInterval.value === 'object' && refreshInterval.value
+    ? refreshInterval.value.value
+    : refreshInterval.value || 10
+  const interval = intervalValue * 1000
   timeUntilRefresh.value = interval / 1000
 
   // Countdown timer (updates every second)
