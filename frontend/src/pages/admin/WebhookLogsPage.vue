@@ -9,6 +9,10 @@
             <q-select
               v-model="filters.event_type"
               :options="eventTypeOptions"
+              option-label="label"
+              option-value="value"
+              emit-value
+              map-options
               label="Event Type"
               outlined
               dense
