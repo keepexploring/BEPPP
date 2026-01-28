@@ -213,7 +213,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { adminAPI, batteriesAPI } from 'src/services/api'
 import { useQuasar, date } from 'quasar'
 import { useHubSettingsStore } from 'stores/hubSettings'
