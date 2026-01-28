@@ -118,6 +118,31 @@ class TimePeriod(str, Enum):
 # LOGGING CONFIGURATION
 # ============================================================================
 
+def extract_request_headers(request: Request) -> dict:
+    """
+    Extract and clean request headers for logging.
+    Removes sensitive headers and converts to dict for JSON serialization.
+    """
+    if not request:
+        return {}
+
+    # Get all headers and convert to dict
+    headers_dict = dict(request.headers)
+
+    # Remove sensitive headers (keep Authorization prefix only)
+    if 'authorization' in headers_dict:
+        auth_value = headers_dict['authorization']
+        if len(auth_value) > 20:
+            headers_dict['authorization'] = auth_value[:20] + '...'
+
+    # Remove other potentially sensitive headers
+    sensitive_keys = ['cookie', 'x-api-key', 'x-auth-token']
+    for key in sensitive_keys:
+        if key in headers_dict:
+            headers_dict[key] = '[REDACTED]'
+
+    return headers_dict
+
 def setup_webhook_logging():
     # IMPORTANT: Always set up logging in production AND debug mode
     # We need authentication logs visible in production for security monitoring
@@ -165,6 +190,7 @@ def log_webhook_event(
     summary: Optional[dict] = None,
     request_data: Optional[dict] = None,
     additional_info: Optional[dict] = None,
+    request_headers: Optional[dict] = None,  # NEW: Request headers for visibility
     db: Session = None  # NEW: Optional database session for saving to DB
 ):
     # Always log errors, warnings, and info events (expanded logging for debugging)
@@ -268,7 +294,7 @@ def log_webhook_event(
                 battery_id=str(battery_id) if battery_id else None,
                 endpoint=event_type,  # Use event_type as endpoint
                 method="EVENT",  # Special method to distinguish from HTTP methods
-                request_headers=json.dumps({}),  # Empty headers for events
+                request_headers=json.dumps(request_headers if request_headers else {}),
                 request_body=json.dumps(request_body),
                 response_status=response_status,
                 response_body=json.dumps(response_body),
@@ -2025,10 +2051,14 @@ async def create_token(
     user_login: UserLogin = None
 ):
     try:
+        # Extract headers for logging
+        headers = extract_request_headers(request)
+
         log_webhook_event(
             event_type="user_login_attempt",
             status="info",
             additional_info={"endpoint": "/auth/token", "client_ip": request.client.host if request.client else "unknown"},
+            request_headers=headers,
             db=db  # NEW: Pass db for database logging
         )
 
@@ -2049,6 +2079,7 @@ async def create_token(
             event_type="user_login_credentials_received",
             status="info",
             additional_info={"username": username},
+            request_headers=headers,
             db=db  # NEW: Pass db for database logging
         )
 
@@ -2057,6 +2088,7 @@ async def create_token(
                 event_type="user_login_failed_missing_credentials",
                 status="error",
                 error_message="Username or password missing",
+                request_headers=headers,
                 db=db  # NEW: Pass db for database logging
             )
             raise HTTPException(
@@ -2072,6 +2104,7 @@ async def create_token(
                 status="error",
                 additional_info={"username": username},
                 error_message=f"User not found: {username}",
+                request_headers=headers,
                 db=db  # NEW: Pass db for database logging
             )
             raise HTTPException(
@@ -2085,6 +2118,7 @@ async def create_token(
                 status="error",
                 additional_info={"username": username, "user_id": user.user_id},
                 error_message=f"Invalid password for user: {username}",
+                request_headers=headers,
                 db=db  # NEW: Pass db for database logging
             )
             raise HTTPException(
@@ -2111,6 +2145,7 @@ async def create_token(
                 "hub_id": user.hub_id,
                 "token_prefix": token[:20] + "..."
             },
+            request_headers=headers,
             db=db  # NEW: Pass db for database logging
         )
 
@@ -2201,17 +2236,22 @@ async def create_token(
     """,
     response_description="JWT token for battery device with expiration and scope information")
 async def battery_login(
+    request: Request,
     battery_login: BatteryLogin,
     db: Session = Depends(get_db)
 ):
     """Battery self-authentication"""
     try:
+        # Extract headers for logging
+        headers = extract_request_headers(request)
+
         # Log battery login attempt (to file AND database)
         log_webhook_event(
             event_type="battery_login_attempt",
             battery_id=battery_login.battery_id,
             status="info",
             additional_info={"battery_id": str(battery_login.battery_id)},
+            request_headers=headers,
             db=db  # NEW: Pass db to save to database
         )
 
@@ -2222,6 +2262,7 @@ async def battery_login(
                 battery_id=battery_login.battery_id,
                 status="error",
                 error_message="Battery not found",
+                request_headers=headers,
                 db=db  # NEW: Pass db to save to database
             )
             raise HTTPException(
@@ -2235,6 +2276,7 @@ async def battery_login(
                 battery_id=battery_login.battery_id,
                 status="error",
                 error_message="Battery not configured for authentication",
+                request_headers=headers,
                 db=db  # NEW: Pass db to save to database
             )
             raise HTTPException(
@@ -2248,6 +2290,7 @@ async def battery_login(
                 battery_id=battery_login.battery_id,
                 status="error",
                 error_message="Invalid battery secret",
+                request_headers=headers,
                 db=db  # NEW: Pass db to save to database
             )
             raise HTTPException(
@@ -2267,6 +2310,7 @@ async def battery_login(
                 "token_expires_in_hours": BATTERY_TOKEN_EXPIRE_HOURS,
                 "scope": "webhook_write"
             },
+            request_headers=headers,
             db=db  # NEW: Pass db to save to database
         )
 
@@ -2287,6 +2331,7 @@ async def battery_login(
             battery_id=battery_login.battery_id,
             status="error",
             error_message=str(e),
+            request_headers=headers,
             db=db  # NEW: Pass db to save to database
         )
         raise HTTPException(
