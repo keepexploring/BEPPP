@@ -8600,6 +8600,100 @@ async def get_webhook_logs(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading webhook logs: {str(e)}")
 
+@app.delete("/admin/webhook-logs/cleanup")
+async def cleanup_webhook_logs(
+    before_date: str = Query(..., description="Delete logs before this date (ISO format: YYYY-MM-DD)"),
+    battery_id: Optional[str] = Query(None, description="Optional: only delete logs for specific battery"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Delete webhook logs before a specified date (superadmin only).
+
+    This helps manage database size by removing old logs while preserving recent history.
+
+    Examples:
+    - DELETE /admin/webhook-logs/cleanup?before_date=2026-01-01
+    - DELETE /admin/webhook-logs/cleanup?before_date=2025-12-01&battery_id=1
+    """
+    if current_user.get('role') != UserRole.SUPERADMIN:
+        raise HTTPException(status_code=403, detail="Superadmin access required")
+
+    try:
+        # Parse the date
+        try:
+            cutoff_date = datetime.strptime(before_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid date format. Use YYYY-MM-DD (e.g., 2026-01-01)"
+            )
+
+        # Build delete query
+        query = db.query(WebhookLog).filter(WebhookLog.created_at < cutoff_date)
+
+        # Filter by battery_id if specified
+        if battery_id:
+            query = query.filter(WebhookLog.battery_id == battery_id)
+
+        # Count logs to be deleted (for reporting)
+        logs_to_delete = query.count()
+
+        if logs_to_delete == 0:
+            return {
+                "message": "No logs found matching the criteria",
+                "deleted_count": 0,
+                "cutoff_date": cutoff_date.isoformat(),
+                "battery_id": battery_id,
+                "total_remaining": db.query(WebhookLog).count()
+            }
+
+        # Delete the logs
+        query.delete(synchronize_session=False)
+        db.commit()
+
+        remaining_logs = db.query(WebhookLog).count()
+
+        log_webhook_event(
+            event_type="webhook_logs_cleanup",
+            user_info=current_user,
+            battery_id=battery_id,
+            status="success",
+            additional_info={
+                "deleted_count": logs_to_delete,
+                "cutoff_date": cutoff_date.isoformat(),
+                "battery_id_filter": battery_id or "all",
+                "performed_by": current_user.get("sub"),
+                "remaining_logs": remaining_logs
+            }
+        )
+
+        return {
+            "message": f"Successfully deleted {logs_to_delete} webhook logs",
+            "deleted_count": logs_to_delete,
+            "cutoff_date": cutoff_date.isoformat(),
+            "battery_id": battery_id,
+            "total_remaining": remaining_logs,
+            "performed_by": current_user.get("sub"),
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        log_webhook_event(
+            event_type="webhook_logs_cleanup_failed",
+            user_info=current_user,
+            status="error",
+            error_message=str(e),
+            additional_info={
+                "cutoff_date": before_date,
+                "battery_id": battery_id
+            }
+        )
+        raise HTTPException(status_code=500, detail=f"Error deleting webhook logs: {str(e)}")
+
 # ============================================================================
 # HEALTH CHECK AND ROOT ENDPOINTS
 # ============================================================================
