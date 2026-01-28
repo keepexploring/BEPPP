@@ -7,6 +7,20 @@
         <div class="row q-col-gutter-md q-mb-md">
           <div class="col-12 col-md-3">
             <q-select
+              v-model="filters.event_type"
+              :options="eventTypeOptions"
+              label="Event Type"
+              outlined
+              dense
+              clearable
+            >
+              <template v-slot:prepend>
+                <q-icon name="category" />
+              </template>
+            </q-select>
+          </div>
+          <div class="col-12 col-md-3">
+            <q-select
               v-model="filters.battery_id"
               :options="batteryOptions"
               option-label="label"
@@ -30,7 +44,7 @@
               </template>
             </q-select>
           </div>
-          <div class="col-12 col-md-3">
+          <div class="col-12 col-md-2">
             <q-input
               v-model.number="filters.limit"
               label="Limit"
@@ -44,7 +58,7 @@
           <div class="col-12 col-md-3">
             <q-input
               v-model="filters.search"
-              label="Search (endpoint, method, etc.)"
+              label="Search"
               outlined
               dense
               clearable
@@ -54,9 +68,9 @@
               </template>
             </q-input>
           </div>
-          <div class="col-12 col-md-2">
+          <div class="col-12 col-md-1">
             <q-btn
-              label="Apply Filters"
+              label="Apply"
               icon="filter_list"
               color="primary"
               @click="loadLogs"
@@ -224,10 +238,20 @@ let refreshTimer = null
 let countdownTimer = null
 
 const filters = ref({
+  event_type: null,
   battery_id: null,
   search: '',
   limit: 100
 })
+
+// Event type filter options
+const eventTypeOptions = [
+  { label: 'All Logs', value: null },
+  { label: 'Battery Data (/webhook/live-data)', value: 'battery_data' },
+  { label: 'User Logins', value: 'user_login' },
+  { label: 'Battery Logins', value: 'battery_login' },
+  { label: 'Token Verifications', value: 'token_verification' }
+]
 
 const pagination = ref({
   rowsPerPage: 20
@@ -313,6 +337,25 @@ const loadLogs = async () => {
     const response = await adminAPI.getWebhookLogs(params)
     // API returns { logs: [...], total_logs: N, showing: N, limit: N }
     let loadedLogs = response.data.logs || []
+
+    // Client-side event type filtering
+    if (filters.value.event_type) {
+      const eventType = filters.value.event_type
+      loadedLogs = loadedLogs.filter(log => {
+        const endpoint = log.endpoint?.toLowerCase() || ''
+
+        if (eventType === 'battery_data') {
+          return endpoint.includes('/webhook/live-data') || endpoint === 'live_data'
+        } else if (eventType === 'user_login') {
+          return endpoint.includes('user_login')
+        } else if (eventType === 'battery_login') {
+          return endpoint.includes('battery_login')
+        } else if (eventType === 'token_verification') {
+          return endpoint.includes('token_verification')
+        }
+        return true
+      })
+    }
 
     // Client-side search filtering (since API doesn't support search yet)
     if (filters.value.search && filters.value.search.trim()) {
