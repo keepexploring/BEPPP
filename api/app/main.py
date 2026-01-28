@@ -149,39 +149,49 @@ def setup_webhook_logging():
 
 def log_webhook_event(
     event_type: str,
-    user_info: dict,
+    user_info: dict = None,
     battery_id: Optional[int] = None,
     data_id: Optional[int] = None,
     status: str = "success",
     error_message: Optional[str] = None,
     summary: Optional[dict] = None,
-    request_data: Optional[dict] = None
+    request_data: Optional[dict] = None,
+    additional_info: Optional[dict] = None
 ):
+    # Always log errors, warnings, and info events (expanded logging for debugging)
     if status == "error" or status == "warning":
         should_log = True
     elif DEBUG:
         should_log = True
     else:
-        should_log = False
-    
+        # Log all authentication and token-related events even in production
+        if "token" in event_type.lower() or "auth" in event_type.lower() or "login" in event_type.lower():
+            should_log = True
+        else:
+            should_log = False
+
     if not should_log:
         return
-    
+
     log_message = f"[{event_type}] User: {user_info.get('sub') if user_info else 'Unknown'}"
-    
+
     if battery_id:
         log_message += f" | Battery: {battery_id}"
-    
+
     log_message += f" | Status: {status}"
-    
+
     if error_message:
         log_message += f" | Error: {error_message}"
-    
+
+    if additional_info:
+        for key, value in additional_info.items():
+            log_message += f" | {key}: {value}"
+
     if summary and DEBUG:
         log_message += f" | Parsed: {summary.get('fields_parsed', 0)} fields"
         if summary.get('processing_time_seconds'):
             log_message += f" | Time: {summary.get('processing_time_seconds'):.3f}s"
-    
+
     if status == "success":
         webhook_logger.info(log_message)
     elif status == "error":
@@ -227,7 +237,7 @@ def log_webhook_to_db(
 ):
     """
     Log webhook request/response to database for production debugging.
-    Automatically keeps only the last WEBHOOK_LOG_LIMIT entries.
+    All logs are preserved for historical analysis and troubleshooting.
     """
     try:
         # Create webhook log entry
@@ -245,15 +255,8 @@ def log_webhook_to_db(
         db.add(webhook_log)
         db.commit()
 
-        # Clean up old logs - keep only last WEBHOOK_LOG_LIMIT entries
-        total_logs = db.query(WebhookLog).count()
-        if total_logs > WEBHOOK_LOG_LIMIT:
-            # Delete oldest logs beyond the limit
-            logs_to_delete = total_logs - WEBHOOK_LOG_LIMIT
-            oldest_logs = db.query(WebhookLog).order_by(WebhookLog.created_at).limit(logs_to_delete).all()
-            for log in oldest_logs:
-                db.delete(log)
-            db.commit()
+        # NOTE: All logs are now preserved. No automatic cleanup.
+        # If database grows too large, implement manual cleanup or archival strategy.
 
     except Exception as e:
         # Don't let logging failures break the webhook
@@ -1042,9 +1045,25 @@ def create_battery_token(battery_id: str, expires_hours: Optional[int] = None):
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     try:
+        log_webhook_event(
+            event_type="token_verification_attempt",
+            status="info",
+            additional_info={"token_prefix": credentials.credentials[:20] + "..."}
+        )
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        log_webhook_event(
+            event_type="token_verification_success",
+            user_info=payload,
+            status="success",
+            additional_info={"user_id": payload.get("user_id"), "role": payload.get("role")}
+        )
         return payload
-    except InvalidTokenError:
+    except InvalidTokenError as e:
+        log_webhook_event(
+            event_type="token_verification_failed",
+            status="error",
+            error_message=f"Invalid token: {str(e)}"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token"
@@ -1052,27 +1071,66 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
 
 def verify_battery_or_superadmin_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     try:
+        log_webhook_event(
+            event_type="battery_token_verification_attempt",
+            status="info",
+            additional_info={"token_prefix": credentials.credentials[:20] + "..."}
+        )
+
+        # Try battery token first
         try:
             payload = jwt.decode(credentials.credentials, BATTERY_SECRET_KEY, algorithms=[ALGORITHM])
             if payload.get("type") == "battery":
+                log_webhook_event(
+                    event_type="battery_token_verified",
+                    user_info=payload,
+                    battery_id=payload.get("battery_id"),
+                    status="success",
+                    additional_info={"token_type": "battery", "battery_id": payload.get("battery_id")}
+                )
                 return payload
-        except:
-            pass
-        
+        except Exception as e:
+            log_webhook_event(
+                event_type="battery_token_decode_failed",
+                status="warning",
+                error_message=f"Not a battery token: {str(e)}"
+            )
+
+        # Try superadmin token
         try:
             payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
             if payload.get("role") == UserRole.SUPERADMIN:
+                log_webhook_event(
+                    event_type="superadmin_token_verified",
+                    user_info=payload,
+                    status="success",
+                    additional_info={"token_type": "superadmin", "user_id": payload.get("user_id")}
+                )
                 return payload
-        except:
-            pass
-        
+        except Exception as e:
+            log_webhook_event(
+                event_type="superadmin_token_decode_failed",
+                status="warning",
+                error_message=f"Not a superadmin token: {str(e)}"
+            )
+
+        log_webhook_event(
+            event_type="token_verification_rejected",
+            status="error",
+            error_message="Token is neither battery nor superadmin"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Only batteries or superadmins can access this endpoint"
         )
     except HTTPException:
         raise
-    except Exception:
+    except Exception as e:
+        log_webhook_event(
+            event_type="token_verification_exception",
+            status="error",
+            error_message=f"Unexpected error: {str(e)}"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token"
@@ -1706,26 +1764,49 @@ async def receive_live_data(
     response_status = None
 
     try:
-        if DEBUG:
-            log_webhook_event(
-                event_type="request_received",
-                user_info=current_user,
-                status="info"
-            )
+        log_webhook_event(
+            event_type="webhook_request_received",
+            user_info=current_user,
+            status="info",
+            additional_info={
+                "endpoint": "/live-data",
+                "method": request.method,
+                "client_ip": request.client.host if request.client else "unknown",
+                "user_agent": request.headers.get("user-agent", "unknown")[:100]
+            }
+        )
 
         battery_data = await request.json()
-        
+
+        log_webhook_event(
+            event_type="webhook_data_received",
+            user_info=current_user,
+            status="info",
+            additional_info={
+                "data_size_bytes": len(str(battery_data)),
+                "has_id": 'id' in battery_data,
+                "has_values": 'values' in battery_data,
+                "has_device_id": 'device_id' in battery_data,
+                "keys_count": len(battery_data.keys())
+            }
+        )
+
         if 'id' in battery_data:
             # Keep battery_id as string to match database schema (converted in ff7c9c33882f migration)
             battery_id = str(battery_data['id']) if battery_data['id'] else None
-        
-        if DEBUG:
-            log_webhook_event(
-                event_type="authentication_success",
-                user_info=current_user,
-                battery_id=battery_id,
-                status="success"
-            )
+
+        log_webhook_event(
+            event_type="webhook_authentication_validated",
+            user_info=current_user,
+            battery_id=battery_id,
+            status="success",
+            additional_info={
+                "token_battery_id": current_user.get('battery_id'),
+                "payload_battery_id": battery_id,
+                "user_type": current_user.get('type') or current_user.get('role'),
+                "match": str(current_user.get('battery_id')) == str(battery_id) if battery_id else "N/A"
+            }
+        )
         
         if 'values' in battery_data and 'device_id' in battery_data:
             if DEBUG:
@@ -1881,6 +1962,12 @@ async def create_token(
     user_login: UserLogin = None
 ):
     try:
+        log_webhook_event(
+            event_type="user_login_attempt",
+            status="info",
+            additional_info={"endpoint": "/auth/token", "client_ip": request.client.host if request.client else "unknown"}
+        )
+
         if user_login is None:
             try:
                 body = await request.json()
@@ -1893,27 +1980,50 @@ async def create_token(
         else:
             username = user_login.username
             password = user_login.password
-        
+
+        log_webhook_event(
+            event_type="user_login_credentials_received",
+            status="info",
+            additional_info={"username": username}
+        )
+
         if not username or not password:
+            log_webhook_event(
+                event_type="user_login_failed_missing_credentials",
+                status="error",
+                error_message="Username or password missing"
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Username and password are required"
             )
-        
+
         user = db.query(User).filter(User.username == username).first()
-        
+
         if not user:
+            log_webhook_event(
+                event_type="user_login_failed_user_not_found",
+                status="error",
+                additional_info={"username": username},
+                error_message=f"User not found: {username}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials"
             )
-        
+
         if not verify_password(password, user.password_hash):
+            log_webhook_event(
+                event_type="user_login_failed_invalid_password",
+                status="error",
+                additional_info={"username": username, "user_id": user.user_id},
+                error_message=f"Invalid password for user: {username}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials"
             )
-        
+
         token_data = {
             "sub": user.username,
             "user_id": user.user_id,
@@ -1921,7 +2031,20 @@ async def create_token(
             "hub_id": user.hub_id
         }
         token = create_access_token(token_data)
-        
+
+        log_webhook_event(
+            event_type="user_login_success",
+            user_info=token_data,
+            status="success",
+            additional_info={
+                "username": username,
+                "user_id": user.user_id,
+                "role": user.user_access_level,
+                "hub_id": user.hub_id,
+                "token_prefix": token[:20] + "..."
+            }
+        )
+
         return {
             "access_token": token,
             "token_type": "bearer",
@@ -2195,22 +2318,64 @@ async def create_battery_token_endpoint(
     current_user: dict = Depends(get_current_user)
 ):
     """Create authentication token for a battery (admin/superadmin only)"""
+    log_webhook_event(
+        event_type="battery_token_creation_attempt",
+        user_info=current_user,
+        battery_id=battery_auth.battery_id,
+        status="info",
+        additional_info={"requested_by": current_user.get("sub"), "battery_id": battery_auth.battery_id}
+    )
+
     if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        log_webhook_event(
+            event_type="battery_token_creation_rejected",
+            user_info=current_user,
+            battery_id=battery_auth.battery_id,
+            status="error",
+            error_message=f"User role {current_user.get('role')} not authorized"
+        )
         raise HTTPException(status_code=403, detail="Admin access required")
-    
+
     try:
         battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_auth.battery_id).first()
         if not battery:
+            log_webhook_event(
+                event_type="battery_token_creation_failed_not_found",
+                user_info=current_user,
+                battery_id=battery_auth.battery_id,
+                status="error",
+                error_message=f"Battery {battery_auth.battery_id} not found"
+            )
             raise HTTPException(status_code=404, detail="Battery not found")
-        
+
         if not battery.battery_secret or battery.battery_secret != battery_auth.battery_secret:
+            log_webhook_event(
+                event_type="battery_token_creation_failed_invalid_secret",
+                user_info=current_user,
+                battery_id=battery_auth.battery_id,
+                status="error",
+                error_message=f"Invalid secret for battery {battery_auth.battery_id}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid battery secret"
             )
-        
+
         token = create_battery_token(battery_auth.battery_id)
-        
+
+        log_webhook_event(
+            event_type="battery_token_created",
+            user_info=current_user,
+            battery_id=battery_auth.battery_id,
+            status="success",
+            additional_info={
+                "battery_id": battery_auth.battery_id,
+                "created_by": current_user.get("sub"),
+                "token_prefix": token[:20] + "...",
+                "expires_in_hours": BATTERY_TOKEN_EXPIRE_HOURS
+            }
+        )
+
         return {
             "access_token": token,
             "token_type": "bearer",
@@ -2219,10 +2384,17 @@ async def create_battery_token_endpoint(
             "expires_in_hours": BATTERY_TOKEN_EXPIRE_HOURS,
             "scope": "webhook_write"
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
+        log_webhook_event(
+            event_type="battery_token_creation_exception",
+            user_info=current_user,
+            battery_id=battery_auth.battery_id,
+            status="error",
+            error_message=f"Unexpected error: {str(e)}"
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Battery authentication error: {str(e)}"
