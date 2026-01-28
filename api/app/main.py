@@ -263,14 +263,15 @@ def log_webhook_event(
                 response_status = 200
 
             # Create webhook log entry for database
+            # IMPORTANT: Convert dicts to JSON strings for PostgreSQL
             webhook_log = WebhookLog(
                 battery_id=str(battery_id) if battery_id else None,
                 endpoint=event_type,  # Use event_type as endpoint
                 method="EVENT",  # Special method to distinguish from HTTP methods
-                request_headers={},
-                request_body=request_body,
+                request_headers=json.dumps({}),  # Empty headers for events
+                request_body=json.dumps(request_body),
                 response_status=response_status,
-                response_body=response_body,
+                response_body=json.dumps(response_body),
                 error_message=error_message,
                 processing_time_ms=0  # Events don't have processing time
             )
