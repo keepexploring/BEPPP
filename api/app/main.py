@@ -60,6 +60,13 @@ except ImportError as e:
         "Missing required configuration. Please ensure config.py exists with SECRET_KEY, ALGORITHM, and DEBUG defined."
     ) from e
 
+###############################################################################
+# WEBHOOK LOGGING CONFIGURATION
+# Set to True to log authentication events to database (visible in frontend)
+# Set to False to log only to file
+###############################################################################
+ENABLE_DATABASE_LOGGING = True  # Change to False to disable database logging
+
 # ============================================================================
 # ENUMS - Define all enums first
 # ============================================================================
@@ -156,7 +163,8 @@ def log_webhook_event(
     error_message: Optional[str] = None,
     summary: Optional[dict] = None,
     request_data: Optional[dict] = None,
-    additional_info: Optional[dict] = None
+    additional_info: Optional[dict] = None,
+    db: Session = None  # NEW: Optional database session for saving to DB
 ):
     # Always log errors, warnings, and info events (expanded logging for debugging)
     if status == "error" or status == "warning":
@@ -200,7 +208,7 @@ def log_webhook_event(
         webhook_logger.warning(log_message)
     else:
         webhook_logger.info(log_message)
-    
+
     if DEBUG and status in ["error", "warning"]:
         log_entry = {
             "timestamp": datetime.now().isoformat(),
@@ -216,12 +224,65 @@ def log_webhook_event(
             "summary": summary,
             "error": error_message
         }
-        
+
         if request_data:
             sample_data = {k: v for i, (k, v) in enumerate(request_data.items()) if i < 5}
             log_entry["sample_data"] = sample_data
-        
+
         webhook_logger.debug(f"Full event data: {json.dumps(log_entry, indent=2)}")
+
+    ###########################################################################
+    # NEW: Also save to database for frontend Webhook Logs page visibility
+    # This makes authentication and token events visible in the UI
+    # Controlled by ENABLE_DATABASE_LOGGING constant (line ~67)
+    ###########################################################################
+    if db is not None and ENABLE_DATABASE_LOGGING:
+        try:
+            # Build request/response info from event data
+            request_body = {}
+            response_body = {"event_type": event_type, "status": status}
+
+            if additional_info:
+                request_body.update(additional_info)
+
+            if error_message:
+                response_body["error"] = error_message
+
+            if summary:
+                response_body["summary"] = summary
+
+            # Determine response status code based on event status
+            if status == "success":
+                response_status = 200
+            elif status == "error":
+                response_status = 400 if "failed" in event_type else 500
+            elif status == "warning":
+                response_status = 200
+            else:
+                response_status = 200
+
+            # Create webhook log entry for database
+            webhook_log = WebhookLog(
+                battery_id=str(battery_id) if battery_id else None,
+                endpoint=event_type,  # Use event_type as endpoint
+                method="EVENT",  # Special method to distinguish from HTTP methods
+                request_headers={},
+                request_body=request_body,
+                response_status=response_status,
+                response_body=response_body,
+                error_message=error_message,
+                processing_time_ms=0  # Events don't have processing time
+            )
+
+            db.add(webhook_log)
+            db.commit()
+        except Exception as e:
+            # Don't fail the main operation if logging fails
+            webhook_logger.error(f"Failed to save webhook event to database: {str(e)}")
+            try:
+                db.rollback()
+            except:
+                pass
 
 def log_webhook_to_db(
     db: Session,
@@ -2137,12 +2198,13 @@ async def battery_login(
 ):
     """Battery self-authentication"""
     try:
-        # Log battery login attempt
+        # Log battery login attempt (to file AND database)
         log_webhook_event(
             event_type="battery_login_attempt",
             battery_id=battery_login.battery_id,
             status="info",
-            additional_info={"battery_id": str(battery_login.battery_id)}
+            additional_info={"battery_id": str(battery_login.battery_id)},
+            db=db  # NEW: Pass db to save to database
         )
 
         battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_login.battery_id).first()
@@ -2151,7 +2213,8 @@ async def battery_login(
                 event_type="battery_login_failed",
                 battery_id=battery_login.battery_id,
                 status="error",
-                error_message="Battery not found"
+                error_message="Battery not found",
+                db=db  # NEW: Pass db to save to database
             )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -2163,7 +2226,8 @@ async def battery_login(
                 event_type="battery_login_failed",
                 battery_id=battery_login.battery_id,
                 status="error",
-                error_message="Battery not configured for authentication"
+                error_message="Battery not configured for authentication",
+                db=db  # NEW: Pass db to save to database
             )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -2175,7 +2239,8 @@ async def battery_login(
                 event_type="battery_login_failed",
                 battery_id=battery_login.battery_id,
                 status="error",
-                error_message="Invalid battery secret"
+                error_message="Invalid battery secret",
+                db=db  # NEW: Pass db to save to database
             )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -2184,7 +2249,7 @@ async def battery_login(
 
         token = create_battery_token(battery_login.battery_id)
 
-        # Log successful battery login
+        # Log successful battery login (to file AND database)
         log_webhook_event(
             event_type="battery_login_success",
             battery_id=battery_login.battery_id,
@@ -2193,7 +2258,8 @@ async def battery_login(
                 "battery_id": str(battery_login.battery_id),
                 "token_expires_in_hours": BATTERY_TOKEN_EXPIRE_HOURS,
                 "scope": "webhook_write"
-            }
+            },
+            db=db  # NEW: Pass db to save to database
         )
 
         return {
@@ -2212,7 +2278,8 @@ async def battery_login(
             event_type="battery_login_error",
             battery_id=battery_login.battery_id,
             status="error",
-            error_message=str(e)
+            error_message=str(e),
+            db=db  # NEW: Pass db to save to database
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
