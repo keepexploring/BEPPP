@@ -545,12 +545,189 @@ Key files:
 - `extmod/modussl_mbedtls.c` - SSL/TLS implementation
 - Look for `mp_obj_socket_settimeout` function
 
-### PPP Implementation
-Source: https://github.com/pimoroni/micropython (Pimoroni fork)
+### PPP Implementation (RP2/Pico 2)
+**Source**: [micropython/extmod/network_ppp_lwip.c](https://github.com/micropython/micropython/blob/master/extmod/network_ppp_lwip.c)
 
-Key files:
-- `extmod/network_ppp.c` - PPP network implementation
-- Look for `ppp_connect()` and `ppp_disconnect()` functions
+The RP2 port (including Pico 2) uses the generic LWIP PPP implementation from `extmod/network_ppp_lwip.c`.
+
+#### network_ppp_connect() - The Python PPP.connect() Implementation
+
+```c
+static mp_obj_t network_ppp_connect(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args) {
+    // ... argument parsing ...
+
+    network_ppp_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+
+    // Create PPP control block if inactive
+    if (self->state == STATE_INACTIVE) {
+        self->pcb = pppos_create(&self->netif, network_ppp_output_callback,
+                                 network_ppp_status_cb, self);
+        if (self->pcb == NULL) {
+            mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("pppos_create failed"));
+        }
+        self->state = STATE_ACTIVE;
+        network_ppp_stream_uart_irq_enable(self);
+    }
+
+    // Check if already connecting/connected
+    if (self->state == STATE_CONNECTING || self->state == STATE_CONNECTED) {
+        mp_raise_OSError(MP_EALREADY);
+    }
+
+    // Set up authentication if needed
+    if (parsed_args[ARG_security].u_int != PPPAUTHTYPE_NONE) {
+        const char *user_str = mp_obj_str_get_str(parsed_args[ARG_user].u_obj);
+        const char *key_str = mp_obj_str_get_str(parsed_args[ARG_key].u_obj);
+        ppp_set_auth(self->pcb, parsed_args[ARG_security].u_int, user_str, key_str);
+    }
+
+    ppp_set_default(self->pcb);
+    ppp_set_usepeerdns(self->pcb, true);
+
+    // Call underlying LWIP ppp_connect()
+    if (ppp_connect(self->pcb, 0) != ERR_OK) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("ppp_connect failed"));
+    }
+
+    self->state = STATE_CONNECTING;
+
+    // Do a poll in case there is data waiting on the input stream
+    network_ppp_poll(1, args);
+
+    return mp_const_none;
+}
+```
+
+**Key observations:**
+- Creates PPP control block on first connection attempt
+- Raises `MP_EALREADY` if already connecting/connected (safe behavior)
+- Sets state to `STATE_CONNECTING` before returning
+- The actual wait for connection happens in the `while self._ppp.status() != 4` loop in LTE.py
+
+#### network_ppp_disconnect() - The Python PPP.disconnect() Implementation
+
+```c
+static mp_obj_t network_ppp_disconnect(mp_obj_t self_in) {
+    network_ppp_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (self->state == STATE_CONNECTING || self->state == STATE_CONNECTED) {
+        // Initiate close and wait for PPPERR_USER callback
+        ppp_close(self->pcb, 0);
+    }
+    return mp_const_none;
+}
+```
+
+**Key observations:**
+- **SAFE**: Only calls `ppp_close()` if state is CONNECTING or CONNECTED
+- **SAFE**: Silently returns if called in other states (no error raised)
+- **SAFE**: Safe to call even if `connect()` failed partway through
+
+**Conclusion**: The MicroPython implementation is very safe and well-designed. Calling `disconnect()` even if `connect()` failed is completely safe.
+
+---
+
+### Underlying LWIP PPP Functions
+
+The MicroPython wrappers above call into the LWIP (Lightweight IP) TCP/IP stack. Here are the actual underlying C implementations:
+
+**Source**: [lwip-tcpip/lwip/src/netif/ppp/ppp.c](https://github.com/lwip-tcpip/lwip/blob/master/src/netif/ppp/ppp.c)
+
+#### ppp_connect() - LWIP Core Connection Function
+
+This is the actual function called by `network_ppp_connect()` at line 588 above:
+
+```c
+err_t ppp_connect(ppp_pcb *pcb, u16_t holdoff) {
+  LWIP_ASSERT_CORE_LOCKED();
+
+  // Can only connect if in DEAD phase
+  if (pcb->phase != PPP_PHASE_DEAD) {
+    return ERR_ALREADY;
+  }
+
+  PPPDEBUG(LOG_DEBUG, ("ppp_connect[%d]: holdoff=%d\n", pcb->netif->num, holdoff));
+
+  magic_randomize();
+
+  // If no holdoff, connect immediately
+  if (holdoff == 0) {
+    ppp_do_connect(pcb);
+    return ERR_OK;
+  }
+
+  // Otherwise, schedule connection after holdoff delay
+  new_phase(pcb, PPP_PHASE_HOLDOFF);
+  sys_timeout((u32_t)(holdoff*1000), ppp_do_connect, pcb);
+  return ERR_OK;
+}
+```
+
+**Key observations:**
+- Returns `ERR_ALREADY` if PPP is not in DEAD phase (already active/connecting/connected)
+- With holdoff=0 (as used by MicroPython), connects immediately via `ppp_do_connect()`
+- The connection is **asynchronous** - this function returns immediately
+- Actual connection happens in background via `ppp_do_connect()`
+
+#### ppp_close() - LWIP Core Disconnect Function
+
+This is the actual function called by `network_ppp_disconnect()` at line 614 above:
+
+```c
+err_t ppp_close(ppp_pcb *pcb, u8_t nocarrier)
+{
+  LWIP_ASSERT_CORE_LOCKED();
+
+  pcb->err_code = PPPERR_USER;
+
+  /* holdoff phase, cancel the reconnection */
+  if (pcb->phase == PPP_PHASE_HOLDOFF) {
+    sys_untimeout(ppp_do_connect, pcb);
+    new_phase(pcb, PPP_PHASE_DEAD);
+  }
+
+  /* dead phase, nothing to do, call the status callback to be consistent */
+  if (pcb->phase == PPP_PHASE_DEAD) {
+    pcb->link_status_cb(pcb, pcb->err_code, pcb->ctx_cb);
+    return ERR_OK;
+  }
+
+  /* Already terminating, nothing to do */
+  if (pcb->phase >= PPP_PHASE_TERMINATE) {
+    return ERR_INPROGRESS;
+  }
+
+  /* LCP not open, close link protocol */
+  if (pcb->phase < PPP_PHASE_ESTABLISH) {
+    new_phase(pcb, PPP_PHASE_DISCONNECT);
+    ppp_link_terminated(pcb);
+    return ERR_OK;
+  }
+
+  /* Handle carrier loss during running phase */
+  if (nocarrier && pcb->phase == PPP_PHASE_RUNNING) {
+    PPPDEBUG(LOG_DEBUG, ("ppp_close[%d]: carrier lost -> lcp_lowerdown\n", pcb->netif->num));
+    lcp_lowerdown(pcb);
+    link_terminated(pcb);
+    return ERR_OK;
+  }
+
+  /* Normal close - send LCP terminate request */
+  PPPDEBUG(LOG_DEBUG, ("ppp_close[%d]: kill_link -> lcp_close\n", pcb->netif->num));
+  lcp_close(pcb, "User request");
+  return ERR_OK;
+}
+```
+
+**Key observations:**
+- **SAFE**: Handles all PPP phases gracefully (DEAD, HOLDOFF, ESTABLISH, RUNNING, TERMINATE)
+- **SAFE**: If already in DEAD phase, just calls status callback and returns OK
+- **SAFE**: If already terminating, returns ERR_INPROGRESS (not an error)
+- **SAFE**: Can be called at ANY time in ANY state without crashing
+- **SAFE**: No matter what phase PPP is in, this function handles it correctly
+
+**Conclusion**: Both the MicroPython wrappers AND the underlying LWIP functions are extremely robust. You can safely call `disconnect()` even if `connect()` never completed or failed partway through.
+
+---
 
 ### How to Search
 ```bash
