@@ -40,9 +40,12 @@ function isNetworkError (error) {
   return (
     !error.response &&
     (error.code === 'ERR_NETWORK' ||
+     error.code === 'ERR_INTERNET_DISCONNECTED' ||
      error.code === 'ECONNABORTED' ||
      error.message === 'Network Error' ||
-     error.message?.includes('timeout'))
+     error.message?.includes('timeout') ||
+     error.message?.includes('ERR_INTERNET_DISCONNECTED') ||
+     error.message?.includes('ERR_NAME_NOT_RESOLVED'))
   )
 }
 
