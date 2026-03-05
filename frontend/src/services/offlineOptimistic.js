@@ -244,6 +244,7 @@ async function handlePueRentalCreate (data) {
   }
 
   await mergeItemIntoCache('GET:/pue-rentals', syntheticRental)
+  await mergeItemIntoCache('GET:/rentals/', syntheticRental)
   await setCachedResponse(`GET:/pue-rentals/${tempId}`, `/pue-rentals/${tempId}`, syntheticRental, 200)
 
   return { tempId, syntheticData: syntheticRental }
