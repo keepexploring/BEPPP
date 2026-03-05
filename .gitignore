@@ -64,5 +64,14 @@ temp/
 *.swp
 *.swo
 
+# Hardware firmware source
+hardware/
+
+# SSH keys
+beppp
+beppp.pub
+beppp_id.pub
+beppp_id.pub.pub
+
 # Legacy/Archive
 prisma-heroku/
