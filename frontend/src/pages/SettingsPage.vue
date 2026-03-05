@@ -1102,7 +1102,7 @@
             v-else-if="newStructure.item_type === 'pue_type'"
             v-model="newStructure.item_reference"
             :options="filteredPUETypes"
-            option-value="type_name"
+            option-value="type_id"
             option-label="type_name"
             emit-value
             map-options
@@ -1755,7 +1755,7 @@
             v-else-if="newPricing.item_type === 'pue_type'"
             v-model="newPricing.item_reference"
             :options="filteredPUETypes"
-            option-value="type_name"
+            option-value="type_id"
             option-label="type_name"
             emit-value
             map-options
@@ -3263,7 +3263,7 @@ const onPricingHubChange = async (selectedHubId) => {
 
     // Load PUE types at this hub
     const typesResponse = await settingsAPI.getPUETypes(selectedHubId)
-    pueTypesAtHub.value = typesResponse.data.types || []
+    pueTypesAtHub.value = typesResponse.data.pue_types || []
     filteredPUETypes.value = pueTypesAtHub.value
 
     // Load PUE items at this hub
