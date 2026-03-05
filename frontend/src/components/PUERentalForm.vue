@@ -268,6 +268,16 @@
 
         <!-- Regular Rental Options (not pay-to-own) -->
         <template v-if="!isPayToOwn && formData.costStructure">
+          <!-- Warning when no duration options configured -->
+          <div v-if="availableDurations.length === 0" class="col-12">
+            <q-banner class="bg-warning text-white" rounded>
+              <template v-slot:avatar>
+                <q-icon name="warning" />
+              </template>
+              This cost structure has no duration options configured. Please add duration presets in Settings &gt; Cost Structures first.
+            </q-banner>
+          </div>
+
           <!-- Rental Duration -->
           <div v-if="availableDurations.length > 0" class="col-12 col-md-6">
             <q-select
