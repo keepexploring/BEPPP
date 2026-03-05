@@ -1,6 +1,6 @@
 import { getSyncMeta, setSyncMeta } from './offlineDb'
 
-const CONCURRENCY = 3
+const CONCURRENCY = 2
 const WARM_COOLDOWN_MS = 5 * 60 * 1000 // Don't re-warm within 5 minutes
 
 // Run an array of async functions with limited concurrency
