@@ -166,12 +166,12 @@
               </template>
               <div class="text-h6">Pay to Own</div>
               <div class="text-body2">
-                Total Item Cost: XAF {{ formData.costStructure.item_total_cost?.toFixed(2) || '0.00' }}
+                Total Item Cost: {{ currencySymbol }} {{ formData.costStructure.item_total_cost?.toFixed(2) || '0.00' }}
               </div>
 
               <div v-if="recurringCostComponent" class="text-body2 q-mt-sm">
                 <q-icon name="calendar_month" size="sm" class="q-mr-xs" />
-                <strong>{{ recurringCostComponent.rate }} XAF per {{ formatUnitType(recurringCostComponent.unit_type) }}</strong>
+                <strong>{{ recurringCostComponent.rate }} {{ currencySymbol }} per {{ formatUnitType(recurringCostComponent.unit_type) }}</strong>
               </div>
 
               <div class="text-caption q-mt-xs">
@@ -183,7 +183,7 @@
                   <q-icon name="schedule" color="orange" size="sm" />
                 </template>
                 <div class="text-caption">
-                  <strong>Automatic Billing:</strong> Customer will be automatically billed {{ recurringCostComponent.rate }} XAF {{ formatUnitType(recurringCostComponent.unit_type) }} via the cron job until the item is fully paid.
+                  <strong>Automatic Billing:</strong> Customer will be automatically billed {{ recurringCostComponent.rate }} {{ currencySymbol }} {{ formatUnitType(recurringCostComponent.unit_type) }} via the cron job until the item is fully paid.
                 </div>
               </q-banner>
             </q-banner>
@@ -201,24 +201,24 @@
                 <div class="q-gutter-sm">
                   <div class="row items-center">
                     <div class="col-6 text-body2">Total Item Cost:</div>
-                    <div class="col-6 text-right text-weight-medium">XAF {{ paymentSchedule.totalCost.toFixed(2) }}</div>
+                    <div class="col-6 text-right text-weight-medium">{{ currencySymbol }} {{ paymentSchedule.totalCost.toFixed(2) }}</div>
                   </div>
 
                   <div v-if="paymentSchedule.initialPayment > 0" class="row items-center">
                     <div class="col-6 text-body2">Initial Payment:</div>
-                    <div class="col-6 text-right text-weight-medium text-green">- XAF {{ paymentSchedule.initialPayment.toFixed(2) }}</div>
+                    <div class="col-6 text-right text-weight-medium text-green">- {{ currencySymbol }} {{ paymentSchedule.initialPayment.toFixed(2) }}</div>
                   </div>
 
                   <q-separator />
 
                   <div class="row items-center">
                     <div class="col-6 text-body2">Remaining Balance:</div>
-                    <div class="col-6 text-right text-weight-bold">XAF {{ paymentSchedule.remainingBalance.toFixed(2) }}</div>
+                    <div class="col-6 text-right text-weight-bold">{{ currencySymbol }} {{ paymentSchedule.remainingBalance.toFixed(2) }}</div>
                   </div>
 
                   <div class="row items-center">
                     <div class="col-6 text-body2">Payment Frequency:</div>
-                    <div class="col-6 text-right text-weight-medium">XAF {{ paymentSchedule.recurringRate.toFixed(2) }} per {{ formatUnitType(paymentSchedule.unitType) }}</div>
+                    <div class="col-6 text-right text-weight-medium">{{ currencySymbol }} {{ paymentSchedule.recurringRate.toFixed(2) }} per {{ formatUnitType(paymentSchedule.unitType) }}</div>
                   </div>
 
                   <div class="row items-center">
@@ -237,7 +237,7 @@
                     <q-icon name="info" />
                   </template>
                   <div class="text-caption">
-                    The customer will be automatically charged <strong>XAF {{ paymentSchedule.recurringRate.toFixed(2) }}</strong> {{ formatUnitType(paymentSchedule.unitType) }} until the item is fully paid off.
+                    The customer will be automatically charged <strong>{{ currencySymbol }} {{ paymentSchedule.recurringRate.toFixed(2) }}</strong> {{ formatUnitType(paymentSchedule.unitType) }} until the item is fully paid off.
                   </div>
                 </q-banner>
               </q-card-section>
@@ -260,7 +260,7 @@
                 <q-icon name="account_balance_wallet" />
               </template>
               <template v-slot:append>
-                <span>XAF</span>
+                <span>{{ currencySymbol }}</span>
               </template>
             </q-input>
           </div>
@@ -334,7 +334,7 @@
                       <q-icon name="schedule" color="orange" />
                     </template>
                     <div class="text-caption">
-                      <strong>Automatic Billing:</strong> Customer will be billed {{ recurringCostComponent.rate }} XAF {{ formatUnitType(recurringCostComponent.unit_type) }} via cron job
+                      <strong>Automatic Billing:</strong> Customer will be billed {{ recurringCostComponent.rate }} {{ currencySymbol }} {{ formatUnitType(recurringCostComponent.unit_type) }} via cron job
                     </div>
                   </q-banner>
                 </div>
@@ -368,7 +368,7 @@
                         </span>
                       </div>
                       <div class="col-auto text-weight-medium">
-                        {{ component.amount.toFixed(2) }} XAF
+                        {{ component.amount.toFixed(2) }} {{ currencySymbol }}
                       </div>
                     </div>
                   </div>
@@ -377,16 +377,16 @@
                   <q-separator class="q-my-sm" />
                   <div class="row justify-between text-body2">
                     <div class="col">Subtotal:</div>
-                    <div class="col-auto text-weight-medium">{{ costEstimate.subtotal.toFixed(2) }} XAF</div>
+                    <div class="col-auto text-weight-medium">{{ costEstimate.subtotal.toFixed(2) }} {{ currencySymbol }}</div>
                   </div>
                   <div v-if="costEstimate.vat > 0" class="row justify-between text-body2">
                     <div class="col">VAT ({{ costEstimate.vat_percentage }}%):</div>
-                    <div class="col-auto text-weight-medium">{{ costEstimate.vat.toFixed(2) }} XAF</div>
+                    <div class="col-auto text-weight-medium">{{ costEstimate.vat.toFixed(2) }} {{ currencySymbol }}</div>
                   </div>
                   <q-separator class="q-my-sm" />
                   <div class="row justify-between text-h6 text-primary">
                     <div class="col">Total:</div>
-                    <div class="col-auto">{{ costEstimate.total.toFixed(2) }} XAF</div>
+                    <div class="col-auto">{{ costEstimate.total.toFixed(2) }} {{ currencySymbol }}</div>
                   </div>
                 </div>
 
@@ -451,13 +451,18 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, inject, onMounted, watch } from 'vue'
 import { useQuasar, date } from 'quasar'
 import { hubsAPI, pueAPI, settingsAPI, pueRentalsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
+import { useHubSettingsStore } from 'stores/hubSettings'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
+const hubSettingsStore = useHubSettingsStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
+const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
 // Props & Emits
 const emit = defineEmits(['submit', 'cancel', 'success', 'error'])
@@ -505,11 +510,13 @@ onMounted(async () => {
     }
   } catch (error) {
     console.error('Error in onMounted:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to initialize form',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to initialize form',
+        position: 'top'
+      })
+    }
   }
 })
 
@@ -552,11 +559,13 @@ const loadUsers = async () => {
     userOptions.value = allUsers.value
   } catch (error) {
     console.error('Failed to load users:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load users',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load users',
+        position: 'top'
+      })
+    }
   } finally {
     usersLoading.value = false
   }
@@ -590,18 +599,20 @@ const loadCostStructures = async () => {
     const response = await settingsAPI.getCostStructures({
       hub_id: formData.value.hub_id
     })
-    // Filter for PUE type on the client side
+    // Filter for PUE item and PUE type cost structures
     const allStructures = response.data?.cost_structures || response.data || []
     costStructureOptions.value = allStructures.filter(cs =>
-      cs.item_type === 'pue_item' && cs.is_active !== false
+      (cs.item_type === 'pue_item' || cs.item_type === 'pue_type') && cs.is_active !== false
     )
   } catch (error) {
     console.error('Failed to load cost structures:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load cost structures',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load cost structures',
+        position: 'top'
+      })
+    }
   } finally {
     costStructuresLoading.value = false
   }
@@ -625,24 +636,35 @@ const loadPUEs = async () => {
     const response = await hubsAPI.getAvailablePUE(formData.value.hub_id)
     let pues = response.data || []
 
-    // Filter by cost structure's item_reference
-    if (formData.value.costStructure?.item_reference && formData.value.costStructure.item_reference !== 'all') {
-      const itemRef = formData.value.costStructure.item_reference
-      pues = pues.filter(p => {
-        return p.pue_id?.toString() === itemRef ||
-               p.pue_type_id?.toString() === itemRef ||
-               p.reference?.toString() === itemRef
-      })
+    // Filter by cost structure type
+    const cs = formData.value.costStructure
+    if (cs) {
+      if (cs.item_type === 'pue_item') {
+        // Use junction table pue_item_ids if available, fall back to item_reference
+        if (cs.pue_item_ids && cs.pue_item_ids.length > 0) {
+          const allowedIds = new Set(cs.pue_item_ids.map(String))
+          pues = pues.filter(p => allowedIds.has(String(p.pue_id)))
+        } else if (cs.item_reference && cs.item_reference !== 'all') {
+          pues = pues.filter(p => String(p.pue_id) === String(cs.item_reference))
+        }
+      } else if (cs.item_type === 'pue_type') {
+        // Filter by PUE type
+        if (cs.item_reference && cs.item_reference !== 'all') {
+          pues = pues.filter(p => String(p.pue_type_id) === String(cs.item_reference))
+        }
+      }
     }
 
     availablePUEs.value = pues
   } catch (error) {
     console.error('Failed to load PUE items:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load PUE items',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load PUE items',
+        position: 'top'
+      })
+    }
   } finally {
     pueLoading.value = false
   }
@@ -793,19 +815,89 @@ const calculateCostEstimate = async () => {
 
   costEstimateLoading.value = true
   try {
-    const response = await settingsAPI.estimateCost(
-      formData.value.costStructure.cost_structure_id || formData.value.costStructure.structure_id,
-      {
-        duration_value: durationValue,
-        duration_unit: formData.value.duration.custom_unit || 'days',
-        vat_percentage: 0
-      }
-    )
-    costEstimate.value = response.data
+    if (isOffline.value) {
+      costEstimate.value = calculateCostLocally(formData.value.costStructure, durationValue, formData.value.duration.custom_unit || 'days')
+    } else {
+      const response = await settingsAPI.estimateCost(
+        formData.value.costStructure.cost_structure_id || formData.value.costStructure.structure_id,
+        {
+          duration_value: durationValue,
+          duration_unit: formData.value.duration.custom_unit || 'days',
+          vat_percentage: 0
+        }
+      )
+      costEstimate.value = response.data?._offlineQueued ? null : response.data
+    }
   } catch (error) {
     console.error('Failed to calculate cost estimate:', error)
+    if (error.code === 'ERR_NETWORK' || !navigator.onLine) {
+      costEstimate.value = calculateCostLocally(formData.value.costStructure, durationValue, formData.value.duration.custom_unit || 'days')
+    }
   } finally {
     costEstimateLoading.value = false
+  }
+}
+
+const calculateCostLocally = (costStructure, durationValue, durationUnit) => {
+  const components = costStructure.components || []
+  const breakdown = []
+  let subtotal = 0
+
+  for (const comp of components) {
+    let quantity = 0
+    let amount = 0
+
+    switch (comp.unit_type) {
+      case 'fixed':
+        quantity = 1
+        amount = comp.rate
+        break
+      case 'per_day':
+        quantity = durationUnit === 'days' ? durationValue : durationValue * (durationUnit === 'weeks' ? 7 : durationUnit === 'months' ? 30 : 1)
+        amount = comp.rate * quantity
+        break
+      case 'per_week':
+        quantity = durationUnit === 'weeks' ? durationValue : durationValue / (durationUnit === 'days' ? 7 : 1)
+        amount = comp.rate * quantity
+        break
+      case 'per_month':
+        quantity = durationUnit === 'months' ? durationValue : durationValue / (durationUnit === 'days' ? 30 : durationUnit === 'weeks' ? 4.33 : 1)
+        amount = comp.rate * quantity
+        break
+      case 'per_recharge':
+        quantity = costStructure.count_initial_checkout_as_recharge ? 1 : 0
+        amount = comp.rate * quantity
+        break
+      default:
+        continue
+    }
+
+    quantity = Math.round(quantity * 100) / 100
+    amount = Math.round(amount * 100) / 100
+    breakdown.push({
+      component_name: comp.component_name,
+      unit_type: comp.unit_type,
+      rate: comp.rate,
+      quantity,
+      amount
+    })
+    subtotal += amount
+  }
+
+  subtotal = Math.round(subtotal * 100) / 100
+  const vatPercentage = hubSettingsStore.currentHubSettings?.vat_percentage || 0
+  const vat = Math.round(subtotal * (vatPercentage / 100) * 100) / 100
+  const total = Math.round((subtotal + vat) * 100) / 100
+
+  return {
+    breakdown,
+    subtotal,
+    vat,
+    vat_percentage: vatPercentage,
+    total,
+    deposit_amount: costStructure.default_deposit || 0,
+    has_estimated_component: true,
+    _offlineEstimate: true
   }
 }
 
@@ -851,8 +943,11 @@ const handleSubmit = async () => {
   submitting.value = true
   try {
     const rentalData = {
+      hub_id: formData.value.hub_id,
       user_id: formData.value.user.user_id,
+      user_name: formData.value.user.Name || formData.value.user.username,
       pue_id: formData.value.pue_id,
+      pue_name: availablePUEs.value.find(p => p.pue_id === formData.value.pue_id)?.name || `PUE ${formData.value.pue_id}`,
       cost_structure_id: formData.value.costStructure.cost_structure_id || formData.value.costStructure.structure_id,
       rental_start_date: formData.value.rentalStartDate ? new Date(formData.value.rentalStartDate).toISOString() : undefined,
       is_pay_to_own: isPayToOwn.value,
@@ -873,11 +968,13 @@ const handleSubmit = async () => {
     emit('success', response.data)
   } catch (error) {
     console.error('Failed to create PUE rental:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to create PUE rental',
-      position: 'top'
-    })
+    if (!isOffline.value && error.code !== 'ERR_NETWORK') {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to create PUE rental',
+        position: 'top'
+      })
+    }
     emit('error', error)
   } finally {
     submitting.value = false

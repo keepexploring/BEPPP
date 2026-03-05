@@ -83,7 +83,8 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { batteriesAPI } from '../services/api'
-import { date } from 'quasar'
+import { formatDateWithTimezone, getTimezoneLabel } from 'src/utils/dateFormat'
+import { useHubSettingsStore } from 'stores/hubSettings'
 
 const props = defineProps({
   batteryId: {
@@ -146,13 +147,16 @@ function getSeverityColor(severity) {
 }
 
 function formatDate(timestamp) {
-  if (!timestamp) return '-'
-  return date.formatDate(timestamp, 'MMM D, YYYY')
+  return formatDateWithTimezone(timestamp, 'date')
 }
 
 function formatTime(timestamp) {
   if (!timestamp) return '-'
-  return date.formatDate(timestamp, 'h:mm A')
+  const hubSettingsStore = useHubSettingsStore()
+  const tz = hubSettingsStore.currentTimezone || 'UTC'
+  const d = new Date(timestamp)
+  if (isNaN(d)) return '-'
+  return d.toLocaleTimeString('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 async function loadErrors() {

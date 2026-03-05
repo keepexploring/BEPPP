@@ -213,7 +213,7 @@
                       </span>
                     </div>
                     <div class="col-auto text-weight-medium">
-                      {{ component.amount.toFixed(2) }} XAF
+                      {{ component.amount.toFixed(2) }} {{ currencySymbol }}
                     </div>
                   </div>
                 </div>
@@ -226,7 +226,7 @@
                   <div class="text-caption">
                     <strong>Recurring Charges:</strong>
                     <div v-for="comp in recurringComponents" :key="comp.component_name">
-                      {{ comp.rate }} XAF {{ formatUnitType(comp.unit_type) }}
+                      {{ comp.rate }} {{ currencySymbol }} {{ formatUnitType(comp.unit_type) }}
                     </div>
                     These will be billed automatically via cron job.
                   </div>
@@ -236,20 +236,20 @@
                 <q-separator class="q-my-sm" />
                 <div class="row justify-between text-body2">
                   <div class="col">Subtotal:</div>
-                  <div class="col-auto text-weight-medium">{{ costEstimate.subtotal.toFixed(2) }} XAF</div>
+                  <div class="col-auto text-weight-medium">{{ costEstimate.subtotal.toFixed(2) }} {{ currencySymbol }}</div>
                 </div>
                 <div v-if="costEstimate.vat > 0" class="row justify-between text-body2">
                   <div class="col">VAT ({{ costEstimate.vat_percentage }}%):</div>
-                  <div class="col-auto text-weight-medium">{{ costEstimate.vat.toFixed(2) }} XAF</div>
+                  <div class="col-auto text-weight-medium">{{ costEstimate.vat.toFixed(2) }} {{ currencySymbol }}</div>
                 </div>
                 <q-separator class="q-my-sm" />
                 <div class="row justify-between text-h6 text-primary">
                   <div class="col">Total:</div>
-                  <div class="col-auto">{{ costEstimate.total.toFixed(2) }} XAF</div>
+                  <div class="col-auto">{{ costEstimate.total.toFixed(2) }} {{ currencySymbol }}</div>
                 </div>
                 <div v-if="costEstimate.deposit_amount > 0" class="row justify-between text-body2 text-grey-7 q-mt-xs">
                   <div class="col">Suggested Deposit:</div>
-                  <div class="col-auto">{{ costEstimate.deposit_amount.toFixed(2) }} XAF</div>
+                  <div class="col-auto">{{ costEstimate.deposit_amount.toFixed(2) }} {{ currencySymbol }}</div>
                 </div>
               </div>
 
@@ -304,7 +304,7 @@
               <q-icon name="account_balance_wallet" />
             </template>
             <template v-slot:append>
-              <span>XAF</span>
+              <span>{{ currencySymbol }}</span>
             </template>
           </q-input>
         </div>
@@ -346,13 +346,18 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, inject, onMounted, watch } from 'vue'
 import { useQuasar, date } from 'quasar'
 import { hubsAPI, batteriesAPI, settingsAPI, batteryRentalsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
+import { useHubSettingsStore } from 'stores/hubSettings'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
+const hubSettingsStore = useHubSettingsStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
+const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
 // Props & Emits
 const emit = defineEmits(['submit', 'cancel', 'success', 'error'])
@@ -400,11 +405,13 @@ onMounted(async () => {
     }
   } catch (error) {
     console.error('Error in onMounted:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to initialize form',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to initialize form',
+        position: 'top'
+      })
+    }
   }
 })
 
@@ -450,11 +457,13 @@ const loadUsers = async () => {
     userOptions.value = allUsers.value
   } catch (error) {
     console.error('Failed to load users:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load users',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load users',
+        position: 'top'
+      })
+    }
   } finally {
     usersLoading.value = false
   }
@@ -492,11 +501,13 @@ const loadBatteries = async () => {
     availableBatteries.value = response.data || []
   } catch (error) {
     console.error('Failed to load batteries:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load batteries',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load batteries',
+        position: 'top'
+      })
+    }
   } finally {
     batteriesLoading.value = false
   }
@@ -535,11 +546,13 @@ const loadCostStructures = async () => {
     )
   } catch (error) {
     console.error('Failed to load cost structures:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load cost structures',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load cost structures',
+        position: 'top'
+      })
+    }
   } finally {
     costStructuresLoading.value = false
   }
@@ -633,19 +646,92 @@ const calculateCostEstimate = async () => {
 
   costEstimateLoading.value = true
   try {
-    const response = await settingsAPI.estimateCost(
-      formData.value.costStructure.cost_structure_id || formData.value.costStructure.structure_id,
-      {
-        duration_value: durationValue,
-        duration_unit: formData.value.duration.custom_unit || 'days',
-        vat_percentage: 0
-      }
-    )
-    costEstimate.value = response.data
+    if (isOffline.value) {
+      // Calculate locally when offline using cached cost structure data
+      costEstimate.value = calculateCostLocally(formData.value.costStructure, durationValue, formData.value.duration.custom_unit || 'days')
+    } else {
+      const response = await settingsAPI.estimateCost(
+        formData.value.costStructure.cost_structure_id || formData.value.costStructure.structure_id,
+        {
+          duration_value: durationValue,
+          duration_unit: formData.value.duration.custom_unit || 'days',
+          vat_percentage: 0
+        }
+      )
+      // Ignore synthetic offline responses (queued but no real data)
+      costEstimate.value = response.data?._offlineQueued ? null : response.data
+    }
   } catch (error) {
     console.error('Failed to calculate cost estimate:', error)
+    // Fall back to local calculation on network error
+    if (error.code === 'ERR_NETWORK' || !navigator.onLine) {
+      costEstimate.value = calculateCostLocally(formData.value.costStructure, durationValue, formData.value.duration.custom_unit || 'days')
+    }
   } finally {
     costEstimateLoading.value = false
+  }
+}
+
+const calculateCostLocally = (costStructure, durationValue, durationUnit) => {
+  const components = costStructure.components || []
+  const breakdown = []
+  let subtotal = 0
+
+  for (const comp of components) {
+    let quantity = 0
+    let amount = 0
+
+    switch (comp.unit_type) {
+      case 'fixed':
+        quantity = 1
+        amount = comp.rate
+        break
+      case 'per_day':
+        quantity = durationUnit === 'days' ? durationValue : durationValue * (durationUnit === 'weeks' ? 7 : durationUnit === 'months' ? 30 : 1)
+        amount = comp.rate * quantity
+        break
+      case 'per_week':
+        quantity = durationUnit === 'weeks' ? durationValue : durationValue / (durationUnit === 'days' ? 7 : 1)
+        amount = comp.rate * quantity
+        break
+      case 'per_month':
+        quantity = durationUnit === 'months' ? durationValue : durationValue / (durationUnit === 'days' ? 30 : durationUnit === 'weeks' ? 4.33 : 1)
+        amount = comp.rate * quantity
+        break
+      case 'per_recharge':
+        quantity = costStructure.count_initial_checkout_as_recharge ? 1 : 0
+        amount = comp.rate * quantity
+        break
+      default:
+        continue
+    }
+
+    quantity = Math.round(quantity * 100) / 100
+    amount = Math.round(amount * 100) / 100
+    breakdown.push({
+      component_name: comp.component_name,
+      unit_type: comp.unit_type,
+      rate: comp.rate,
+      quantity,
+      amount
+    })
+    subtotal += amount
+  }
+
+  subtotal = Math.round(subtotal * 100) / 100
+  const vatPercentage = hubSettingsStore.currentHubSettings?.vat_percentage || 0
+  const vat = Math.round(subtotal * (vatPercentage / 100) * 100) / 100
+  const total = Math.round((subtotal + vat) * 100) / 100
+
+  return {
+    breakdown,
+    subtotal,
+    vat,
+    vat_percentage: vatPercentage,
+    total,
+    deposit_amount: costStructure.default_deposit || 0,
+    has_estimated_component: true,
+    _offlineEstimate: true
   }
 }
 
@@ -686,7 +772,9 @@ const handleSubmit = async () => {
   submitting.value = true
   try {
     const rentalData = {
+      hub_id: formData.value.hub_id,
       user_id: formData.value.user.user_id,
+      user_name: formData.value.user.Name || formData.value.user.username,
       battery_ids: [formData.value.battery_id.toString()], // Backend expects array of strings
       cost_structure_id: formData.value.costStructure.cost_structure_id || formData.value.costStructure.structure_id,
       rental_start_date: formData.value.rentalStartDate ? new Date(formData.value.rentalStartDate).toISOString() : undefined,
@@ -706,11 +794,13 @@ const handleSubmit = async () => {
     emit('success', response.data)
   } catch (error) {
     console.error('Failed to create rental:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to create rental',
-      position: 'top'
-    })
+    if (!isOffline.value && error.code !== 'ERR_NETWORK') {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to create rental',
+        position: 'top'
+      })
+    }
     emit('error', error)
   } finally {
     submitting.value = false

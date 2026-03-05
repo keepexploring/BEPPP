@@ -43,7 +43,7 @@ try:
     try:
         from config import USER_TOKEN_EXPIRE_HOURS
     except ImportError:
-        USER_TOKEN_EXPIRE_HOURS = 24
+        USER_TOKEN_EXPIRE_HOURS = 336  # 14 days
     
     try:
         from config import BATTERY_TOKEN_EXPIRE_HOURS
@@ -461,13 +461,14 @@ class PUECreate(BaseModel):
     hub_id: int
     name: str
     description: Optional[str] = None
+    pue_type_id: Optional[int] = None
     power_rating_watts: Optional[float] = None
     usage_location: str = Field(default="both", description="Usage location: hub_only, battery_only, or both")
     storage_location: Optional[str] = None
     suggested_cost_per_day: Optional[float] = None
     rental_cost: Optional[float] = None
     status: Optional[str] = "available"
-    
+
 
 
 class PUEUpdate(BaseModel):
@@ -475,14 +476,14 @@ class PUEUpdate(BaseModel):
 
     name: Optional[str] = None
     description: Optional[str] = None
+    pue_type_id: Optional[int] = None
     power_rating_watts: Optional[float] = None
     usage_location: Optional[str] = Field(default=None, description="Usage location: hub_only, battery_only, or both")
     storage_location: Optional[str] = None
     suggested_cost_per_day: Optional[float] = None
     rental_cost: Optional[float] = None
     status: Optional[str] = None
-    
-    
+
 
 class RentalCreateUserFriendly(BaseModel):
     """User-friendly rental creation model"""
@@ -1011,6 +1012,7 @@ LIVE_DATA_FIELD_MAPPING = {
     'ts': ('tilt_sensor_state', int),
     'tcc': ('total_charge_consumed', float),
     'err': ('err', str),
+    'aw': ('awake_state', int),
 }
 
 def safe_convert_value(value, target_type, field_name):
@@ -1047,24 +1049,44 @@ def safe_convert_value(value, target_type, field_name):
         return None
     
 def create_timestamp_from_fields(battery_data):
+    """Parse timestamp from battery data fields.
+
+    Returns (timestamp, raw_timestamp_string):
+      - Success: (datetime, None)
+      - Failure: (None, "d=... tm=...") with raw values preserved for later reconstruction
+    """
     try:
         date_str = battery_data.get('d') or battery_data.get('gd')
         time_str = battery_data.get('tm') or battery_data.get('gt')
-        
+
         if date_str and time_str and date_str != "00-00-00" and time_str != "00:00:00":
             for date_fmt in ['%Y-%m-%d', '%d-%m-%Y', '%m-%d-%Y']:
                 try:
                     datetime_str = f"{date_str} {time_str}"
                     timestamp = datetime.strptime(datetime_str, f"{date_fmt} %H:%M:%S")
-                    return timestamp.replace(tzinfo=timezone.utc)
+                    return (timestamp.replace(tzinfo=timezone.utc), None)
                 except ValueError:
                     continue
-        
-        return datetime.now(timezone.utc)
-        
+
+        # Could not parse — build raw string for debugging
+        raw_parts = []
+        for key in ('d', 'gd', 'tm', 'gt'):
+            val = battery_data.get(key)
+            if val is not None:
+                raw_parts.append(f"{key}={val}")
+        raw_str = " ".join(raw_parts) if raw_parts else "no date/time fields"
+        print(f"Warning: Corrupt or missing timestamp — storing NULL. Raw: {raw_str}")
+        return (None, raw_str)
+
     except Exception as e:
-        print(f"Warning: Could not create timestamp from date/time fields: {e}")
-        return datetime.now(timezone.utc)
+        raw_parts = []
+        for key in ('d', 'gd', 'tm', 'gt'):
+            val = battery_data.get(key)
+            if val is not None:
+                raw_parts.append(f"{key}={val}")
+        raw_str = " ".join(raw_parts) if raw_parts else "no date/time fields"
+        print(f"Warning: Could not create timestamp from date/time fields: {e}. Raw: {raw_str}")
+        return (None, raw_str)
 
 def calculate_time_period(time_period: str) -> tuple[datetime, datetime]:
     now = datetime.now(timezone.utc)
@@ -1484,15 +1506,17 @@ async def handle_direct_format(battery_data: dict, db: Session, current_user: di
         )
     
     unique_id = int(datetime.now().timestamp() * 1000000)
-    timestamp = create_timestamp_from_fields(battery_data)
-    
+    timestamp, raw_timestamp = create_timestamp_from_fields(battery_data)
+
     parsed_data = {
         'id': unique_id,
         'battery_id': battery_id,
         'timestamp': timestamp,
+        'raw_timestamp': raw_timestamp,
+        'is_final_batch': True,  # Single live readings are always the current reading
         'created_at': datetime.now(timezone.utc)
     }
-    
+
     parsed_fields = []
     skipped_fields = []
     unmapped_fields = []
@@ -1518,7 +1542,15 @@ async def handle_direct_format(battery_data: dict, db: Session, current_user: di
                 unmapped_fields.append(f"{json_key} -> {db_field} (field not in schema)")
         else:
             unmapped_fields.append(f"{json_key}: {json_value} (unknown field)")
-    
+
+    # Compute awake_state from existing fields if not explicitly sent
+    if 'awake_state' not in parsed_data:
+        eu = parsed_data.get('usb_enabled', 0) or 0
+        ei = parsed_data.get('inverter_enabled', 0) or 0
+        ec = parsed_data.get('charging_enabled', 0) or 0
+        ci = parsed_data.get('charger_current', 0) or 0
+        parsed_data['awake_state'] = 1 if (eu == 1 or ei == 1 or (ec == 1 and ci > 0)) else 0
+
     if DEBUG:
         log_webhook_event(
             event_type="field_parsing_completed",
@@ -2015,6 +2047,179 @@ async def receive_live_data(
 
         raise HTTPException(status_code=500, detail=f"Error processing live data: {str(e)}")
 
+@app.post("/webhook/batch-live-data",
+    tags=["Batteries"],
+    summary="Batch Battery Data Submission",
+    description="Accepts a batch of historical live data entries from a battery's SD card. "
+                "Max 100 entries per request. Uses same field mapping as single live-data endpoint.",
+    response_description="Batch submission result with stored/skipped counts")
+async def receive_batch_live_data(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(verify_battery_or_superadmin_token)
+):
+    """Receive batch historical live data from SD card store-and-forward."""
+    request_start_time = datetime.now()
+    battery_id = None
+    request_headers = dict(request.headers)
+    request_body = None
+    error_msg = None
+
+    try:
+        request_body = await request.json()
+        battery_id = str(request_body.get('battery_id', '')) or None
+        entries = request_body.get('entries', [])
+
+        if not battery_id:
+            raise HTTPException(status_code=400, detail="Missing battery_id")
+
+        if not entries or not isinstance(entries, list):
+            raise HTTPException(status_code=400, detail="Missing or invalid entries array")
+
+        if len(entries) > 100:
+            raise HTTPException(status_code=400, detail="Max 100 entries per batch request")
+
+        # Verify battery can only submit for itself
+        if current_user.get('role') == UserRole.BATTERY:
+            token_battery_id = current_user.get('battery_id')
+            if token_battery_id != battery_id:
+                raise HTTPException(status_code=403, detail="Battery can only submit data for itself")
+
+        battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_id).first()
+        if not battery:
+            raise HTTPException(status_code=404, detail=f"Battery {battery_id} not found")
+
+        # Read final-batch flag from request body (firmware sends fb: 0 or 1)
+        is_final_batch = bool(request_body.get('fb', 0))
+
+        stored_count = 0
+        skipped_count = 0
+        last_live_data = None
+
+        for entry in entries:
+            try:
+                # Inject battery_id into entry if not present
+                if 'id' not in entry:
+                    entry['id'] = battery_id
+
+                unique_id = int(datetime.now().timestamp() * 1000000)
+                timestamp, raw_timestamp = create_timestamp_from_fields(entry)
+
+                parsed_data = {
+                    'id': unique_id,
+                    'battery_id': battery_id,
+                    'timestamp': timestamp,
+                    'raw_timestamp': raw_timestamp,
+                    'is_final_batch': is_final_batch,
+                    'created_at': datetime.now(timezone.utc)
+                }
+
+                for json_key, json_value in entry.items():
+                    if json_key in ['id', 'd', 'gd', 'tm', 'gt']:
+                        continue
+                    if json_key in LIVE_DATA_FIELD_MAPPING:
+                        db_field, target_type = LIVE_DATA_FIELD_MAPPING[json_key]
+                        if hasattr(LiveData, db_field):
+                            converted_value = safe_convert_value(json_value, target_type, json_key)
+                            if converted_value is not None:
+                                parsed_data[db_field] = converted_value
+
+                # Compute awake_state from existing fields if not explicitly sent
+                if 'awake_state' not in parsed_data:
+                    eu = parsed_data.get('usb_enabled', 0) or 0
+                    ei = parsed_data.get('inverter_enabled', 0) or 0
+                    ec = parsed_data.get('charging_enabled', 0) or 0
+                    ci = parsed_data.get('charger_current', 0) or 0
+                    parsed_data['awake_state'] = 1 if (eu == 1 or ei == 1 or (ec == 1 and ci > 0)) else 0
+
+                try:
+                    live_data = LiveData(**parsed_data)
+                except TypeError:
+                    valid_fields = {k: v for k, v in parsed_data.items() if hasattr(LiveData, k)}
+                    live_data = LiveData(**valid_fields)
+
+                db.add(live_data)
+                stored_count += 1
+                last_live_data = live_data
+
+            except Exception as entry_err:
+                print(f"Warning: skipped batch entry: {entry_err}")
+                skipped_count += 1
+
+        # Single commit for entire batch
+        db.commit()
+
+        # Update battery's last_data_received
+        battery.last_data_received = datetime.now(timezone.utc)
+        db.commit()
+
+        # Process error notifications for the last entry only (most recent state)
+        if last_live_data and last_live_data.err and last_live_data.err.strip():
+            process_battery_errors(
+                db=db,
+                battery_id=battery_id,
+                error_string=last_live_data.err,
+                hub_id=battery.hub_id
+            )
+
+        result = {
+            "status": "success",
+            "stored": stored_count,
+            "skipped": skipped_count,
+            "total_submitted": len(entries)
+        }
+
+        processing_time_ms = int((datetime.now() - request_start_time).total_seconds() * 1000)
+        log_webhook_to_db(
+            db=db,
+            battery_id=battery_id,
+            endpoint="/webhook/batch-live-data",
+            method="POST",
+            request_headers=request_headers,
+            request_body={"battery_id": battery_id, "entry_count": len(entries)},
+            response_status=200,
+            response_body=result,
+            error_message=None,
+            processing_time_ms=processing_time_ms
+        )
+
+        return result
+
+    except HTTPException as he:
+        processing_time_ms = int((datetime.now() - request_start_time).total_seconds() * 1000)
+        log_webhook_to_db(
+            db=db,
+            battery_id=battery_id,
+            endpoint="/webhook/batch-live-data",
+            method="POST",
+            request_headers=request_headers,
+            request_body=request_body,
+            response_status=he.status_code,
+            response_body={"detail": he.detail},
+            error_message=f"HTTP {he.status_code}: {he.detail}",
+            processing_time_ms=processing_time_ms
+        )
+        db.rollback()
+        raise he
+
+    except Exception as e:
+        error_msg = f"Unexpected error: {str(e)}"
+        processing_time_ms = int((datetime.now() - request_start_time).total_seconds() * 1000)
+        log_webhook_to_db(
+            db=db,
+            battery_id=battery_id,
+            endpoint="/webhook/batch-live-data",
+            method="POST",
+            request_headers=request_headers,
+            request_body=request_body,
+            response_status=500,
+            response_body={"detail": error_msg},
+            error_message=error_msg,
+            processing_time_ms=processing_time_ms
+        )
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error processing batch live data: {str(e)}")
+
 # ============================================================================
 # AUTHENTICATION ENDPOINTS
 # ============================================================================
@@ -2166,6 +2371,32 @@ async def create_token(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Authentication error: {str(e)}"
         )
+
+@app.post("/auth/refresh",
+    tags=["Authentication"],
+    summary="Refresh User Token",
+    response_description="New JWT token and user information")
+async def refresh_user_token(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Issue a fresh token for an already-authenticated user."""
+    token_data = {
+        "sub": current_user.get("sub"),
+        "user_id": current_user.get("user_id"),
+        "role": current_user.get("role"),
+        "hub_id": current_user.get("hub_id")
+    }
+    token = create_access_token(token_data)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": USER_TOKEN_EXPIRE_HOURS * 3600,
+        "expires_in_hours": USER_TOKEN_EXPIRE_HOURS,
+        "user_id": current_user.get("user_id"),
+        "role": current_user.get("role"),
+        "hub_id": current_user.get("hub_id")
+    }
 
 @app.post("/auth/battery-login",
     tags=["Authentication"],
@@ -3737,7 +3968,7 @@ async def create_battery_note(
         # Create note
         new_note = Note(
             content=note_data['content'],
-            created_by=current_user.get('sub')
+            created_by=current_user.get('user_id')
         )
         db.add(new_note)
         db.flush()  # Get the note ID
@@ -5831,13 +6062,15 @@ async def create_battery_rental(
                 if upfront_charges:
                     charge_description += f" ({', '.join([c['component_name'] for c in upfront_charges])})"
 
-                # Create charge transaction (credit to account = debt owed)
-                user_account.balance += upfront_total  # Increase balance = increase debt
+                # Create charge transaction (debit from account = debt owed)
+                user_account.balance -= upfront_total  # Decrease balance = increase debt (negative = owes money)
+                user_account.total_spent += upfront_total
+                user_account.total_owed += upfront_total
                 charge_transaction = AccountTransaction(
                     account_id=user_account.account_id,
                     rental_id=None,  # This is for old Rental model, not BatteryRental
-                    transaction_type='credit',
-                    amount=upfront_total,
+                    transaction_type='rental_charge',
+                    amount=-upfront_total,  # Negative for charges (debit)
                     balance_after=user_account.balance,
                     description=charge_description
                 )
@@ -10239,6 +10472,12 @@ async def get_cost_structures(
             CostStructureDurationOption.structure_id == structure.structure_id
         ).order_by(CostStructureDurationOption.sort_order).all()
 
+        # Get PUE item mappings from junction table
+        pue_mappings = db.query(CostStructurePUEItem).filter(
+            CostStructurePUEItem.structure_id == structure.structure_id
+        ).all()
+        pue_item_ids = [m.pue_id for m in pue_mappings]
+
         result.append({
             "structure_id": structure.structure_id,
             "hub_id": structure.hub_id,
@@ -10252,6 +10491,8 @@ async def get_cost_structures(
             "item_total_cost": float(structure.item_total_cost) if structure.item_total_cost is not None else None,
             "allow_multiple_items": structure.allow_multiple_items,
             "allow_custom_duration": structure.allow_custom_duration,
+            "deposit_amount": float(structure.deposit_amount) if structure.deposit_amount else 0,
+            "pue_item_ids": pue_item_ids,
             "created_at": structure.created_at,
             "updated_at": structure.updated_at,
             "components": [{
@@ -10299,6 +10540,8 @@ async def create_cost_structure(
     item_total_cost: Optional[float] = Query(None),
     allow_multiple_items: bool = Query(True),
     allow_custom_duration: bool = Query(True),
+    pue_item_ids: Optional[str] = Query(None),  # JSON array of pue_id strings for junction table
+    deposit_amount: Optional[float] = Query(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -10346,6 +10589,16 @@ async def create_cost_structure(
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="Invalid duration_options JSON")
 
+    # Parse pue_item_ids JSON (optional)
+    pue_item_ids_list = []
+    if pue_item_ids:
+        try:
+            pue_item_ids_list = json.loads(pue_item_ids)
+            if not isinstance(pue_item_ids_list, list):
+                raise HTTPException(status_code=400, detail="pue_item_ids must be an array")
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid pue_item_ids JSON")
+
     # Create cost structure
     structure = CostStructure(
         hub_id=hub_id,
@@ -10353,6 +10606,7 @@ async def create_cost_structure(
         description=description,
         item_type=item_type,
         item_reference=item_reference,
+        deposit_amount=deposit_amount or 0,
         count_initial_checkout_as_recharge=count_initial_checkout_as_recharge,
         is_pay_to_own=is_pay_to_own,
         item_total_cost=item_total_cost,
@@ -10397,10 +10651,18 @@ async def create_cost_structure(
         )
         db.add(duration_option)
 
+    # Create PUE item mappings in junction table
+    for pid in pue_item_ids_list:
+        mapping = CostStructurePUEItem(
+            structure_id=structure.structure_id,
+            pue_id=str(pid)
+        )
+        db.add(mapping)
+
     db.commit()
     db.refresh(structure)
 
-    # Return with components and duration options
+    # Return with components, duration options, and pue_item_ids
     components = db.query(CostComponent).filter(
         CostComponent.structure_id == structure.structure_id
     ).order_by(CostComponent.sort_order).all()
@@ -10408,6 +10670,10 @@ async def create_cost_structure(
     duration_opts = db.query(CostStructureDurationOption).filter(
         CostStructureDurationOption.structure_id == structure.structure_id
     ).order_by(CostStructureDurationOption.sort_order).all()
+
+    pue_mappings = db.query(CostStructurePUEItem).filter(
+        CostStructurePUEItem.structure_id == structure.structure_id
+    ).all()
 
     return {
         "structure_id": structure.structure_id,
@@ -10418,6 +10684,8 @@ async def create_cost_structure(
         "item_reference": structure.item_reference,
         "is_active": structure.is_active,
         "count_initial_checkout_as_recharge": structure.count_initial_checkout_as_recharge,
+        "deposit_amount": float(structure.deposit_amount) if structure.deposit_amount else 0,
+        "pue_item_ids": [m.pue_id for m in pue_mappings],
         "created_at": structure.created_at,
         "updated_at": structure.updated_at,
         "components": [{
@@ -10457,6 +10725,7 @@ async def update_cost_structure(
     item_total_cost: Optional[float] = Query(None),
     allow_multiple_items: Optional[bool] = Query(None),
     allow_custom_duration: Optional[bool] = Query(None),
+    pue_item_ids: Optional[str] = Query(None),  # JSON array of pue_id strings for junction table
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -10546,10 +10815,32 @@ async def update_cost_structure(
             )
             db.add(duration_option)
 
+    # Update PUE item mappings in junction table if provided
+    if pue_item_ids is not None:
+        try:
+            pue_ids_list = json.loads(pue_item_ids)
+            if not isinstance(pue_ids_list, list):
+                raise HTTPException(status_code=400, detail="pue_item_ids must be an array")
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid pue_item_ids JSON")
+
+        # Delete existing mappings
+        db.query(CostStructurePUEItem).filter(
+            CostStructurePUEItem.structure_id == structure_id
+        ).delete()
+
+        # Create new mappings
+        for pid in pue_ids_list:
+            mapping = CostStructurePUEItem(
+                structure_id=structure_id,
+                pue_id=str(pid)
+            )
+            db.add(mapping)
+
     db.commit()
     db.refresh(structure)
 
-    # Return with components and duration options
+    # Return with components, duration options, and pue_item_ids
     components_list = db.query(CostComponent).filter(
         CostComponent.structure_id == structure.structure_id
     ).order_by(CostComponent.sort_order).all()
@@ -10557,6 +10848,10 @@ async def update_cost_structure(
     duration_opts = db.query(CostStructureDurationOption).filter(
         CostStructureDurationOption.structure_id == structure.structure_id
     ).order_by(CostStructureDurationOption.sort_order).all()
+
+    pue_mappings = db.query(CostStructurePUEItem).filter(
+        CostStructurePUEItem.structure_id == structure.structure_id
+    ).all()
 
     return {
         "structure_id": structure.structure_id,
@@ -10567,6 +10862,8 @@ async def update_cost_structure(
         "item_reference": structure.item_reference,
         "is_active": structure.is_active,
         "count_initial_checkout_as_recharge": structure.count_initial_checkout_as_recharge,
+        "deposit_amount": float(structure.deposit_amount) if structure.deposit_amount else 0,
+        "pue_item_ids": [m.pue_id for m in pue_mappings],
         "created_at": structure.created_at,
         "updated_at": structure.updated_at,
         "components": [{
@@ -10613,6 +10910,60 @@ async def delete_cost_structure(
     db.commit()
 
     return {"message": "Cost structure deleted"}
+
+@app.post("/settings/cost-structures/{structure_id}/pue-items", tags=["Settings"])
+async def add_pue_item_to_cost_structure(
+    structure_id: int,
+    pue_id: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Add a PUE item to a cost structure's junction table mapping"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    structure = db.query(CostStructure).filter(CostStructure.structure_id == structure_id).first()
+    if not structure:
+        raise HTTPException(status_code=404, detail="Cost structure not found")
+
+    # Check if mapping already exists
+    existing = db.query(CostStructurePUEItem).filter(
+        CostStructurePUEItem.structure_id == structure_id,
+        CostStructurePUEItem.pue_id == pue_id
+    ).first()
+    if existing:
+        return {"message": "PUE item already mapped to this cost structure"}
+
+    mapping = CostStructurePUEItem(
+        structure_id=structure_id,
+        pue_id=pue_id
+    )
+    db.add(mapping)
+    db.commit()
+
+    return {"message": "PUE item added to cost structure", "structure_id": structure_id, "pue_id": pue_id}
+
+@app.delete("/settings/cost-structures/{structure_id}/pue-items/{pue_id}", tags=["Settings"])
+async def remove_pue_item_from_cost_structure(
+    structure_id: int,
+    pue_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Remove a PUE item from a cost structure's junction table mapping"""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    deleted = db.query(CostStructurePUEItem).filter(
+        CostStructurePUEItem.structure_id == structure_id,
+        CostStructurePUEItem.pue_id == pue_id
+    ).delete()
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+
+    db.commit()
+    return {"message": "PUE item removed from cost structure"}
 
 @app.post("/settings/cost-structures/{structure_id}/estimate", tags=["Settings"])
 async def estimate_rental_cost(

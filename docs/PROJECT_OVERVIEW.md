@@ -509,6 +509,9 @@ docker-compose up -d
 4. **frontend/README.md** - Frontend-specific documentation
 5. **PROJECT_OVERVIEW.md** - This file
 6. **.env.docker.example** - All environment variables with explanations
+7. **WIFI_BATCH_UPLOAD.md** - WiFi store-and-forward batch upload system (firmware + backend)
+8. **OFFLINE_PWA.md** - Offline PWA system with optimistic updates and sync
+9. **BATTERY_ERROR_SYSTEM.md** - Battery error tracking and smart notifications
 
 ## Next Steps
 

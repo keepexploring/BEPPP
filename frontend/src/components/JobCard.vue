@@ -79,7 +79,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { date } from 'quasar'
+import { formatDateWithTimezone } from 'src/utils/dateFormat'
 
 const props = defineProps({
   card: {
@@ -120,11 +120,7 @@ const getEntityIcon = () => {
   return icons[props.card.linked_entity_type] || 'link'
 }
 
-// Format date
-const formatDate = (dateString) => {
-  if (!dateString) return ''
-  return date.formatDate(new Date(dateString), 'MMM D, YYYY')
-}
+const formatDate = (dateString) => formatDateWithTimezone(dateString, 'date')
 </script>
 
 <style scoped>

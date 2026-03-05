@@ -1,5 +1,12 @@
 <template>
   <q-page class="q-pa-md">
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Showing cached data.
+    </q-banner>
+
     <div class="row items-center q-mb-md q-col-gutter-sm">
       <div class="col-12 col-sm">
         <q-btn
@@ -287,7 +294,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, inject, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { hubsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
@@ -297,6 +304,8 @@ import { useQuasar } from 'quasar'
 const $q = useQuasar()
 const route = useRoute()
 const authStore = useAuthStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 const hubSettingsStore = useHubSettingsStore()
 
 const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
@@ -362,11 +371,13 @@ const loadHubDetails = async () => {
       users.value = usersResponse.data
     }
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load hub details',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load hub details',
+        position: 'top'
+      })
+    }
   } finally {
     loading.value = false
   }
@@ -389,11 +400,13 @@ const saveHub = async () => {
     showEditDialog.value = false
     await loadHubDetails()
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to update hub',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to update hub',
+        position: 'top'
+      })
+    }
   } finally {
     saving.value = false
   }

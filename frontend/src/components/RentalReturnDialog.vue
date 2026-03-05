@@ -9,7 +9,7 @@
       </q-card-section>
 
       <!-- Loading State -->
-      <q-card-section v-if="loadingCost && !costCalculation" class="q-pt-none">
+      <q-card-section v-if="loadingCost && !costCalculation && !costUnavailable" class="q-pt-none">
         <q-card flat bordered>
           <q-card-section class="text-center q-py-md">
             <q-spinner color="primary" size="40px" />
@@ -18,8 +18,28 @@
         </q-card>
       </q-card-section>
 
+      <!-- Cost Unavailable (offline) -->
+      <q-card-section v-if="costUnavailable && !costCalculation" class="q-pt-none">
+        <q-banner class="bg-orange-1 text-orange-9" rounded>
+          <template v-slot:avatar>
+            <q-icon name="cloud_off" color="orange" />
+          </template>
+          <div class="text-body2">
+            <strong>Cost calculation unavailable offline.</strong> You can still complete the return — the cost will be calculated when the device syncs.
+          </div>
+        </q-banner>
+      </q-card-section>
+
       <!-- Cost Breakdown Section -->
       <q-card-section v-if="costCalculation" class="q-pt-none">
+        <q-banner v-if="costCalculation._offlineEstimate" class="bg-orange-1 text-orange-9 q-mb-md" rounded>
+          <template v-slot:avatar>
+            <q-icon name="cloud_off" color="orange" />
+          </template>
+          <div class="text-body2">
+            <strong>Estimated offline.</strong> Final cost will be calculated when the device syncs.
+          </div>
+        </q-banner>
         <q-card flat bordered>
           <q-card-section>
             <div class="text-subtitle2 q-mb-md">Final Cost Calculation</div>
@@ -463,7 +483,7 @@
               label="Confirm Return"
               color="primary"
               :loading="saving"
-              :disable="formData.collectPayment && !paymentReceived"
+              :disable="formData.collectPayment && !paymentReceived && !costUnavailable"
               @click="onConfirm"
             />
           </div>
@@ -489,6 +509,7 @@ import { useQuasar, date } from 'quasar'
 import { batteryRentalsAPI, pueRentalsAPI, settingsAPI } from 'src/services/api'
 import { useHubSettingsStore } from 'stores/hubSettings'
 import { useAuthStore } from 'stores/auth'
+import { calculateReturnCostLocally } from 'src/services/offlineCostCalculator'
 import ReturnSurveyDialog from './ReturnSurveyDialog.vue'
 
 const $q = useQuasar()
@@ -530,6 +551,7 @@ const showDialog = computed({
 })
 
 const costCalculation = ref(null)
+const costUnavailable = ref(false)
 const loadingCost = ref(false)
 const saving = ref(false)
 const paymentReceived = ref(false)
@@ -605,6 +627,7 @@ const fetchCostCalculation = async () => {
 
   console.log('Fetching cost calculation for rental ID:', rentalId, 'Type:', rentalType.value)
   loadingCost.value = true
+  costUnavailable.value = false
   try {
     const params = {}
     if (formData.value.kwhEndReading) {
@@ -623,15 +646,33 @@ const fetchCostCalculation = async () => {
     }
   } catch (error) {
     console.error('Failed to fetch cost calculation:', error)
-    console.error('Error details:', error.response?.data)
-    console.error('Error status:', error.response?.status)
-    const errorMsg = error.response?.data?.detail || error.message || 'Failed to calculate return cost'
-    $q.notify({
-      type: 'negative',
-      message: `Cost Calculation Error: ${errorMsg}`,
-      position: 'top',
-      timeout: 5000
-    })
+    // If offline or network error, try local calculator before falling back
+    if (!navigator.onLine || error.code === 'ERR_NETWORK' || error.message === 'Network Error' || error._offlineResponse) {
+      try {
+        const localResult = await calculateReturnCostLocally(props.rental, rentalType.value)
+        if (localResult) {
+          costCalculation.value = localResult
+          // Update payment amount if owed
+          if (localResult.payment_status.amount_still_owed > 0) {
+            formData.value.collectPayment = true
+            formData.value.payment_amount = localResult.payment_status.amount_still_owed
+          }
+        } else {
+          costUnavailable.value = true
+        }
+      } catch (localErr) {
+        console.error('Local cost calculation also failed:', localErr)
+        costUnavailable.value = true
+      }
+    } else {
+      const errorMsg = error.response?.data?.detail || error.message || 'Failed to calculate return cost'
+      $q.notify({
+        type: 'negative',
+        message: `Cost Calculation Error: ${errorMsg}`,
+        position: 'top',
+        timeout: 5000
+      })
+    }
   } finally {
     loadingCost.value = false
   }
@@ -787,6 +828,7 @@ const onCancel = () => {
 
 const onHide = () => {
   costCalculation.value = null
+  costUnavailable.value = false
 }
 
 const onSurveySubmitted = () => {

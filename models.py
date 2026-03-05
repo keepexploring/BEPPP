@@ -224,7 +224,13 @@ class LiveData(Base):
     tilt_sensor_state = Column(Integer, nullable=True)
     total_charge_consumed = Column(Float, nullable=True)
     err = Column(String(255), nullable=True)  # Error messages if any
-    
+    awake_state = Column(Integer, nullable=True)  # 1=awake, 0=asleep at log time
+
+    # RTC corruption recovery fields
+    raw_timestamp = Column(String(100), nullable=True)  # Stores corrupt d/tm/gd/gt strings for debugging
+    timestamp_reconstructed = Column(Boolean, nullable=True)  # True if timestamp was reconstructed by script
+    is_final_batch = Column(Boolean, nullable=True)  # True if entry was in the firmware's final batch
+
     # Record metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     
@@ -485,6 +491,20 @@ class CostStructure(Base):
     hub = relationship("SolarHub", foreign_keys=[hub_id])
     components = relationship("CostComponent", back_populates="structure", cascade="all, delete-orphan")
     duration_options = relationship("CostStructureDurationOption", back_populates="structure", cascade="all, delete-orphan")
+
+
+class CostStructurePUEItem(Base):
+    """Junction table mapping cost structures to multiple PUE items"""
+    __tablename__ = 'cost_structure_pue_items'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    structure_id = Column(Integer, ForeignKey('cost_structures.structure_id', ondelete='CASCADE'), nullable=False)
+    pue_id = Column(String(50), ForeignKey('productiveuseequipment.pue_id', ondelete='CASCADE'), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    structure = relationship("CostStructure", backref="pue_item_mappings")
+    pue_item = relationship("ProductiveUseEquipment")
 
 
 class CostComponent(Base):

@@ -1,5 +1,12 @@
 <template>
   <q-page class="q-pa-md">
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Showing cached data.
+    </q-banner>
+
     <!-- Header -->
     <div class="row items-center q-mb-md">
       <div class="col">
@@ -204,13 +211,15 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, inject, computed, onMounted } from 'vue'
 import { useQuasar } from 'quasar'
 import { jobCardsAPI } from 'src/services/api'
 import JobCard from 'src/components/JobCard.vue'
 import JobCardDialog from 'src/components/JobCardDialog.vue'
 
 const $q = useQuasar()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 
 const loading = ref(false)
 const cards = ref([])
@@ -239,11 +248,13 @@ const loadCards = async () => {
     cards.value = response.data.cards || []
   } catch (error) {
     console.error('Failed to load job cards:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load job cards',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load job cards',
+        position: 'top'
+      })
+    }
   } finally {
     loading.value = false
   }
@@ -288,6 +299,7 @@ const allowDrop = (event) => {
 const handleDrop = async (event, newStatus) => {
   event.preventDefault()
 
+  if (isOffline.value) return
   if (!draggedCard.value) return
 
   const card = draggedCard.value
@@ -315,11 +327,13 @@ const handleDrop = async (event, newStatus) => {
     })
   } catch (error) {
     console.error('Failed to update card status:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to move card',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to move card',
+        position: 'top'
+      })
+    }
   } finally {
     draggedCard.value = null
   }

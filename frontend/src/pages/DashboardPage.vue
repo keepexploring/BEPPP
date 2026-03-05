@@ -5,6 +5,13 @@
       <HubFilter v-if="authStore.isSuperAdmin" v-model="selectedHub" @change="onHubChange" />
     </div>
 
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Dashboard data shown from cache.
+    </q-banner>
+
     <div class="row q-col-gutter-md">
       <!-- Quick Actions - AT TOP -->
       <div class="col-12">
@@ -504,16 +511,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, inject, onMounted, computed } from 'vue'
 import { hubsAPI, rentalsAPI } from 'src/services/api'
-import { useQuasar, date } from 'quasar'
+import { useQuasar } from 'quasar'
 import HubFilter from 'src/components/HubFilter.vue'
 import { useHubSettingsStore } from 'stores/hubSettings'
 import { useAuthStore } from 'stores/auth'
+import { formatDateWithTimezone } from 'src/utils/dateFormat'
 
 const $q = useQuasar()
 const hubSettingsStore = useHubSettingsStore()
 const authStore = useAuthStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 const selectedHub = ref(null)
 
 const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
@@ -569,10 +579,7 @@ const upcomingCount = computed(() => upcomingRentals.value.length)
 const overdueInspectionsCount = computed(() => overdueInspections.value.length)
 const dueSoonInspectionsCount = computed(() => dueSoonInspections.value.length)
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm') + ' UTC'
-}
+const formatDate = (dateStr) => formatDateWithTimezone(dateStr, 'short')
 
 const getBatteryStatusColor = (status) => {
   const colors = {
@@ -709,14 +716,16 @@ const loadDashboardData = async () => {
 
   } catch (error) {
     console.error('Dashboard load error:', error)
-    const errorMessage = error.response?.data?.detail ||
-                         error.message ||
-                         'Failed to load dashboard data'
-    $q.notify({
-      type: 'negative',
-      message: errorMessage,
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      const errorMessage = error.response?.data?.detail ||
+                           error.message ||
+                           'Failed to load dashboard data'
+      $q.notify({
+        type: 'negative',
+        message: errorMessage,
+        position: 'top'
+      })
+    }
   } finally {
     $q.loading.hide()
   }

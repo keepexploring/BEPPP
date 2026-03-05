@@ -1,5 +1,12 @@
 <template>
   <q-page class="q-pa-md">
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Showing cached data. Changes will sync when reconnected.
+    </q-banner>
+
     <div class="row items-center q-mb-md">
       <div class="col">
         <div class="text-h4">Rentals</div>
@@ -436,11 +443,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, inject, computed, onMounted } from 'vue'
 import { batteryRentalsAPI, hubsAPI, usersAPI, batteriesAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
 import { useQuasar, date } from 'quasar'
+import { formatDateWithTimezone } from 'src/utils/dateFormat'
 import { parseQRData } from 'src/composables/useQRCode'
 import QRScanner from 'src/components/QRScanner.vue'
 import UserSearch from 'src/components/UserSearch.vue'
@@ -448,6 +456,8 @@ import UserSearch from 'src/components/UserSearch.vue'
 const $q = useQuasar()
 const authStore = useAuthStore()
 const hubSettingsStore = useHubSettingsStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 
 // Currency symbol from hub settings
 const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
@@ -508,10 +518,7 @@ const getStatusColor = (status) => {
   return colors[status] || 'grey'
 }
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm') + ' UTC'
-}
+const formatDate = (dateStr) => formatDateWithTimezone(dateStr, 'short')
 
 const loadRentals = async () => {
   loading.value = true
@@ -523,11 +530,13 @@ const loadRentals = async () => {
       position: 'top'
     })
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load rentals',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load rentals',
+        position: 'top'
+      })
+    }
   } finally {
     loading.value = false
   }
@@ -677,11 +686,13 @@ const saveRental = async () => {
     closeDialog()
     loadRentals()
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to save rental',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to save rental',
+        position: 'top'
+      })
+    }
   } finally {
     saving.value = false
   }
@@ -713,11 +724,13 @@ const confirmReturn = async () => {
     showReturnDialog.value = false
     loadRentals()
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to return rental',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to return rental',
+        position: 'top'
+      })
+    }
   } finally {
     saving.value = false
   }

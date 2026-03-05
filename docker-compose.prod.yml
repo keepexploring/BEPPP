@@ -49,6 +49,7 @@ services:
       DEBUG: ${DEBUG:-False}
       USER_TOKEN_EXPIRE_HOURS: ${USER_TOKEN_EXPIRE_HOURS:-24}
       BATTERY_TOKEN_EXPIRE_HOURS: ${BATTERY_TOKEN_EXPIRE_HOURS:-8760}
+      WEBHOOK_LOG_LIMIT: ${WEBHOOK_LOG_LIMIT:-100}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
       PANEL_URL: ${PANEL_URL:-http://localhost:5100}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:8000,http://localhost:5100}

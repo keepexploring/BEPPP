@@ -244,11 +244,14 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, inject, watch } from 'vue'
 import { useQuasar } from 'quasar'
 import { jobCardsAPI, batteriesAPI, pueAPI, hubsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
-import { date } from 'quasar'
+import { formatDateWithTimezone } from 'src/utils/dateFormat'
+
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 
 const props = defineProps({
   modelValue: {
@@ -382,11 +385,13 @@ const loadData = async () => {
       }
     } catch (error) {
       console.error('Failed to load card:', error)
-      $q.notify({
-        type: 'negative',
-        message: 'Failed to load job card',
-        position: 'top'
-      })
+      if (!isOffline.value) {
+        $q.notify({
+          type: 'negative',
+          message: 'Failed to load job card',
+          position: 'top'
+        })
+      }
     } finally {
       loading.value = false
     }
@@ -457,10 +462,11 @@ const save = async () => {
         position: 'top'
       })
     } else {
-      await jobCardsAPI.create(payload)
+      const response = await jobCardsAPI.create(payload)
+      const queued = response.data?._offlineQueued
       $q.notify({
-        type: 'positive',
-        message: 'Job card created successfully',
+        type: queued ? 'info' : 'positive',
+        message: queued ? 'Job card queued for sync' : 'Job card created successfully',
         position: 'top'
       })
     }
@@ -469,11 +475,13 @@ const save = async () => {
     closeDialog()
   } catch (error) {
     console.error('Failed to save card:', error)
-    $q.notify({
-      type: 'negative',
-      message: `Failed to ${isEditMode.value ? 'update' : 'create'} job card`,
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: `Failed to ${isEditMode.value ? 'update' : 'create'} job card`,
+        position: 'top'
+      })
+    }
   } finally {
     saving.value = false
   }
@@ -499,11 +507,13 @@ const addComment = async () => {
     })
   } catch (error) {
     console.error('Failed to add comment:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to add comment',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to add comment',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -526,11 +536,13 @@ const confirmDelete = () => {
       closeDialog()
     } catch (error) {
       console.error('Failed to delete card:', error)
-      $q.notify({
-        type: 'negative',
-        message: 'Failed to delete job card',
-        position: 'top'
-      })
+      if (!isOffline.value) {
+        $q.notify({
+          type: 'negative',
+          message: 'Failed to delete job card',
+          position: 'top'
+        })
+      }
     }
   })
 }
@@ -711,10 +723,7 @@ const getActivityIcon = (type) => {
   return icons[type] || 'info'
 }
 
-const formatActivityDate = (dateString) => {
-  if (!dateString) return ''
-  return date.formatDate(new Date(dateString), 'MMM D, YYYY h:mm A')
-}
+const formatActivityDate = (dateString) => formatDateWithTimezone(dateString, 'short')
 </script>
 
 <style scoped>

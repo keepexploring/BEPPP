@@ -1,5 +1,12 @@
 <template>
   <q-page class="q-pa-md">
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Showing cached data.
+    </q-banner>
+
     <div class="row items-center q-mb-md q-col-gutter-sm">
       <div class="col-12 col-sm">
         <q-btn flat round dense icon="arrow_back" @click="$router.back()" />
@@ -15,6 +22,7 @@
           @click="showSecretDialog = true"
           size="sm"
           class="col-12 col-sm-auto"
+          :disable="isOffline"
         />
         <q-btn
           v-if="authStore.isAdmin && battery"
@@ -334,6 +342,7 @@
             color="primary"
             :loading="resettingSecret"
             @click="resetBatterySecret"
+            :disable="isOffline"
           />
         </q-card-actions>
       </q-card>
@@ -447,17 +456,20 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, inject, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { batteriesAPI, dataAPI, hubsAPI, batteryRentalsAPI, notificationsAPI } from 'src/services/api'
-import { useQuasar, date, copyToClipboard } from 'quasar'
+import { useQuasar, copyToClipboard } from 'quasar'
 import { useAuthStore } from 'stores/auth'
 import ErrorHistoryTable from 'src/components/ErrorHistoryTable.vue'
 import JobCardDialog from 'src/components/JobCardDialog.vue'
+import { formatDateWithTimezone } from 'src/utils/dateFormat'
 
 const $q = useQuasar()
 const route = useRoute()
 const authStore = useAuthStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 
 const battery = ref(null)
 const batteryId = computed(() => route.params.id)
@@ -514,10 +526,7 @@ const getRentalStatusColor = (status) => {
   return colors[status] || 'grey'
 }
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm:ss') + ' UTC'
-}
+const formatDate = (dateStr) => formatDateWithTimezone(dateStr)
 
 const getTimestampDifference = (timestamp1, timestamp2) => {
   if (!timestamp1 || !timestamp2) return 0
@@ -570,11 +579,13 @@ const resetBatterySecret = async () => {
       position: 'top'
     })
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to reset battery secret',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to reset battery secret',
+        position: 'top'
+      })
+    }
   } finally {
     resettingSecret.value = false
   }
@@ -632,11 +643,13 @@ const saveNote = async () => {
     noteCondition.value = null
     createNotification.value = false
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to add note',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to add note',
+        position: 'top'
+      })
+    }
   } finally {
     savingNote.value = false
   }
@@ -660,11 +673,13 @@ const createNotificationFromNote = async (note) => {
       position: 'top'
     })
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to create notification',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to create notification',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -700,17 +715,19 @@ const loadBatteryDetails = async () => {
     const response = await batteriesAPI.get(batteryId)
     battery.value = response.data
 
-    await Promise.all([
+    await Promise.allSettled([
       loadLatestData(),
       loadRentalHistory(),
       loadNotes()
     ])
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load battery details',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load battery details',
+        position: 'top'
+      })
+    }
   } finally {
     loading.value = false
   }
@@ -770,11 +787,13 @@ const saveBattery = async () => {
       status: battery.value.status
     }
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to update battery',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to update battery',
+        position: 'top'
+      })
+    }
   } finally {
     saving.value = false
   }

@@ -1,5 +1,12 @@
 <template>
   <q-page class="q-pa-md">
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Showing cached data.
+    </q-banner>
+
     <div class="row items-center q-mb-md">
       <div class="col">
         <q-btn flat round dense icon="arrow_back" @click="$router.back()" />
@@ -210,10 +217,11 @@
                     size="sm"
                     color="orange"
                     icon="refresh"
+                    :disable="isOffline"
                     @click="recalculateCost"
                     class="q-ml-sm"
                   >
-                    <q-tooltip>Recalculate cost for this returned rental</q-tooltip>
+                    <q-tooltip>{{ isOffline ? 'Recalculate unavailable offline' : 'Recalculate cost for this returned rental' }}</q-tooltip>
                   </q-btn>
                 </div>
               </div>
@@ -684,16 +692,20 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, inject, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api, { rentalsAPI, batteryRentalsAPI, pueRentalsAPI } from 'src/services/api'
-import { useQuasar, date } from 'quasar'
+import { useQuasar } from 'quasar'
 import RentalReturnDialog from 'components/RentalReturnDialog.vue'
 import { useHubSettingsStore } from 'stores/hubSettings'
+import { calculateReturnCostLocally } from 'src/services/offlineCostCalculator'
+import { formatDateWithTimezone } from 'src/utils/dateFormat'
 
 const $q = useQuasar()
 const route = useRoute()
 const router = useRouter()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 const hubSettingsStore = useHubSettingsStore()
 
 const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
@@ -904,10 +916,7 @@ const getStatusColor = (status) => {
   return colors[status] || 'grey'
 }
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm') + ' UTC'
-}
+const formatDate = (dateStr) => formatDateWithTimezone(dateStr, 'short')
 
 const getUserDisplayName = (user) => {
   if (!user) return 'Unknown User'
@@ -994,11 +1003,13 @@ const loadRentalDetails = async () => {
     }
   } catch (error) {
     console.error('Failed to load rental:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load rental details',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load rental details',
+        position: 'top'
+      })
+    }
   } finally {
     loading.value = false
   }
@@ -1040,11 +1051,13 @@ const confirmBatteryReturn = async () => {
     // Reload rental details to show updated status
     await loadRentalDetails()
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to return battery',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to return battery',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -1074,11 +1087,13 @@ const confirmPUEReturn = async () => {
     // Reload rental details to show updated status
     await loadRentalDetails()
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to return PUE item',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to return PUE item',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -1104,11 +1119,30 @@ const calculateReturnCost = async () => {
       position: 'top'
     })
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to calculate cost',
-      position: 'top'
-    })
+    if (!navigator.onLine || error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+      try {
+        const rentalType = route.name === 'pue-rental-detail' ? 'pue' : 'battery'
+        const localResult = await calculateReturnCostLocally(rentalData.value, rentalType)
+        if (localResult) {
+          calculatedCost.value = localResult
+          if (localResult.payment_status?.amount_still_owed > 0) {
+            needsPayment.value = true
+          }
+          $q.notify({ type: 'info', message: 'Offline estimate calculated', position: 'top' })
+        } else {
+          $q.notify({ type: 'warning', message: 'Cost data unavailable offline', position: 'top' })
+        }
+      } catch (localErr) {
+        console.error('Local cost calculation failed:', localErr)
+        $q.notify({ type: 'warning', message: 'Cost data unavailable offline', position: 'top' })
+      }
+    } else {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to calculate cost',
+        position: 'top'
+      })
+    }
   } finally {
     calculatingCost.value = false
   }
@@ -1159,11 +1193,13 @@ const confirmFullReturn = async () => {
     // Reload rental details to show updated status
     await loadRentalDetails()
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to return rental',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to return rental',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -1191,11 +1227,13 @@ const recalculateCost = async () => {
     await loadRentalDetails()
   } catch (error) {
     console.error('Failed to recalculate cost:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to recalculate cost',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to recalculate cost',
+        position: 'top'
+      })
+    }
   } finally {
     $q.loading.hide()
   }
@@ -1270,11 +1308,13 @@ const collectPayment = async () => {
     await loadRentalDetails()
   } catch (error) {
     console.error('Failed to record payment:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to record payment',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to record payment',
+        position: 'top'
+      })
+    }
   } finally {
     $q.loading.hide()
   }

@@ -1,31 +1,37 @@
-import { date } from 'quasar'
 import { useHubSettingsStore } from 'stores/hubSettings'
 
 /**
- * Format a date string with timezone from hub settings
- * @param {string|Date} dateStr - Date to format
- * @param {string} format - Format string (Quasar date format)
- * @returns {string} Formatted date with timezone
+ * Format a date string with proper timezone conversion using hub settings.
+ * Converts UTC dates to the hub's configured timezone.
+ * @param {string|Date} dateStr - Date to format (assumed UTC)
+ * @param {string} format - 'datetime' (default, with seconds), 'short' (no seconds), or 'date' (date only)
+ * @returns {string} Formatted date in hub timezone
  */
-export function formatDateWithTimezone(dateStr, format = 'MMM DD, YYYY HH:mm:ss') {
+export function formatDateWithTimezone(dateStr, format = 'datetime') {
   if (!dateStr) return '-'
-
   const hubSettingsStore = useHubSettingsStore()
-  const timezone = hubSettingsStore.currentTimezone || 'UTC'
+  const tz = hubSettingsStore.currentTimezone || 'UTC'
+  const d = new Date(dateStr)
+  if (isNaN(d)) return '-'
 
-  return date.formatDate(dateStr, format) + ` ${timezone}`
+  const options = { timeZone: tz }
+  if (format === 'date') {
+    return d.toLocaleDateString('en-GB', { ...options, day: '2-digit', month: 'short', year: 'numeric' })
+  }
+  if (format === 'short') {
+    return d.toLocaleDateString('en-GB', { ...options, day: '2-digit', month: 'short', year: 'numeric' })
+      + ' ' + d.toLocaleTimeString('en-GB', { ...options, hour: '2-digit', minute: '2-digit', hour12: false })
+  }
+  // 'datetime' (default) - full with seconds
+  return d.toLocaleDateString('en-GB', { ...options, day: '2-digit', month: 'short', year: 'numeric' })
+    + ' ' + d.toLocaleTimeString('en-GB', { ...options, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 }
 
 /**
- * Format a date using toLocaleString with timezone
- * @param {string|Date} dateStr - Date to format
- * @returns {string} Formatted date with timezone
+ * Get the current timezone label from hub settings
+ * @returns {string} Timezone name (e.g. 'Africa/Lagos', 'UTC')
  */
-export function formatLocaleDateWithTimezone(dateStr) {
-  if (!dateStr) return ''
-
+export function getTimezoneLabel() {
   const hubSettingsStore = useHubSettingsStore()
-  const timezone = hubSettingsStore.currentTimezone || 'UTC'
-
-  return new Date(dateStr).toLocaleString() + ` ${timezone}`
+  return hubSettingsStore.currentTimezone || 'UTC'
 }

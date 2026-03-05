@@ -2,6 +2,13 @@
   <q-page class="q-pa-md">
     <div class="text-h4 q-mb-md">Settings</div>
 
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Settings shown from cache. Changes will sync when reconnected.
+    </q-banner>
+
     <!-- Hub Selector for Superadmins -->
     <q-card v-if="authStore.isSuperAdmin" flat bordered class="q-mb-md">
       <q-card-section>
@@ -52,7 +59,7 @@
       <q-tab-panel name="pue-types">
         <div class="row justify-between q-mb-md">
           <div class="text-h6">PUE Equipment Types</div>
-          <q-btn color="primary" label="Add Type" @click="showAddTypeDialog = true" />
+          <q-btn color="primary" label="Add Type" @click="showAddTypeDialog = true" :disable="isOffline" />
         </div>
 
         <q-table
@@ -63,8 +70,8 @@
         >
           <template v-slot:body-cell-actions="props">
             <q-td :props="props">
-              <q-btn flat round dense icon="edit" color="primary" @click="editType(props.row)" />
-              <q-btn flat round dense icon="delete" color="negative" @click="deleteType(props.row)" />
+              <q-btn flat round dense icon="edit" color="primary" @click="editType(props.row)" :disable="isOffline" />
+              <q-btn flat round dense icon="delete" color="negative" @click="deleteType(props.row)" :disable="isOffline" />
             </q-td>
           </template>
         </q-table>
@@ -74,7 +81,7 @@
       <q-tab-panel name="payment-types">
         <div class="row justify-between q-mb-md">
           <div class="text-h6">Payment Types</div>
-          <q-btn color="primary" label="Add Payment Type" icon="add" @click="showAddPaymentTypeDialog = true" />
+          <q-btn color="primary" label="Add Payment Type" icon="add" @click="showAddPaymentTypeDialog = true" :disable="isOffline" />
         </div>
 
         <div class="text-caption text-grey-7 q-mb-md">
@@ -101,10 +108,11 @@
                 :icon="props.row.is_active ? 'block' : 'check_circle'"
                 :color="props.row.is_active ? 'negative' : 'positive'"
                 @click="togglePaymentType(props.row)"
+                :disable="isOffline"
               >
                 <q-tooltip>{{ props.row.is_active ? 'Deactivate' : 'Activate' }}</q-tooltip>
               </q-btn>
-              <q-btn flat round dense icon="delete" color="negative" @click="deletePaymentType(props.row)" />
+              <q-btn flat round dense icon="delete" color="negative" @click="deletePaymentType(props.row)" :disable="isOffline" />
             </q-td>
           </template>
         </q-table>
@@ -128,6 +136,7 @@
               icon="add"
               size="sm"
               @click="openAddCustomerOptionDialog('gesi_status')"
+              :disable="isOffline"
             />
           </div>
           <div class="text-caption text-grey-7 q-mb-sm">
@@ -149,8 +158,8 @@
             </template>
             <template v-slot:body-cell-actions="props">
               <q-td :props="props">
-                <q-btn flat round dense icon="edit" color="primary" @click="editCustomerOption(props.row)" />
-                <q-btn flat round dense icon="delete" color="negative" @click="deleteCustomerOption(props.row)" />
+                <q-btn flat round dense icon="edit" color="primary" @click="editCustomerOption(props.row)" :disable="isOffline" />
+                <q-btn flat round dense icon="delete" color="negative" @click="deleteCustomerOption(props.row)" :disable="isOffline" />
               </q-td>
             </template>
           </q-table>
@@ -166,6 +175,7 @@
               icon="add"
               size="sm"
               @click="openAddCustomerOptionDialog('business_category')"
+              :disable="isOffline"
             />
           </div>
           <div class="text-caption text-grey-7 q-mb-sm">
@@ -187,8 +197,8 @@
             </template>
             <template v-slot:body-cell-actions="props">
               <q-td :props="props">
-                <q-btn flat round dense icon="edit" color="primary" @click="editCustomerOption(props.row)" />
-                <q-btn flat round dense icon="delete" color="negative" @click="deleteCustomerOption(props.row)" />
+                <q-btn flat round dense icon="edit" color="primary" @click="editCustomerOption(props.row)" :disable="isOffline" />
+                <q-btn flat round dense icon="delete" color="negative" @click="deleteCustomerOption(props.row)" :disable="isOffline" />
               </q-td>
             </template>
           </q-table>
@@ -204,6 +214,7 @@
               icon="add"
               size="sm"
               @click="openAddCustomerOptionDialog('main_reason_for_signup')"
+              :disable="isOffline"
             />
           </div>
           <div class="text-caption text-grey-7 q-mb-sm">
@@ -225,8 +236,8 @@
             </template>
             <template v-slot:body-cell-actions="props">
               <q-td :props="props">
-                <q-btn flat round dense icon="edit" color="primary" @click="editCustomerOption(props.row)" />
-                <q-btn flat round dense icon="delete" color="negative" @click="deleteCustomerOption(props.row)" />
+                <q-btn flat round dense icon="edit" color="primary" @click="editCustomerOption(props.row)" :disable="isOffline" />
+                <q-btn flat round dense icon="delete" color="negative" @click="deleteCustomerOption(props.row)" :disable="isOffline" />
               </q-td>
             </template>
           </q-table>
@@ -238,8 +249,8 @@
         <div class="row justify-between q-mb-md">
           <div class="text-h6">Return Survey Builder</div>
           <div class="q-gutter-sm">
-            <q-btn color="secondary" label="Export Responses" icon="download" @click="exportSurveyResponses" outline />
-            <q-btn color="primary" label="Add Question" icon="add" @click="resetSurveyQuestionForm(); editingSurveyQuestion = null; showAddSurveyQuestionDialog = true" />
+            <q-btn color="secondary" label="Export Responses" icon="download" @click="exportSurveyResponses" outline :disable="isOffline" />
+            <q-btn color="primary" label="Add Question" icon="add" @click="resetSurveyQuestionForm(); editingSurveyQuestion = null; showAddSurveyQuestionDialog = true" :disable="isOffline" />
           </div>
         </div>
 
@@ -265,6 +276,7 @@
                   :label="returnSurveyRequired ? 'Required' : 'Optional'"
                   color="primary"
                   size="lg"
+                  :disable="isOffline"
                 />
               </div>
             </div>
@@ -375,8 +387,8 @@
 
           <template v-slot:body-cell-actions="props">
             <q-td :props="props">
-              <q-btn flat round dense icon="edit" color="primary" @click="editSurveyQuestion(props.row)" />
-              <q-btn flat round dense icon="delete" color="negative" @click="deleteSurveyQuestion(props.row)" />
+              <q-btn flat round dense icon="edit" color="primary" @click="editSurveyQuestion(props.row)" :disable="isOffline" />
+              <q-btn flat round dense icon="delete" color="negative" @click="deleteSurveyQuestion(props.row)" :disable="isOffline" />
             </q-td>
           </template>
         </q-table>
@@ -386,7 +398,7 @@
       <q-tab-panel name="cost-structures">
         <div class="row justify-between q-mb-md">
           <div class="text-h6">Cost Structures</div>
-          <q-btn color="primary" label="Create Structure" icon="add" @click="showAddStructureDialog = true" />
+          <q-btn color="primary" label="Create Structure" icon="add" @click="showAddStructureDialog = true" :disable="isOffline" />
         </div>
 
         <div class="text-caption text-grey-7 q-mb-md">
@@ -434,7 +446,7 @@
 
           <template v-slot:body-cell-actions="props">
             <q-td :props="props">
-              <q-btn flat round dense icon="edit" color="primary" @click="editStructure(props.row)" />
+              <q-btn flat round dense icon="edit" color="primary" @click="editStructure(props.row)" :disable="isOffline" />
               <q-btn
                 flat
                 round
@@ -442,8 +454,9 @@
                 :icon="props.row.is_active ? 'visibility_off' : 'visibility'"
                 :color="props.row.is_active ? 'orange' : 'positive'"
                 @click="toggleStructureActive(props.row)"
+                :disable="isOffline"
               />
-              <q-btn flat round dense icon="delete" color="negative" @click="deleteStructure(props.row)" />
+              <q-btn flat round dense icon="delete" color="negative" @click="deleteStructure(props.row)" :disable="isOffline" />
             </q-td>
           </template>
         </q-table>
@@ -582,7 +595,7 @@
           </div>
 
           <div>
-            <q-btn label="Save Settings" type="submit" color="primary" />
+            <q-btn label="Save Settings" type="submit" color="primary" :disable="isOffline" />
           </div>
         </q-form>
       </q-tab-panel>
@@ -609,7 +622,7 @@
 
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
-          <q-btn flat :label="editingDuration ? 'Update' : 'Add'" color="primary" @click="saveDuration" />
+          <q-btn flat :label="editingDuration ? 'Update' : 'Add'" color="primary" @click="saveDuration" :disable="isOffline" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -628,7 +641,7 @@
 
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
-          <q-btn flat :label="editingType ? 'Update' : 'Add'" color="primary" @click="saveType" />
+          <q-btn flat :label="editingType ? 'Update' : 'Add'" color="primary" @click="saveType" :disable="isOffline" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -660,7 +673,7 @@
 
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
-          <q-btn flat label="Add" color="primary" @click="savePaymentType" />
+          <q-btn flat label="Add" color="primary" @click="savePaymentType" :disable="isOffline" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -919,7 +932,7 @@
 
         <q-card-actions align="right">
           <q-btn flat label="Cancel" @click="showAddSurveyQuestionDialog = false; editingSurveyQuestion = null; resetSurveyQuestionForm()" />
-          <q-btn flat label="Save Question" color="primary" @click="saveSurveyQuestion" />
+          <q-btn flat label="Save Question" color="primary" @click="saveSurveyQuestion" :disable="isOffline" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -1111,18 +1124,20 @@
 
           <q-select
             v-else-if="newStructure.item_type === 'pue_item'"
-            v-model="newStructure.item_reference"
+            v-model="newStructure.pue_item_ids"
             :options="filteredPUEItems"
             option-value="pue_id"
             :option-label="(item) => item ? `${item.pue_id} - ${item.name}` : ''"
             emit-value
             map-options
+            multiple
+            use-chips
             use-input
             input-debounce="300"
             @filter="filterPUEItemsForPricing"
-            label="PUE Item"
+            label="PUE Items"
             outlined
-            hint="Type to search by ID or name"
+            hint="Select one or more PUE items"
           >
             <template v-slot:no-option>
               <q-item>
@@ -1661,7 +1676,7 @@
             :label="editingStructure ? 'Update' : 'Create'"
             color="primary"
             @click="saveStructure"
-            :disable="!isStructureValid"
+            :disable="isOffline || !isStructureValid"
           />
         </q-card-actions>
       </q-card>
@@ -1838,7 +1853,7 @@
 
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
-          <q-btn flat label="Add" color="primary" @click="addPricing" />
+          <q-btn flat label="Add" color="primary" @click="addPricing" :disable="isOffline" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -1878,7 +1893,7 @@
 
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
-          <q-btn flat label="Add" color="primary" @click="saveCustomerOption('gesi_status')" />
+          <q-btn flat label="Add" color="primary" @click="saveCustomerOption('gesi_status')" :disable="isOffline" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -1918,7 +1933,7 @@
 
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
-          <q-btn flat label="Add" color="primary" @click="saveCustomerOption('business_category')" />
+          <q-btn flat label="Add" color="primary" @click="saveCustomerOption('business_category')" :disable="isOffline" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -1958,7 +1973,7 @@
 
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
-          <q-btn flat label="Add" color="primary" @click="saveCustomerOption('main_reason_for_signup')" />
+          <q-btn flat label="Add" color="primary" @click="saveCustomerOption('main_reason_for_signup')" :disable="isOffline" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -1966,7 +1981,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, inject, onMounted, watch } from 'vue'
 import { settingsAPI, hubsAPI, pueAPI, surveyAPI } from 'src/services/api'
 import { useQuasar } from 'quasar'
 import { useAuthStore } from 'stores/auth'
@@ -1974,6 +1989,8 @@ import { useAuthStore } from 'stores/auth'
 const $q = useQuasar()
 const authStore = useAuthStore()
 const defaultHubId = authStore.user?.hub_id
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 
 const tab = ref('pue-types')
 const loading = ref(false)
@@ -2164,6 +2181,7 @@ const newStructure = ref({
   description: '',
   item_type: 'battery_capacity',
   item_reference: '',
+  pue_item_ids: [],
   components: [],
   duration_options: [],
   count_initial_checkout_as_recharge: false,
@@ -2315,7 +2333,7 @@ const loadDurations = async () => {
     const response = await settingsAPI.getDurationPresets(activeHubId.value)
     durationPresets.value = response.data.presets
   } catch (error) {
-    $q.notify({ type: 'negative', message: 'Failed to load duration presets', position: 'top' })
+    if (navigator.onLine) $q.notify({ type: 'negative', message: 'Failed to load duration presets', position: 'top' })
   } finally {
     loading.value = false
   }
@@ -2329,7 +2347,7 @@ const loadTypes = async () => {
     pueTypes.value = response.data.pue_types || []
   } catch (error) {
     console.error('Failed to load PUE types:', error)
-    $q.notify({ type: 'negative', message: 'Failed to load PUE types', position: 'top' })
+    if (navigator.onLine) $q.notify({ type: 'negative', message: 'Failed to load PUE types', position: 'top' })
   } finally {
     loading.value = false
   }
@@ -2342,7 +2360,7 @@ const loadPricing = async () => {
     const response = await settingsAPI.getPricingConfigs({ hub_id: activeHubId.value })
     pricingConfigs.value = response.data.pricing_configs
   } catch (error) {
-    $q.notify({ type: 'negative', message: 'Failed to load pricing configs', position: 'top' })
+    if (navigator.onLine) $q.notify({ type: 'negative', message: 'Failed to load pricing configs', position: 'top' })
   } finally {
     loading.value = false
   }
@@ -2453,11 +2471,13 @@ const loadPaymentTypes = async () => {
     })
     paymentTypes.value = response.data.payment_types || []
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load payment types',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load payment types',
+        position: 'top'
+      })
+    }
   } finally {
     loadingPaymentTypes.value = false
   }
@@ -2565,11 +2585,13 @@ const loadCustomerFieldOptions = async () => {
     businessCategoryOptions.value = options.filter(opt => opt.field_name === 'business_category')
     signupReasonOptions.value = options.filter(opt => opt.field_name === 'main_reason_for_signup')
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load customer field options',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load customer field options',
+        position: 'top'
+      })
+    }
   } finally {
     loadingCustomerOptions.value = false
   }
@@ -2754,11 +2776,13 @@ const loadSurveyQuestions = async () => {
     surveyQuestions.value = response.data.questions || []
   } catch (error) {
     console.error('Failed to load survey questions:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load survey questions',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load survey questions',
+        position: 'top'
+      })
+    }
   } finally {
     loadingSurveyQuestions.value = false
   }
@@ -3346,7 +3370,7 @@ const loadCostStructures = async () => {
     const response = await settingsAPI.getCostStructures({ hub_id: activeHubId.value, is_active: null })
     costStructures.value = response.data.cost_structures
   } catch (error) {
-    $q.notify({ type: 'negative', message: 'Failed to load cost structures', position: 'top' })
+    if (navigator.onLine) $q.notify({ type: 'negative', message: 'Failed to load cost structures', position: 'top' })
   } finally {
     loading.value = false
   }
@@ -3484,6 +3508,8 @@ const onStructureItemTypeChange = () => {
   } else {
     newStructure.value.item_reference = ''
   }
+  // Reset pue_item_ids when type changes
+  newStructure.value.pue_item_ids = []
 
   // Clear pay-to-own if item type doesn't support it
   if (!['pue_item', 'battery_item'].includes(newStructure.value.item_type)) {
@@ -3533,19 +3559,31 @@ const saveStructure = async () => {
       return processed
     })
 
+    // For pue_item type, use pue_item_ids array and set item_reference from first item
+    let itemReference = newStructure.value.item_reference
+    let pueItemIdsParam = undefined
+    if (newStructure.value.item_type === 'pue_item' && newStructure.value.pue_item_ids && newStructure.value.pue_item_ids.length > 0) {
+      itemReference = String(newStructure.value.pue_item_ids[0])
+      if (newStructure.value.pue_item_ids.length > 1) {
+        itemReference = 'multiple'
+      }
+      pueItemIdsParam = JSON.stringify(newStructure.value.pue_item_ids)
+    }
+
     const structureData = {
       hub_id: activeHubId.value,
       name: newStructure.value.name,
       description: newStructure.value.description,
       item_type: newStructure.value.item_type,
-      item_reference: String(newStructure.value.item_reference),
+      item_reference: String(itemReference),
       components: JSON.stringify(newStructure.value.components),
       duration_options: processedDurationOptions.length > 0 ? JSON.stringify(processedDurationOptions) : undefined,
       count_initial_checkout_as_recharge: newStructure.value.count_initial_checkout_as_recharge,
       is_pay_to_own: newStructure.value.is_pay_to_own,
       item_total_cost: newStructure.value.item_total_cost,
       allow_multiple_items: newStructure.value.allow_multiple_items,
-      allow_custom_duration: newStructure.value.allow_custom_duration
+      allow_custom_duration: newStructure.value.allow_custom_duration,
+      pue_item_ids: pueItemIdsParam
     }
 
     if (editingStructure.value) {
@@ -3602,6 +3640,7 @@ const editStructure = (structure) => {
     description: structure.description || '',
     item_type: structure.item_type,
     item_reference: structure.item_reference,
+    pue_item_ids: structure.pue_item_ids || [],
     components: components,
     duration_options: durationOptions,
     count_initial_checkout_as_recharge: structure.count_initial_checkout_as_recharge !== undefined ? structure.count_initial_checkout_as_recharge : false,
@@ -3654,6 +3693,7 @@ const resetStructureForm = () => {
     description: '',
     item_type: 'battery_capacity',
     item_reference: '',
+    pue_item_ids: [],
     components: [],
     duration_options: [],
     count_initial_checkout_as_recharge: false,

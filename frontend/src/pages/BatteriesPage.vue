@@ -1,5 +1,12 @@
 <template>
   <q-page class="q-pa-md">
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Showing cached data.
+    </q-banner>
+
     <div class="row items-center q-mb-md q-col-gutter-sm">
       <div class="col-12 col-sm-auto">
         <div class="text-h5">Batteries</div>
@@ -178,8 +185,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
-import { batteriesAPI, hubsAPI, settingsAPI } from 'src/services/api'
+import { ref, inject, onMounted, computed } from 'vue'
+import { batteriesAPI, hubsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
 import { useQuasar } from 'quasar'
@@ -188,6 +195,8 @@ import HubFilter from 'src/components/HubFilter.vue'
 const $q = useQuasar()
 const authStore = useAuthStore()
 const hubSettingsStore = useHubSettingsStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 const selectedHub = ref(null)
 const currentTimezone = computed(() => hubSettingsStore.currentTimezone || 'UTC')
 
@@ -204,7 +213,7 @@ const pagination = ref({
   sortBy: 'battery_id',
   descending: false,
   page: 1,
-  rowsPerPage: 50
+  rowsPerPage: hubSettingsStore.currentTableRowsPerPage
 })
 
 const formData = ref({
@@ -292,11 +301,13 @@ const loadBatteries = async () => {
       batteries.value = allBatteries
     }
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load batteries',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load batteries',
+        position: 'top'
+      })
+    }
   } finally {
     loading.value = false
   }
@@ -334,11 +345,18 @@ const saveBattery = async () => {
       })
     } else {
       const result = await batteriesAPI.create(formData.value)
+      const queued = result.data?._offlineQueued
+      if (queued) {
+        // Add synthetic battery to local list immediately for offline UX
+        batteries.value = [...batteries.value, result.data]
+      }
       $q.notify({
-        type: 'positive',
-        message: result.short_id
-          ? `Battery created successfully! ID: ${result.short_id}`
-          : 'Battery created successfully',
+        type: queued ? 'info' : 'positive',
+        message: queued
+          ? 'Battery creation queued for sync'
+          : (result.data?.short_id
+            ? `Battery created successfully! ID: ${result.data.short_id}`
+            : 'Battery created successfully'),
         position: 'top',
         timeout: 5000
       })
@@ -347,11 +365,13 @@ const saveBattery = async () => {
     resetForm()
     loadBatteries()
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to save battery',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to save battery',
+        position: 'top'
+      })
+    }
   } finally {
     saving.value = false
   }
@@ -373,11 +393,13 @@ const deleteBattery = (battery) => {
       })
       loadBatteries()
     } catch (error) {
-      $q.notify({
-        type: 'negative',
-        message: 'Failed to delete battery',
-        position: 'top'
-      })
+      if (!isOffline.value) {
+        $q.notify({
+          type: 'negative',
+          message: 'Failed to delete battery',
+          position: 'top'
+        })
+      }
     }
   })
 }
@@ -393,23 +415,7 @@ const resetForm = () => {
   editingBattery.value = null
 }
 
-const loadHubSettings = async () => {
-  try {
-    const hubId = selectedHub.value || authStore.user?.hub_id
-    if (hubId) {
-      const response = await settingsAPI.getHubSettings(hubId)
-      if (response.data.default_table_rows_per_page) {
-        pagination.value.rowsPerPage = response.data.default_table_rows_per_page
-      }
-    }
-  } catch (error) {
-    console.error('Failed to load hub settings:', error)
-    // Keep default pagination if settings fail to load
-  }
-}
-
 onMounted(async () => {
-  await loadHubSettings()
   loadBatteries()
   loadHubs()
 })

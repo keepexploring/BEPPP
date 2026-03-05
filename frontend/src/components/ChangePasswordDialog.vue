@@ -243,9 +243,31 @@ const handleSubmit = async () => {
     return
   }
 
+  // Password change requires server to verify current password — can't work offline
+  if (!navigator.onLine) {
+    $q.notify({
+      type: 'warning',
+      message: 'Changing your password requires an internet connection. Please try again when online.',
+      position: 'top',
+      timeout: 4000
+    })
+    return
+  }
+
   loading.value = true
   try {
-    await usersAPI.changeOwnPassword(currentPassword.value, newPassword.value)
+    const response = await usersAPI.changeOwnPassword(currentPassword.value, newPassword.value)
+
+    // If this was queued offline (shouldn't happen with the check above, but safety net)
+    if (response?.data?._offlineQueued || response?._offlineResponse) {
+      $q.notify({
+        type: 'warning',
+        message: 'Changing your password requires an internet connection. Please try again when online.',
+        position: 'top',
+        timeout: 4000
+      })
+      return
+    }
 
     $q.notify({
       type: 'positive',

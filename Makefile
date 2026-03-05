@@ -1,5 +1,5 @@
 # Solar Hub API Test Makefile
-.PHONY: help setup test test-quick test-auth test-coverage clean backend-dev frontend-install frontend-dev frontend-build frontend-start dev dev-full db-start db-stop db-status docker-up docker-down docker-rebuild jupyter jupyter-stop jupyter-logs panel-restart jupyter-open subscription-billing subscription-billing-dry-run
+.PHONY: help setup test test-quick test-auth test-coverage clean backend-dev frontend-install frontend-dev frontend-build frontend-start frontend-test-offline test-batch-endpoint dev dev-full db-start db-stop db-status docker-up docker-down docker-rebuild jupyter jupyter-stop jupyter-logs panel-restart jupyter-open subscription-billing subscription-billing-dry-run reconstruct-timestamps reconstruct-timestamps-dry-run
 
 # Default target
 help:
@@ -32,10 +32,12 @@ help:
 	@echo "  make clean         - Clean test artifacts"
 	@echo ""
 	@echo "🎨 Frontend Commands:"
-	@echo "  make frontend-install - Install frontend dependencies"
-	@echo "  make frontend-dev     - Start frontend dev server (http://localhost:9000)"
-	@echo "  make frontend-build   - Build frontend for production"
-	@echo "  make frontend-start   - Start frontend production server locally"
+	@echo "  make frontend-install      - Install frontend dependencies"
+	@echo "  make frontend-dev          - Start frontend dev server (http://localhost:9000)"
+	@echo "  make frontend-build        - Build frontend for production"
+	@echo "  make frontend-start        - Start frontend production server locally"
+	@echo "  make frontend-test-offline - Run offline PWA tests (IndexedDB, caching, sync, workflows)"
+	@echo "  make test-batch-endpoint   - Test batch live data API endpoint (requires running server)"
 	@echo ""
 	@echo "🐳 Docker Commands (Production):"
 	@echo "  make docker-up        - Start all services with docker-compose"
@@ -52,6 +54,11 @@ help:
 	@echo "💰 Subscription Billing Commands:"
 	@echo "  make subscription-billing         - Process subscription billing (LIVE)"
 	@echo "  make subscription-billing-dry-run - Preview billing without charging"
+	@echo ""
+	@echo "🔧 RTC Timestamp Reconstruction:"
+	@echo "  make reconstruct-timestamps BATTERY_ID=1         - Reconstruct timestamps (LIVE)"
+	@echo "  make reconstruct-timestamps-dry-run BATTERY_ID=1 - Preview reconstruction"
+	@echo "  make reconstruct-timestamps-dry-run              - Preview all batteries"
 	@echo ""
 	@echo "==================================================================="
 
@@ -81,7 +88,7 @@ dev:
 	@echo "Once running, access:"
 	@echo "  📊 Backend API:  http://localhost:8000"
 	@echo "  📚 API Docs:     http://localhost:8000/docs"
-  💻 Frontend:     http://localhost:9000"
+	@echo "  💻 Frontend:     http://localhost:9000"
 	@echo "==================================================================="
 
 # Start database only (for development)
@@ -255,9 +262,7 @@ frontend-install:
 	@echo "✅ Frontend dependencies installed"
 
 # Start frontend dev server
-
-
-:
+frontend-dev:
 	@echo "🚀 Starting frontend dev server..."
 	@echo "Frontend will be available at http://localhost:9000"
 	@cd frontend && npm run dev
@@ -274,6 +279,16 @@ frontend-start:
 	@echo "🚀 Starting frontend production server..."
 	@npm install -g serve > /dev/null 2>&1 || true
 	@serve -s frontend/dist/pwa -l 3000
+
+# Run offline PWA tests (IndexedDB, caching, sync, entity chaining workflows)
+frontend-test-offline:
+	@echo "🧪 Running offline PWA tests..."
+	@cd frontend && node test-offline.mjs
+
+# Test batch live data endpoint (requires running server + TEST_BATTERY_SECRET env var)
+test-batch-endpoint:
+	@echo "🧪 Running batch endpoint tests..."
+	@python scripts/test_batch_endpoint.py
 
 # ============================================================================
 # Docker Commands
@@ -403,3 +418,27 @@ process_recurring_pue_payments-dry-run:
   # Live run
 process_recurring_pue_payments-live:
 	docker compose exec api python scripts/process_recurring_pue_payments.py
+
+# ============================================================================
+# RTC Timestamp Reconstruction
+# ============================================================================
+
+# Reconstruct corrupt RTC timestamps (live run)
+# Usage: make reconstruct-timestamps BATTERY_ID=1
+#        make reconstruct-timestamps  (all batteries)
+reconstruct-timestamps:
+ifdef BATTERY_ID
+	docker compose exec api python scripts/reconstruct_timestamps.py --battery-id $(BATTERY_ID)
+else
+	docker compose exec api python scripts/reconstruct_timestamps.py
+endif
+
+# Reconstruct corrupt RTC timestamps (dry run — preview only)
+# Usage: make reconstruct-timestamps-dry-run BATTERY_ID=1
+#        make reconstruct-timestamps-dry-run  (all batteries)
+reconstruct-timestamps-dry-run:
+ifdef BATTERY_ID
+	docker compose exec api python scripts/reconstruct_timestamps.py --dry-run --battery-id $(BATTERY_ID)
+else
+	docker compose exec api python scripts/reconstruct_timestamps.py --dry-run
+endif

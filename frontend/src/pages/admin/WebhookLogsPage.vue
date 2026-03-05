@@ -2,6 +2,13 @@
   <q-page class="q-pa-md">
     <div class="text-h4 q-mb-md">Webhook Logs</div>
 
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      Webhook logs require an internet connection. Showing cached data.
+    </q-banner>
+
     <q-card>
       <q-card-section>
         <div class="row q-col-gutter-md q-mb-md">
@@ -213,13 +220,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, inject, computed, onMounted, onUnmounted } from 'vue'
 import { adminAPI, batteriesAPI } from 'src/services/api'
-import { useQuasar, date } from 'quasar'
+import { useQuasar } from 'quasar'
 import { useHubSettingsStore } from 'stores/hubSettings'
+import { formatDateWithTimezone } from 'src/utils/dateFormat'
 
 const $q = useQuasar()
 const hubSettingsStore = useHubSettingsStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 
 const logs = ref([])
 const batteries = ref([])
@@ -258,7 +268,7 @@ const eventTypeOptions = [
 ]
 
 const pagination = ref({
-  rowsPerPage: 20
+  rowsPerPage: hubSettingsStore.currentTableRowsPerPage
 })
 
 const columns = [
@@ -271,11 +281,7 @@ const columns = [
   { name: 'actions', label: 'Actions', align: 'center' }
 ]
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  const timezone = hubSettingsStore.currentTimezone || 'UTC'
-  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm:ss') + ` ${timezone}`
-}
+const formatDate = (dateStr) => formatDateWithTimezone(dateStr)
 
 const formatJSON = (data) => {
   if (!data) return '-'
@@ -376,11 +382,13 @@ const loadLogs = async () => {
     logs.value = loadedLogs
   } catch (error) {
     console.error('Failed to load webhook logs:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to load webhook logs',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to load webhook logs',
+        position: 'top'
+      })
+    }
   } finally {
     loading.value = false
   }

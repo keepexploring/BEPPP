@@ -2,7 +2,7 @@ const { configure } = require('quasar/wrappers');
 
 module.exports = configure(function (/* ctx */) {
   return {
-    boot: ['axios', 'auth'],
+    boot: ['axios', 'auth', 'offline'],
 
     css: ['app.css'],
 
@@ -60,6 +60,36 @@ module.exports = configure(function (/* ctx */) {
       swFilename: 'sw.js',
       manifestFilename: 'manifest.json',
       useCredentialsForManifestTag: false,
+
+      workboxOptions: {
+        skipWaiting: true,
+        clientsClaim: true,
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/api/, /^\/auth/],
+        runtimeCaching: [
+          {
+            urlPattern: /\/(hubs|batteries|users|pue|rentals|battery-rentals|pue-rentals|settings|notifications|job-cards|accounts|analytics|data|inspections|return-survey|subscriptions)\b/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-cache',
+              expiration: {
+                maxAgeSeconds: 60 * 60 // 1 hour
+              },
+              networkTimeoutSeconds: 5
+            }
+          },
+          {
+            urlPattern: /\.(png|jpg|jpeg|svg|gif|webp|ico|woff2?|ttf|eot)$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'static-assets',
+              expiration: {
+                maxAgeSeconds: 7 * 24 * 60 * 60 // 1 week
+              }
+            }
+          }
+        ]
+      },
 
       manifest: {
         name: 'Battery Hub Manager',

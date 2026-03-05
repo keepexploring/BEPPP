@@ -279,14 +279,21 @@ const loadQuestions = async () => {
     })
   } catch (error) {
     console.error('Failed to load survey questions:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load survey questions',
-      position: 'top'
-    })
-    // Close dialog on error
-    showDialog.value = false
-    emit('skipped')
+    if (!navigator.onLine || error.code === 'ERR_NETWORK') {
+      // Offline: don't close dialog, cache warmer may have pre-fetched
+      // If truly no data, just skip gracefully
+      console.log('Offline: skipping survey load error')
+      showDialog.value = false
+      emit('skipped')
+    } else {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load survey questions',
+        position: 'top'
+      })
+      showDialog.value = false
+      emit('skipped')
+    }
   } finally {
     loading.value = false
   }
@@ -360,11 +367,21 @@ const onSubmit = async () => {
     showDialog.value = false
   } catch (error) {
     console.error('Failed to submit survey responses:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to submit survey responses',
-      position: 'top'
-    })
+    if (!navigator.onLine || error.code === 'ERR_NETWORK') {
+      $q.notify({
+        type: 'info',
+        message: 'Survey will be submitted when online',
+        position: 'top'
+      })
+      emit('submitted')
+      showDialog.value = false
+    } else {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to submit survey responses',
+        position: 'top'
+      })
+    }
   } finally {
     submitting.value = false
   }

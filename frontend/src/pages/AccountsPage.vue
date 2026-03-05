@@ -2,6 +2,13 @@
   <q-page class="q-pa-md">
     <div class="text-h4 q-mb-md">Accounts & Finance</div>
 
+    <q-banner v-if="isOffline" class="bg-blue text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Financial data may be outdated. Payments will sync when reconnected.
+    </q-banner>
+
     <!-- Navigation Tabs -->
     <q-tabs
       v-model="activeTab"
@@ -316,18 +323,21 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, inject, watch, onMounted } from 'vue'
 import { accountsAPI, hubsAPI, settingsAPI } from 'src/services/api'
 import { useQuasar } from 'quasar'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
 import { useRouter } from 'vue-router'
+import { formatDateWithTimezone } from 'src/utils/dateFormat'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
 const hubSettingsStore = useHubSettingsStore()
 const router = useRouter()
 const hubId = authStore.user?.hub_id
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 
 const loading = ref(false)
 const timePeriod = ref('all')
@@ -381,7 +391,7 @@ const loadSummary = async () => {
     summary.value = response.data
   } catch (error) {
     console.error('Failed to load summary:', error)
-    $q.notify({ type: 'negative', message: 'Failed to load financial summary', position: 'top' })
+    if (navigator.onLine) $q.notify({ type: 'negative', message: 'Failed to load financial summary', position: 'top' })
   } finally {
     loading.value = false
   }
@@ -406,7 +416,7 @@ const loadUsersInDebt = async () => {
   } catch (error) {
     console.error('Failed to load users in debt:', error)
     usersInDebt.value = []
-    $q.notify({ type: 'negative', message: 'Failed to load users with debt', position: 'top' })
+    if (navigator.onLine) $q.notify({ type: 'negative', message: 'Failed to load users with debt', position: 'top' })
   } finally {
     loading.value = false
   }
@@ -439,7 +449,9 @@ const submitPayment = async () => {
     await loadSummary()
   } catch (error) {
     console.error('Failed to record payment:', error)
-    $q.notify({ type: 'negative', message: 'Failed to record payment', position: 'top' })
+    if (!isOffline.value) {
+      $q.notify({ type: 'negative', message: 'Failed to record payment', position: 'top' })
+    }
   }
 }
 
@@ -451,7 +463,7 @@ const userPagination = ref({
   sortBy: 'user_id',
   descending: false,
   page: 1,
-  rowsPerPage: 25
+  rowsPerPage: hubSettingsStore.currentTableRowsPerPage
 })
 
 const userColumns = [
@@ -507,7 +519,7 @@ const transactionPagination = ref({
   sortBy: 'timestamp',
   descending: true,
   page: 1,
-  rowsPerPage: 25
+  rowsPerPage: hubSettingsStore.currentTableRowsPerPage
 })
 
 const transactionColumns = [
@@ -531,10 +543,7 @@ const filteredTransactions = computed(() => {
   )
 })
 
-const formatTimestamp = (timestamp) => {
-  if (!timestamp) return ''
-  return new Date(timestamp).toLocaleString() + ' UTC'
-}
+const formatTimestamp = (timestamp) => formatDateWithTimezone(timestamp, 'short')
 
 const loadAllTransactions = async () => {
   if (!hubId) return
@@ -571,7 +580,7 @@ const loadAllTransactions = async () => {
     allTransactions.value = flatTransactions
   } catch (error) {
     console.error('Failed to load transactions:', error)
-    $q.notify({ type: 'negative', message: 'Failed to load transactions', position: 'top' })
+    if (navigator.onLine) $q.notify({ type: 'negative', message: 'Failed to load transactions', position: 'top' })
   } finally {
     transactionsLoading.value = false
   }
@@ -623,7 +632,7 @@ const loadAllUsers = async () => {
     allUsers.value = await Promise.all(userPromises)
   } catch (error) {
     console.error('Failed to load users:', error)
-    $q.notify({ type: 'negative', message: 'Failed to load users', position: 'top' })
+    if (navigator.onLine) $q.notify({ type: 'negative', message: 'Failed to load users', position: 'top' })
   } finally {
     usersLoading.value = false
   }

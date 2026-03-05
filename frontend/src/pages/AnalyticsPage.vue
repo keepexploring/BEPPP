@@ -3,6 +3,13 @@
     <div class="q-pa-md">
       <div class="text-h4 q-mb-md">Analytics Dashboard</div>
 
+      <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+        <template v-slot:avatar>
+          <q-icon name="cloud_off" />
+        </template>
+        Analytics dashboard requires an internet connection.
+      </q-banner>
+
       <div class="row q-col-gutter-md q-mb-md">
         <div class="col-12 col-md-4">
           <q-select
@@ -35,6 +42,7 @@
             color="primary"
             @click="refreshDashboard"
             :loading="loading"
+            :disable="isOffline"
           />
         </div>
       </div>
@@ -65,6 +73,7 @@
                 color="primary"
                 class="q-mt-md"
                 @click="loadPanelDashboard"
+                :disable="isOffline"
               />
             </div>
           </div>
@@ -111,7 +120,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, inject, onMounted } from 'vue'
 import { hubsAPI, analyticsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
@@ -120,6 +129,8 @@ import { useQuasar } from 'quasar'
 const $q = useQuasar()
 const authStore = useAuthStore()
 const hubSettingsStore = useHubSettingsStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 
 const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 

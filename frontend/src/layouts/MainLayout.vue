@@ -19,6 +19,28 @@
 
         <q-space />
 
+        <q-chip
+          v-if="!networkOnline"
+          color="orange"
+          text-color="white"
+          icon="cloud_off"
+          dense
+          class="q-mr-sm"
+        >
+          Offline
+        </q-chip>
+
+        <q-chip
+          v-if="networkOnline && offlinePendingCount > 0"
+          color="blue"
+          text-color="white"
+          dense
+          class="q-mr-sm"
+        >
+          <q-icon name="sync" class="offline-spin q-mr-xs" size="xs" />
+          Syncing {{ offlinePendingCount }}
+        </q-chip>
+
         <q-btn flat round dense icon="notifications">
           <q-badge v-if="unreadCount > 0" color="red" floating>{{ unreadCount }}</q-badge>
           <q-menu max-width="400px">
@@ -264,14 +286,22 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, inject, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from 'stores/auth'
+import { useQuasar } from 'quasar'
 import { notificationsAPI } from 'src/services/api'
 
+const $q = useQuasar()
 const authStore = useAuthStore()
 const router = useRouter()
 const leftDrawerOpen = ref(false)
+
+// Offline state (provided by boot/offline.js)
+const networkState = inject('networkState', { online: ref(true) })
+const offlineSyncState = inject('offlineSyncState', { syncing: false, pendingCount: 0 })
+const networkOnline = computed(() => networkState.online.value)
+const offlinePendingCount = computed(() => offlineSyncState.pendingCount)
 
 // Notifications
 const notifications = ref([])
@@ -389,8 +419,34 @@ const handleLogout = () => {
   router.push({ name: 'login' })
 }
 
+// Offline mutation queued toast
+const onMutationQueued = () => {
+  $q.notify({
+    type: 'info',
+    icon: 'cloud_off',
+    message: 'Saved offline. Will sync when connected.',
+    position: 'bottom',
+    timeout: 2500
+  })
+}
+
 // Trigger notification check and load on mount
 onMounted(() => {
   triggerNotificationCheck()
+  window.addEventListener('offline-mutation-queued', onMutationQueued)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('offline-mutation-queued', onMutationQueued)
 })
 </script>
+
+<style scoped>
+.offline-spin {
+  animation: spin 1.2s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+</style>

@@ -66,6 +66,8 @@ api.interceptors.response.use(
 export const authAPI = {
   login: (username, password) =>
     api.post('/auth/token', { username, password }),
+  refresh: () =>
+    api.post('/auth/refresh'),
   batteryLogin: (battery_id, secret) =>
     api.post('/auth/battery-login', { battery_id, secret }),
   batteryRefresh: (refreshToken) =>
@@ -306,6 +308,10 @@ export const settingsAPI = {
     api.delete(`/settings/cost-structures/${structureId}`),
   estimateCost: (structureId, params) =>
     api.post(`/settings/cost-structures/${structureId}/estimate`, null, { params }),
+  addPUEItemToStructure: (structureId, pueId) =>
+    api.post(`/settings/cost-structures/${structureId}/pue-items`, null, { params: { pue_id: pueId } }),
+  removePUEItemFromStructure: (structureId, pueId) =>
+    api.delete(`/settings/cost-structures/${structureId}/pue-items/${pueId}`),
 
   // Subscription Packages
   getSubscriptionPackages: (hubId, includeInactive = false) =>

@@ -1,5 +1,12 @@
 <template>
   <q-page class="q-pa-md">
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Showing cached data.
+    </q-banner>
+
     <div class="row items-center q-mb-md q-col-gutter-sm">
       <div class="col-12 col-sm-auto">
         <div class="text-h5">Productive Use Equipment (PUE)</div>
@@ -29,6 +36,8 @@
           :no-data-label="selectedHub ? 'No equipment found for this hub - add some to get started!' : 'No equipment available yet - add your first PUE item!'"
           @row-click="(evt, row) => $router.push({ name: 'pue-detail', params: { id: row.pue_id } })"
           class="cursor-pointer"
+          :pagination="{ rowsPerPage: hubSettingsStore.currentTableRowsPerPage }"
+          :rows-per-page-options="[10, 25, 50, 100, 0]"
         >
           <template v-slot:top-right>
             <q-input
@@ -211,6 +220,103 @@
               outlined
             />
 
+            <!-- Cost Structure Section (only for create, not edit) -->
+            <template v-if="!editingPUE">
+              <q-separator class="q-my-md" />
+              <div class="text-subtitle2">Cost Structure (Optional)</div>
+
+              <!-- Info banner when a PUE type-level structure exists -->
+              <q-banner
+                v-if="pueTypeCostStructure"
+                class="bg-blue-1 q-mb-sm"
+                rounded
+                dense
+              >
+                <template v-slot:avatar>
+                  <q-icon name="info" color="primary" size="sm" />
+                </template>
+                <div class="text-body2">
+                  A cost structure for PUE type "{{ selectedPueTypeName }}" already exists
+                  (<strong>{{ pueTypeCostStructure.name }}</strong>) and will apply automatically at rental.
+                </div>
+              </q-banner>
+
+              <q-option-group
+                v-model="costStructureMode"
+                :options="[
+                  { label: 'None', value: 'none' },
+                  { label: 'Use existing', value: 'existing' },
+                  { label: 'Create new', value: 'create' }
+                ]"
+                type="radio"
+                inline
+                dense
+                class="q-mb-sm"
+              />
+
+              <!-- Use existing cost structure -->
+              <template v-if="costStructureMode === 'existing'">
+                <q-select
+                  v-model="selectedCostStructureId"
+                  :options="availableCostStructures"
+                  :option-value="cs => cs.structure_id"
+                  :option-label="cs => cs.name"
+                  emit-value
+                  map-options
+                  label="Select Cost Structure"
+                  outlined
+                  :loading="loadingCostStructures"
+                  hint="PUE item cost structures for this hub"
+                >
+                  <template v-slot:option="scope">
+                    <q-item v-bind="scope.itemProps">
+                      <q-item-section>
+                        <q-item-label>{{ scope.opt.name }}</q-item-label>
+                        <q-item-label caption v-if="scope.opt.description">{{ scope.opt.description }}</q-item-label>
+                        <q-item-label caption v-if="scope.opt.components && scope.opt.components.length">
+                          {{ scope.opt.components.map(c => c.component_name).join(', ') }}
+                        </q-item-label>
+                      </q-item-section>
+                    </q-item>
+                  </template>
+                </q-select>
+              </template>
+
+              <!-- Create new cost structure inline -->
+              <template v-if="costStructureMode === 'create'">
+                <q-input
+                  v-model="newCostStructure.name"
+                  label="Structure Name"
+                  outlined
+                  :rules="[val => costStructureMode !== 'create' || !!val || 'Name is required']"
+                />
+                <div class="row q-col-gutter-sm">
+                  <div class="col">
+                    <q-input
+                      v-model.number="newCostStructure.rate"
+                      label="Rate per day"
+                      type="number"
+                      step="0.01"
+                      outlined
+                      :rules="[val => costStructureMode !== 'create' || (val > 0) || 'Rate is required']"
+                    />
+                  </div>
+                  <div class="col">
+                    <q-input
+                      v-model.number="newCostStructure.deposit"
+                      label="Deposit amount"
+                      type="number"
+                      step="0.01"
+                      outlined
+                    />
+                  </div>
+                </div>
+                <div class="text-caption text-grey-7">
+                  You can add more pricing components and configure durations later in Settings > Cost Structures.
+                </div>
+              </template>
+            </template>
+
             <div class="row justify-end q-gutter-sm">
               <q-btn label="Cancel" flat v-close-popup />
               <q-btn
@@ -254,7 +360,8 @@
             :columns="inspectionColumns"
             row-key="inspection_id"
             :loading="loadingInspections"
-            :rows-per-page-options="[5, 10, 20]"
+            :pagination="{ rowsPerPage: hubSettingsStore.currentTableRowsPerPage }"
+            :rows-per-page-options="[10, 25, 50, 100, 0]"
           >
             <template v-slot:body-cell-condition="props">
               <q-td :props="props">
@@ -352,15 +459,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, inject, onMounted, computed } from 'vue'
 import { pueAPI, hubsAPI, pueInspectionsAPI, settingsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
+import { useHubSettingsStore } from 'stores/hubSettings'
 import { useQuasar } from 'quasar'
 import HubFilter from 'src/components/HubFilter.vue'
 
 const $q = useQuasar()
 const selectedHub = ref(null)
 const authStore = useAuthStore()
+const hubSettingsStore = useHubSettingsStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 
 const pueItems = ref([])
 const hubOptions = ref([])
@@ -399,6 +510,13 @@ const inspectionForm = ref({
   requires_maintenance: false,
   maintenance_notes: ''
 })
+
+// Cost structure state
+const costStructureMode = ref('none') // 'none', 'existing', 'create'
+const selectedCostStructureId = ref(null)
+const availableCostStructures = ref([])
+const loadingCostStructures = ref(false)
+const newCostStructure = ref({ name: '', rate: null, deposit: null })
 
 const statusOptions = ['available', 'rented', 'maintenance', 'retired']
 const usageLocationOptions = ['hub_only', 'battery_only', 'both']
@@ -503,11 +621,13 @@ const loadInspections = async (pueId) => {
     inspections.value = response.data || []
   } catch (error) {
     console.error('Failed to load inspections:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load inspections',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load inspections',
+        position: 'top'
+      })
+    }
   } finally {
     loadingInspections.value = false
   }
@@ -527,11 +647,11 @@ const recordInspection = async () => {
       maintenance_notes: inspectionForm.value.requires_maintenance ? inspectionForm.value.maintenance_notes : undefined
     }
 
-    await pueInspectionsAPI.create(selectedPUE.value.pue_id, inspectionData)
+    const response = await pueInspectionsAPI.create(selectedPUE.value.pue_id, inspectionData)
 
     $q.notify({
-      type: 'positive',
-      message: 'Inspection recorded successfully',
+      type: response.data?._offlineQueued ? 'info' : 'positive',
+      message: response.data?._offlineQueued ? 'Inspection queued for sync' : 'Inspection recorded successfully',
       position: 'top'
     })
 
@@ -541,11 +661,13 @@ const recordInspection = async () => {
     await loadPUE() // Refresh main list to update inspection status
   } catch (error) {
     console.error('Failed to record inspection:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to record inspection',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to record inspection',
+        position: 'top'
+      })
+    }
   } finally {
     savingInspection.value = false
   }
@@ -559,6 +681,41 @@ const resetInspectionForm = () => {
     notes: '',
     requires_maintenance: false,
     maintenance_notes: ''
+  }
+}
+
+// Computed: find a pue_type cost structure matching the selected type
+const pueTypeCostStructure = computed(() => {
+  if (!formData.value.pue_type_id) return null
+  return availableCostStructures.value.find(cs =>
+    cs.item_type === 'pue_type' &&
+    String(cs.item_reference) === String(formData.value.pue_type_id)
+  ) || null
+})
+
+const selectedPueTypeName = computed(() => {
+  if (!formData.value.pue_type_id) return ''
+  const t = pueTypeOptions.value.find(t => t.type_id === formData.value.pue_type_id)
+  return t ? t.type_name : ''
+})
+
+const loadCostStructuresForHub = async (hubId) => {
+  if (!hubId) {
+    availableCostStructures.value = []
+    return
+  }
+  loadingCostStructures.value = true
+  try {
+    const response = await settingsAPI.getCostStructures({ hub_id: hubId })
+    const all = response.data?.cost_structures || []
+    // Show pue_item and pue_type structures
+    availableCostStructures.value = all.filter(cs =>
+      (cs.item_type === 'pue_item' || cs.item_type === 'pue_type') && cs.is_active !== false
+    )
+  } catch (error) {
+    console.error('Failed to load cost structures:', error)
+  } finally {
+    loadingCostStructures.value = false
   }
 }
 
@@ -590,11 +747,13 @@ const loadPUE = async () => {
   } catch (error) {
     console.error('[PUEPage] Failed to load PUE:', error)
     console.error('[PUEPage] Error details:', error.response?.data)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load equipment',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load equipment',
+        position: 'top'
+      })
+    }
   } finally {
     loading.value = false
   }
@@ -630,11 +789,17 @@ const loadPUETypes = async (hubId = null) => {
 const onHubSelected = (hubId) => {
   // Clear the PUE type selection when hub changes
   formData.value.pue_type_id = null
-  // Load PUE types for the selected hub
+  // Reset cost structure selections
+  costStructureMode.value = 'none'
+  selectedCostStructureId.value = null
+  newCostStructure.value = { name: '', rate: null, deposit: null }
+  // Load PUE types and cost structures for the selected hub
   if (hubId) {
     loadPUETypes(hubId)
+    loadCostStructuresForHub(hubId)
   } else {
     pueTypeOptions.value = []
+    availableCostStructures.value = []
   }
 }
 
@@ -656,19 +821,59 @@ const savePUE = async () => {
   saving.value = true
   try {
     if (editingPUE.value) {
-      await pueAPI.update(editingPUE.value.pue_id, formData.value)
+      const response = await pueAPI.update(editingPUE.value.pue_id, formData.value)
       $q.notify({
-        type: 'positive',
-        message: 'Equipment updated successfully',
+        type: response.data?._offlineQueued ? 'info' : 'positive',
+        message: response.data?._offlineQueued ? 'Equipment update queued for sync' : 'Equipment updated successfully',
         position: 'top'
       })
     } else {
       const result = await pueAPI.create(formData.value)
+      const queued = result.data?._offlineQueued
+      // Add to local list immediately for both online and offline
+      pueItems.value = [...pueItems.value, result.data]
+
+      // Handle cost structure association (only for online creates)
+      if (!queued && result.data?.pue_id) {
+        const createdPueId = result.data.pue_id
+        try {
+          if (costStructureMode.value === 'existing' && selectedCostStructureId.value) {
+            await settingsAPI.addPUEItemToStructure(selectedCostStructureId.value, createdPueId)
+          } else if (costStructureMode.value === 'create' && newCostStructure.value.name) {
+            const components = [{
+              component_name: 'Daily Rate',
+              unit_type: 'per_day',
+              rate: newCostStructure.value.rate || 0,
+              is_calculated_on_return: false,
+              sort_order: 0
+            }]
+            await settingsAPI.createCostStructure({
+              hub_id: formData.value.hub_id,
+              name: newCostStructure.value.name,
+              item_type: 'pue_item',
+              item_reference: createdPueId,
+              components: JSON.stringify(components),
+              deposit_amount: newCostStructure.value.deposit || 0,
+              pue_item_ids: JSON.stringify([createdPueId])
+            })
+          }
+        } catch (csError) {
+          console.error('Failed to associate cost structure:', csError)
+          $q.notify({
+            type: 'warning',
+            message: 'Equipment created but cost structure association failed',
+            position: 'top'
+          })
+        }
+      }
+
       $q.notify({
-        type: 'positive',
-        message: result.short_id
-          ? `Equipment created successfully! ID: ${result.short_id}`
-          : 'Equipment created successfully',
+        type: queued ? 'info' : 'positive',
+        message: queued
+          ? 'Equipment creation queued for sync'
+          : (result.data?.short_id
+            ? `Equipment created successfully! ID: ${result.data.short_id}`
+            : 'Equipment created successfully'),
         position: 'top',
         timeout: 5000
       })
@@ -677,11 +882,13 @@ const savePUE = async () => {
     resetForm()
     loadPUE()
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to save equipment',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to save equipment',
+        position: 'top'
+      })
+    }
   } finally {
     saving.value = false
   }
@@ -703,11 +910,13 @@ const deletePUE = (pue) => {
       })
       loadPUE()
     } catch (error) {
-      $q.notify({
-        type: 'negative',
-        message: 'Failed to delete equipment',
-        position: 'top'
-      })
+      if (!isOffline.value) {
+        $q.notify({
+          type: 'negative',
+          message: 'Failed to delete equipment',
+          position: 'top'
+        })
+      }
     }
   })
 }
@@ -725,6 +934,9 @@ const resetForm = () => {
     status: 'available'
   }
   editingPUE.value = null
+  costStructureMode.value = 'none'
+  selectedCostStructureId.value = null
+  newCostStructure.value = { name: '', rate: null, deposit: null }
 }
 
 onMounted(() => {

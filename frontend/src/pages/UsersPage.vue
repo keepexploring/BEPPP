@@ -1,5 +1,12 @@
 <template>
   <q-page class="q-pa-md">
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Showing cached data.
+    </q-banner>
+
     <div class="row items-center q-mb-md q-col-gutter-sm">
       <div class="col-12 col-sm-auto">
         <div class="text-h5">Users</div>
@@ -25,6 +32,7 @@
           row-key="user_id"
           :loading="loading"
           :filter="filter"
+          :pagination="{ rowsPerPage: hubSettingsStore.currentTableRowsPerPage }"
           @row-click="onUserRowClick"
           class="cursor-pointer"
           no-data-label="No customers found - add your first customer to get started!"
@@ -154,11 +162,18 @@
               label="Username *"
               outlined
               :rules="[val => !!val || 'Username is required']"
-              hint="Used for login"
+              hint="Auto-generated from first name - can be changed"
             />
 
+            <q-banner v-if="!editingUser && formData.user_access_level === 'user'" dense class="bg-blue-1 text-blue-9 q-mb-sm" rounded>
+              <template v-slot:avatar>
+                <q-icon name="info" color="blue" />
+              </template>
+              A secure password is automatically generated. Customers do not need to log in at this time - this is created for future functionality. Do not share passwords with customers.
+            </q-banner>
+
             <q-input
-              v-if="!editingUser"
+              v-if="!editingUser && formData.user_access_level !== 'user'"
               v-model="formData.password"
               label="Password *"
               :type="showPassword ? 'text' : 'password'"
@@ -167,7 +182,7 @@
                 val => !!val || 'Password is required',
                 val => val.length >= 8 || 'Password must be at least 8 characters'
               ]"
-              hint="Minimum 8 characters required"
+              hint="Share this password with the staff member for login"
             >
               <template v-slot:append>
                 <q-btn
@@ -185,7 +200,7 @@
                   round
                   dense
                   icon="casino"
-                  @click="generatePassword"
+                  @click="generatePassword(true)"
                   color="primary"
                   size="sm"
                 >
@@ -243,9 +258,10 @@
                 outlined
                 accept="image/*"
                 capture="environment"
-                label="Upload or Take Photo"
-                hint="Optional - take a photo or upload from device"
+                :label="isOffline ? 'Photo upload unavailable offline' : 'Upload or Take Photo'"
+                :hint="isOffline ? 'Connect to internet to upload photos' : 'Optional - take a photo or upload from device'"
                 :clearable="true"
+                :disable="isOffline"
                 @update:model-value="onPhotoSelected"
               >
                 <template v-slot:prepend>
@@ -303,7 +319,7 @@
               label="Monthly Energy Expenditure"
               type="number"
               outlined
-              prefix="$"
+              :prefix="currencySymbol"
               hint="Optional - Current monthly spending on energy/power"
             />
 
@@ -371,9 +387,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, inject, onMounted, computed, watch } from 'vue'
 import { usersAPI, hubsAPI, settingsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
+import { useHubSettingsStore } from 'stores/hubSettings'
 import { useQuasar } from 'quasar'
 import { useRouter, useRoute } from 'vue-router'
 import HubFilter from 'src/components/HubFilter.vue'
@@ -381,6 +398,10 @@ import ResetPasswordDialog from 'src/components/ResetPasswordDialog.vue'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
+const hubSettingsStore = useHubSettingsStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
+const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 const router = useRouter()
 const route = useRoute()
 
@@ -438,7 +459,7 @@ const onPhotoSelected = (file) => {
 }
 
 // Generate a random secure password
-const generatePassword = () => {
+const generatePassword = (notify = false) => {
   const length = 12
   const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
   const lowercase = 'abcdefghijklmnopqrstuvwxyz'
@@ -462,14 +483,16 @@ const generatePassword = () => {
   password = password.split('').sort(() => Math.random() - 0.5).join('')
 
   formData.value.password = password
-  showPassword.value = true // Show the generated password
 
-  $q.notify({
-    type: 'positive',
-    message: 'Password generated! Make sure to copy it.',
-    position: 'top',
-    timeout: 3000
-  })
+  if (notify) {
+    showPassword.value = true
+    $q.notify({
+      type: 'positive',
+      message: 'Password generated! Make sure to copy it.',
+      position: 'top',
+      timeout: 3000
+    })
+  }
 }
 
 const getRoleLabel = (role) => {
@@ -562,11 +585,13 @@ const loadUsers = async () => {
       users.value = Array.from(allUsers.values())
     }
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load users',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load users',
+        position: 'top'
+      })
+    }
   } finally {
     loading.value = false
   }
@@ -601,19 +626,24 @@ const saveUser = async () => {
       if (!updateData.password) {
         delete updateData.password
       }
-      await usersAPI.update(editingUser.value.user_id, updateData)
+      const response = await usersAPI.update(editingUser.value.user_id, updateData)
       userId = editingUser.value.user_id
       $q.notify({
-        type: 'positive',
-        message: 'Customer updated successfully',
+        type: response.data?._offlineQueued ? 'info' : 'positive',
+        message: response.data?._offlineQueued ? 'Customer update queued for sync' : 'Customer updated successfully',
         position: 'top'
       })
     } else {
       const response = await usersAPI.create(formData.value)
-      userId = response.data.user_id
+      userId = response.data?.user_id
+      const queued = response.data?._offlineQueued
+      if (queued) {
+        // Add synthetic user to local list immediately for offline UX
+        users.value = [...users.value, response.data]
+      }
       $q.notify({
-        type: 'positive',
-        message: 'Customer created successfully',
+        type: queued ? 'info' : 'positive',
+        message: queued ? 'Customer creation queued for sync' : 'Customer created successfully',
         position: 'top'
       })
     }
@@ -643,11 +673,13 @@ const saveUser = async () => {
   } catch (error) {
     console.error('Customer creation error:', error)
     console.error('Error response:', error.response?.data)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to save customer',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to save customer',
+        position: 'top'
+      })
+    }
   } finally {
     saving.value = false
   }
@@ -669,11 +701,13 @@ const deleteUser = (user) => {
       })
       loadUsers()
     } catch (error) {
-      $q.notify({
-        type: 'negative',
-        message: 'Failed to delete user',
-        position: 'top'
-      })
+      if (!isOffline.value) {
+        $q.notify({
+          type: 'negative',
+          message: 'Failed to delete user',
+          position: 'top'
+        })
+      }
     }
   })
 }
@@ -752,11 +786,13 @@ const toggleHubAccess = async (hubId, hasAccess) => {
     await loadUsers()
   } catch (error) {
     console.error('Hub access error:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to update hub access',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to update hub access',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -766,12 +802,35 @@ const openCreateDialog = () => {
   if (authStore.role === 'admin' || authStore.role === 'hub_admin') {
     formData.value.hub_id = authStore.currentHubId
   }
+  // Auto-generate password for new users
+  generatePassword()
   showCreateDialog.value = true
 }
+
+// Auto-generate username from first name when creating (not editing)
+const usernameManuallyEdited = ref(false)
+watch(() => formData.value.first_names, (newVal) => {
+  if (editingUser.value || usernameManuallyEdited.value) return
+  if (newVal) {
+    const base = newVal.trim().toLowerCase().replace(/\s+/g, '')
+    const num = Math.floor(Math.random() * 900) + 100
+    formData.value.username = `${base}${num}`
+  }
+})
+watch(() => formData.value.username, (newVal, oldVal) => {
+  // Detect manual edits (not auto-generated)
+  if (editingUser.value) return
+  const firstName = formData.value.first_names?.trim().toLowerCase().replace(/\s+/g, '') || ''
+  if (oldVal && firstName && !newVal?.startsWith(firstName)) {
+    usernameManuallyEdited.value = true
+  }
+})
 
 const resetForm = () => {
   formData.value = {
     user_id: null,
+    first_names: '',
+    last_name: '',
     name: '',
     username: '',
     password: '',
@@ -785,6 +844,7 @@ const resetForm = () => {
   editingUser.value = null
   idDocumentPhoto.value = null
   photoPreview.value = null
+  usernameManuallyEdited.value = false
 }
 
 // Load customer field options for dropdowns

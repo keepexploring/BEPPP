@@ -290,21 +290,64 @@ const handleReset = async () => {
   try {
     const passwordToSend = passwordMode.value === 'custom' ? customPassword.value : null
     const response = await usersAPI.resetPassword(props.user.user_id, passwordToSend)
-    newPassword.value = response.data.new_password
-    resetComplete.value = true
 
-    $q.notify({
-      type: 'positive',
-      message: 'Password reset successfully',
-      position: 'top'
-    })
+    // Check if this was queued offline (synthetic response has no real data)
+    if (response.data?._offlineQueued || response._offlineResponse) {
+      // For custom password mode, we know the password since the user typed it
+      if (passwordMode.value === 'custom') {
+        newPassword.value = customPassword.value
+        resetComplete.value = true
+        $q.notify({
+          type: 'info',
+          message: 'Password reset queued — will be applied when device syncs',
+          position: 'top'
+        })
+      } else {
+        // Auto-generate mode: server needs to generate it, can't show it offline
+        emit('update:modelValue', false)
+        $q.notify({
+          type: 'warning',
+          message: 'Password reset requires an internet connection for auto-generated passwords. Please use "Choose password" mode offline.',
+          position: 'top',
+          timeout: 5000
+        })
+        return
+      }
+    } else {
+      newPassword.value = response.data.new_password
+      resetComplete.value = true
+      $q.notify({
+        type: 'positive',
+        message: 'Password reset successfully',
+        position: 'top'
+      })
+    }
   } catch (error) {
     console.error('Failed to reset password:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to reset password',
-      position: 'top'
-    })
+    if (!navigator.onLine || error.code === 'ERR_NETWORK') {
+      if (passwordMode.value === 'custom') {
+        newPassword.value = customPassword.value
+        resetComplete.value = true
+        $q.notify({
+          type: 'info',
+          message: 'Password reset queued — will be applied when device syncs',
+          position: 'top'
+        })
+      } else {
+        $q.notify({
+          type: 'warning',
+          message: 'Auto-generated password reset requires internet. Use "Choose password" mode offline.',
+          position: 'top',
+          timeout: 5000
+        })
+      }
+    } else {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to reset password',
+        position: 'top'
+      })
+    }
   } finally {
     loading.value = false
   }

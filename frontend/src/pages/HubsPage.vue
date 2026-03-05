@@ -1,5 +1,12 @@
 <template>
   <q-page class="q-pa-md">
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Showing cached data.
+    </q-banner>
+
     <div class="row items-center q-mb-md q-col-gutter-sm">
       <div class="col-12 col-sm-auto">
         <div class="text-h5">Hubs</div>
@@ -156,13 +163,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, inject, onMounted, computed } from 'vue'
 import { hubsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useQuasar } from 'quasar'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 
 const hubs = ref([])
 const loading = ref(false)
@@ -194,11 +203,13 @@ const loadHubs = async () => {
     const response = await hubsAPI.list()
     hubs.value = response.data
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load hubs',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load hubs',
+        position: 'top'
+      })
+    }
   } finally {
     loading.value = false
   }
@@ -232,11 +243,13 @@ const saveHub = async () => {
     resetForm()
     loadHubs()
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to save hub',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to save hub',
+        position: 'top'
+      })
+    }
   } finally {
     saving.value = false
   }
@@ -258,11 +271,13 @@ const deleteHub = (hub) => {
       })
       loadHubs()
     } catch (error) {
-      $q.notify({
-        type: 'negative',
-        message: 'Failed to delete hub',
-        position: 'top'
-      })
+      if (!isOffline.value) {
+        $q.notify({
+          type: 'negative',
+          message: 'Failed to delete hub',
+          position: 'top'
+        })
+      }
     }
   })
 }

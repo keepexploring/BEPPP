@@ -1,5 +1,12 @@
 <template>
   <q-page class="q-pa-md">
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Showing cached data. Changes will sync when reconnected.
+    </q-banner>
+
     <div class="row items-center q-mb-md q-col-gutter-sm">
       <div class="col-12 col-sm">
         <q-btn flat round dense icon="arrow_back" @click="$router.back()" />
@@ -1755,13 +1762,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, inject, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { usersAPI, accountsAPI, settingsAPI, subscriptionsAPI, rentalsAPI, batteryRentalsAPI, pueRentalsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
 import RentalReturnDialog from 'components/RentalReturnDialog.vue'
+import { formatDateWithTimezone } from 'src/utils/dateFormat'
 import JobCardDialog from 'components/JobCardDialog.vue'
 import ResetPasswordDialog from 'components/ResetPasswordDialog.vue'
 
@@ -1770,6 +1778,8 @@ const router = useRouter()
 const $q = useQuasar()
 const authStore = useAuthStore()
 const hubSettingsStore = useHubSettingsStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 
 const userId = ref(route.params.id)
 const loading = ref(false)
@@ -1788,7 +1798,7 @@ const pagination = ref({
   sortBy: 'timestamp',
   descending: true,
   page: 1,
-  rowsPerPage: 25
+  rowsPerPage: hubSettingsStore.currentTableRowsPerPage
 })
 
 // Use centralized hub settings store for currency
@@ -2004,11 +2014,13 @@ const submitTakePayment = async () => {
     await loadTransactions()
   } catch (error) {
     console.error('Failed to record payment:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to record payment',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to record payment',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -2055,11 +2067,13 @@ const submitManualAdjustment = async () => {
     await loadTransactions()
   } catch (error) {
     console.error('Failed to create manual adjustment:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to create manual adjustment',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to create manual adjustment',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -2176,10 +2190,7 @@ const getRentalStatusColor = (status) => {
   }
 }
 
-const formatTimestamp = (timestamp) => {
-  if (!timestamp) return ''
-  return new Date(timestamp).toLocaleString() + ' UTC'
-}
+const formatTimestamp = (timestamp) => formatDateWithTimezone(timestamp, 'short')
 
 const loadUser = async () => {
   try {
@@ -2188,7 +2199,7 @@ const loadUser = async () => {
     user.value = response.data
   } catch (error) {
     console.error('Failed to load user:', error)
-    $q.notify({ type: 'negative', message: 'Failed to load user details', position: 'top' })
+    if (navigator.onLine) $q.notify({ type: 'negative', message: 'Failed to load user details', position: 'top' })
   } finally {
     loading.value = false
   }
@@ -2200,7 +2211,7 @@ const loadAccount = async () => {
     account.value = response.data
   } catch (error) {
     console.error('Failed to load account:', error)
-    $q.notify({ type: 'negative', message: 'Failed to load account details', position: 'top' })
+    if (navigator.onLine) $q.notify({ type: 'negative', message: 'Failed to load account details', position: 'top' })
   }
 }
 
@@ -2214,7 +2225,7 @@ const loadTransactions = async () => {
     transactions.value.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
   } catch (error) {
     console.error('Failed to load transactions:', error)
-    $q.notify({ type: 'negative', message: 'Failed to load transactions', position: 'top' })
+    if (navigator.onLine) $q.notify({ type: 'negative', message: 'Failed to load transactions', position: 'top' })
   } finally {
     transactionsLoading.value = false
   }
@@ -2310,11 +2321,13 @@ const submitPayment = async () => {
     await loadTransactions()
   } catch (error) {
     console.error('Failed to record payment:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to record payment',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to record payment',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -2372,11 +2385,13 @@ const submitAddCredit = async () => {
     await loadTransactions()
   } catch (error) {
     console.error('Failed to add credit:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to add credit',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to add credit',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -2388,11 +2403,13 @@ const loadUserSubscriptions = async () => {
     userSubscriptions.value = response.data.subscriptions || []
   } catch (error) {
     console.error('Failed to load subscriptions:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load subscriptions',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load subscriptions',
+        position: 'top'
+      })
+    }
   } finally {
     subscriptionsLoading.value = false
   }
@@ -2411,11 +2428,13 @@ const loadSubscriptionPackages = async () => {
     console.log('Loaded subscription packages:', availableSubscriptionPackages.value)
   } catch (error) {
     console.error('Failed to load subscription packages:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load subscription packages',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load subscription packages',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -2457,7 +2476,7 @@ const getSubscriptionStatusColor = (status) => {
 
 const formatDate = (dateStr) => {
   if (!dateStr) return 'N/A'
-  return new Date(dateStr).toLocaleDateString()
+  return formatDateWithTimezone(dateStr, 'date')
 }
 
 const getPaymentStatusColor = (status) => {
@@ -2528,11 +2547,13 @@ const submitAssignSubscription = async () => {
     await loadUserSubscriptions()
   } catch (error) {
     console.error('Failed to assign subscription:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to assign subscription',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to assign subscription',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -2559,11 +2580,13 @@ const pauseSubscription = async (subscription) => {
     await loadUserSubscriptions()
   } catch (error) {
     console.error('Failed to pause subscription:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to pause subscription',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to pause subscription',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -2582,11 +2605,13 @@ const resumeSubscription = async (subscription) => {
     await loadUserSubscriptions()
   } catch (error) {
     console.error('Failed to resume subscription:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to resume subscription',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to resume subscription',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -2609,11 +2634,13 @@ const cancelSubscription = async (subscription) => {
       await loadUserSubscriptions()
     } catch (error) {
       console.error('Failed to cancel subscription:', error)
-      $q.notify({
-        type: 'negative',
-        message: 'Failed to cancel subscription',
-        position: 'top'
-      })
+      if (!isOffline.value) {
+        $q.notify({
+          type: 'negative',
+          message: 'Failed to cancel subscription',
+          position: 'top'
+        })
+      }
     }
   })
 }
@@ -2679,11 +2706,13 @@ const submitEditUser = async () => {
     await loadUser()
   } catch (error) {
     console.error('Failed to update user:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to update user',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to update user',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -2771,11 +2800,13 @@ const submitReturnRental = async () => {
     await loadTransactions()
   } catch (error) {
     console.error('Failed to return rental:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to return rental',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to return rental',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -2827,11 +2858,13 @@ const submitExtendRental = async () => {
     await loadTransactions()
   } catch (error) {
     console.error('Failed to extend rental:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to extend rental',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to extend rental',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -2843,11 +2876,13 @@ const loadCurrentRentals = async () => {
     currentRentals.value = response.data || []
   } catch (error) {
     console.error('Failed to load current rentals:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load current rentals',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load current rentals',
+        position: 'top'
+      })
+    }
   } finally {
     rentalsLoading.value = false
   }
@@ -2861,11 +2896,13 @@ const loadBatteryRentals = async () => {
     batteryRentals.value = response.data || []
   } catch (error) {
     console.error('Failed to load battery rentals:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load battery rentals',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load battery rentals',
+        position: 'top'
+      })
+    }
   } finally {
     batteryRentalsLoading.value = false
   }
@@ -2879,11 +2916,13 @@ const loadPueRentals = async () => {
     pueRentals.value = response.data || []
   } catch (error) {
     console.error('Failed to load PUE rentals:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load PUE rentals',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load PUE rentals',
+        position: 'top'
+      })
+    }
   } finally {
     pueRentalsLoading.value = false
   }
@@ -2911,11 +2950,13 @@ const loadBatteryHistory = async () => {
     batteryHistory.value = response.data || []
   } catch (error) {
     console.error('Failed to load battery rental history:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load battery rental history',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load battery rental history',
+        position: 'top'
+      })
+    }
   } finally {
     batteryHistoryLoading.value = false
   }
@@ -2930,11 +2971,13 @@ const loadPueHistory = async () => {
     pueHistory.value = response.data || []
   } catch (error) {
     console.error('Failed to load PUE rental history:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load PUE rental history',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load PUE rental history',
+        position: 'top'
+      })
+    }
   } finally {
     pueHistoryLoading.value = false
   }

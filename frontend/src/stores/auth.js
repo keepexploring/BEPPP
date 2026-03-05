@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { authAPI } from 'src/services/api'
+import api from 'src/services/api'
 import { LocalStorage } from 'quasar'
+import { warmCache } from 'src/services/cacheWarmer'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -32,12 +34,35 @@ export const useAuthStore = defineStore('auth', {
         LocalStorage.set('user', this.user)
         LocalStorage.set('role', role)
 
+        // Pre-fetch all endpoints for offline use (fire-and-forget)
+        warmCache(api, this)
+
         return { success: true }
       } catch (error) {
         return {
           success: false,
           error: error.response?.data?.detail || 'Login failed'
         }
+      }
+    },
+
+    async refreshToken() {
+      try {
+        const response = await authAPI.refresh()
+        const { access_token, role, hub_id } = response.data
+        this.token = access_token
+        LocalStorage.set('token', access_token)
+        if (role) {
+          this.role = role
+          LocalStorage.set('role', role)
+        }
+        if (hub_id && this.user) {
+          this.user = { ...this.user, hub_id }
+          LocalStorage.set('user', this.user)
+        }
+        return true
+      } catch {
+        return false
       }
     },
 

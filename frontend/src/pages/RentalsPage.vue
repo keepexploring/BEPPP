@@ -1,5 +1,12 @@
 <template>
   <q-page class="q-pa-md">
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Showing cached data. Changes will sync when reconnected.
+    </q-banner>
+
     <div class="row items-center q-mb-md q-col-gutter-sm">
       <div class="col-12 col-sm-auto">
         <div class="text-h5">Rentals</div>
@@ -77,7 +84,7 @@
           :filter="filter"
           @row-click="onRowClick"
           class="cursor-pointer"
-          :pagination="{ rowsPerPage: 50 }"
+          :pagination="{ rowsPerPage: hubSettingsStore.currentTableRowsPerPage }"
           :rows-per-page-options="[10, 25, 50, 100, 0]"
           :no-data-label="selectedHub ? 'No rentals found for this hub' : 'No rentals available yet - create your first rental!'"
         >
@@ -852,8 +859,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
-import { rentalsAPI, batteryRentalsAPI, pueRentalsAPI, hubsAPI, usersAPI, batteriesAPI, pueAPI, settingsAPI, accountsAPI, subscriptionsAPI } from 'src/services/api'
+import { ref, inject, onMounted, computed } from 'vue'
+import api, { rentalsAPI, batteryRentalsAPI, pueRentalsAPI, hubsAPI, usersAPI, batteriesAPI, pueAPI, settingsAPI, accountsAPI, subscriptionsAPI } from 'src/services/api'
+import { calculateReturnCostLocally } from 'src/services/offlineCostCalculator'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
 import { useQuasar, date } from 'quasar'
@@ -862,10 +870,13 @@ import RentalReturnDialog from 'components/RentalReturnDialog.vue'
 import HubFilter from 'src/components/HubFilter.vue'
 import BatteryRentalForm from 'src/components/BatteryRentalForm.vue'
 import PUERentalForm from 'src/components/PUERentalForm.vue'
+import { formatDateWithTimezone } from 'src/utils/dateFormat'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
 const hubSettingsStore = useHubSettingsStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 const route = useRoute()
 const router = useRouter()
 
@@ -1345,10 +1356,7 @@ const getPaymentStatusDescription = (rental) => {
   return ''
 }
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm') + ' UTC'
-}
+const formatDate = (dateStr) => formatDateWithTimezone(dateStr, 'short')
 
 const onRowClick = (evt, row) => {
   if (row.rental_type === 'battery') {
@@ -1418,11 +1426,13 @@ const loadRentals = async () => {
     rentals.value = allRentals
   } catch (error) {
     console.error('Failed to load rentals:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to load rentals',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to load rentals',
+        position: 'top'
+      })
+    }
   } finally {
     loading.value = false
   }
@@ -1593,11 +1603,14 @@ const onDurationChange = async (selectedValue) => {
       }
 
       const response = await settingsAPI.estimateCost(selectedCostStructure.value, params)
-      costEstimate.value = response.data
+      // Ignore synthetic offline responses (queued but no real data)
+      costEstimate.value = response.data?._offlineQueued ? null : response.data
 
       // Update formData with estimated costs
-      formData.value.estimated_cost_before_vat = response.data.subtotal
-      formData.value.estimated_vat = response.data.vat_amount
+      if (costEstimate.value) {
+        formData.value.estimated_cost_before_vat = costEstimate.value.subtotal
+        formData.value.estimated_vat = costEstimate.value.vat_amount
+      }
       formData.value.estimated_cost_total = response.data.total
       formData.value.cost_structure_id = selectedCostStructure.value
       formData.value.total_cost = response.data.total
@@ -1682,11 +1695,14 @@ const onCustomDurationChange = async () => {
       }
 
       const response = await settingsAPI.estimateCost(selectedCostStructure.value, params)
-      costEstimate.value = response.data
+      // Ignore synthetic offline responses (queued but no real data)
+      costEstimate.value = response.data?._offlineQueued ? null : response.data
 
       // Update formData with estimated costs
-      formData.value.estimated_cost_before_vat = response.data.subtotal
-      formData.value.estimated_vat = response.data.vat_amount
+      if (costEstimate.value) {
+        formData.value.estimated_cost_before_vat = costEstimate.value.subtotal
+        formData.value.estimated_vat = costEstimate.value.vat_amount
+      }
       formData.value.estimated_cost_total = response.data.total
       formData.value.cost_structure_id = selectedCostStructure.value
       formData.value.total_cost = response.data.total
@@ -1819,11 +1835,13 @@ const onHubChange = async (hubId) => {
     await loadPaymentTypes(hubId)
   } catch (error) {
     console.error('Failed to load hub data:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load hub data',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load hub data',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -1985,11 +2003,13 @@ const onSubscriptionSelect = async () => {
     }
   } catch (error) {
     console.error('Failed to load subscription items:', error)
-    $q.notify({
-      type: 'negative',
-      message: `Failed to load subscription items: ${error.message}`,
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: `Failed to load subscription items: ${error.message}`,
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -2451,7 +2471,7 @@ const calculatePUECostEstimate = async () => {
     }
 
     const response = await settingsAPI.estimateCost(selectedPUECostStructure.value, params)
-    pueCostEstimate.value = response.data
+    pueCostEstimate.value = response.data?._offlineQueued ? null : response.data
 
   } catch (error) {
     console.error('Failed to estimate PUE cost:', error)
@@ -2797,11 +2817,37 @@ const fetchReturnCostCalculation = async () => {
 
   } catch (error) {
     console.error('Failed to fetch return cost calculation:', error)
-    $q.notify({
-      type: 'warning',
-      message: 'Could not calculate final cost. Using estimate.',
-      position: 'top'
-    })
+    if (!navigator.onLine || error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+      try {
+        const localResult = await calculateReturnCostLocally(returningRental.value, 'battery')
+        if (localResult) {
+          returnCostCalculation.value = localResult
+          const totalOwed = localResult.payment_status.amount_still_owed
+          const accountBalance = localResult.payment_status.user_account_balance
+          if (returnData.value.useAccountCredit) {
+            const creditToUse = Math.min(totalOwed, accountBalance)
+            returnData.value.creditAmount = creditToUse
+            returnData.value.cashAmount = totalOwed - creditToUse
+            returnData.value.payment_amount = returnData.value.cashAmount
+          } else {
+            returnData.value.creditAmount = 0
+            returnData.value.cashAmount = totalOwed
+            returnData.value.payment_amount = totalOwed
+          }
+        } else {
+          $q.notify({ type: 'warning', message: 'Could not calculate final cost offline.', position: 'top' })
+        }
+      } catch (localErr) {
+        console.error('Local cost calculation also failed:', localErr)
+        $q.notify({ type: 'warning', message: 'Could not calculate final cost offline.', position: 'top' })
+      }
+    } else {
+      $q.notify({
+        type: 'warning',
+        message: 'Could not calculate final cost. Using estimate.',
+        position: 'top'
+      })
+    }
   } finally {
     loadingReturnCost.value = false
   }
@@ -2984,11 +3030,13 @@ const onPUEHubChange = async (hubId) => {
 
   } catch (error) {
     console.error('Failed to load hub data:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load hub data for PUE rental',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load hub data for PUE rental',
+        position: 'top'
+      })
+    }
   }
 }
 
@@ -3239,7 +3287,7 @@ const calculatePUERentalCostEstimate = async (durationValue, durationUnit) => {
     }
 
     const response = await settingsAPI.estimateCost(pueFormData.value.cost_structure_id, params)
-    pueCostEstimate.value = response.data
+    pueCostEstimate.value = response.data?._offlineQueued ? null : response.data
 
   } catch (error) {
     console.error('Failed to calculate PUE cost estimate:', error)
@@ -3275,7 +3323,7 @@ const calculateRecurringCostEstimate = async (structure) => {
     }
 
     const response = await settingsAPI.estimateCost(pueFormData.value.cost_structure_id, params)
-    pueCostEstimate.value = response.data
+    pueCostEstimate.value = response.data?._offlineQueued ? null : response.data
 
   } catch (error) {
     console.error('Failed to calculate recurring cost estimate:', error)

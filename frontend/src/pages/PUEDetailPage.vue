@@ -1,5 +1,12 @@
 <template>
   <q-page class="q-pa-md">
+    <q-banner v-if="isOffline" class="bg-orange text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="cloud_off" />
+      </template>
+      You are offline. Showing cached data.
+    </q-banner>
+
     <div class="row items-center q-mb-md q-col-gutter-sm">
       <div class="col-12 col-sm">
         <q-btn flat round dense icon="arrow_back" @click="$router.back()" />
@@ -344,16 +351,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, inject, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { pueAPI, pueInspectionsAPI, pueRentalsAPI, settingsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
-import { useQuasar, date } from 'quasar'
+import { useQuasar } from 'quasar'
 import JobCardDialog from 'src/components/JobCardDialog.vue'
+import { formatDateWithTimezone } from 'src/utils/dateFormat'
 
 const $q = useQuasar()
 const route = useRoute()
 const authStore = useAuthStore()
+const networkState = inject('networkState', { online: ref(true) })
+const isOffline = computed(() => !networkState.online.value)
 
 const pue = ref(null)
 const loading = ref(true)
@@ -422,10 +432,7 @@ const getConditionColor = (condition) => {
   return colors[condition] || 'grey'
 }
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  return date.formatDate(dateStr, 'MMM DD, YYYY HH:mm')
-}
+const formatDate = (dateStr) => formatDateWithTimezone(dateStr, 'short')
 
 const formatUsageLocation = (location) => {
   const map = {
@@ -453,11 +460,13 @@ const loadPUE = async () => {
   } catch (error) {
     console.error('[PUEDetailPage] Failed to load PUE:', error)
     console.error('[PUEDetailPage] Error details:', error.response?.data)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load equipment details',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load equipment details',
+        position: 'top'
+      })
+    }
   } finally {
     loading.value = false
   }
@@ -471,11 +480,13 @@ const loadInspections = async () => {
     inspections.value = response.data.inspections || []
   } catch (error) {
     console.error('Failed to load inspections:', error)
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load inspections',
-      position: 'top'
-    })
+    if (navigator.onLine) {
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to load inspections',
+        position: 'top'
+      })
+    }
   } finally {
     loadingInspections.value = false
   }
@@ -518,11 +529,13 @@ const recordInspection = async () => {
     await loadInspections()
   } catch (error) {
     console.error('Failed to record inspection:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to record inspection',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to record inspection',
+        position: 'top'
+      })
+    }
   } finally {
     savingInspection.value = false
   }
@@ -576,11 +589,13 @@ const savePUE = async () => {
     await loadPUE()
   } catch (error) {
     console.error('Failed to update PUE:', error)
-    $q.notify({
-      type: 'negative',
-      message: error.response?.data?.detail || 'Failed to update equipment',
-      position: 'top'
-    })
+    if (!isOffline.value) {
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.detail || 'Failed to update equipment',
+        position: 'top'
+      })
+    }
   } finally {
     saving.value = false
   }
