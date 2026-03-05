@@ -89,42 +89,11 @@ function getDetailEndpoints (listData, resourcePath, idField) {
 }
 
 /**
- * Warm the cache by pre-fetching all key API endpoints.
- * Runs in the background, never throws, never blocks UI.
+ * Warm cache for a single hub (phases 1-3).
+ * Returns the count of endpoints fetched.
  */
-export async function warmCache (api, authStore, { force = false } = {}) {
-  if (!navigator.onLine) {
-    console.log('[CacheWarmer] Skipped: offline')
-    return
-  }
-  if (!authStore.isAuthenticated) {
-    console.log('[CacheWarmer] Skipped: not authenticated')
-    return
-  }
-
-  const hubId = authStore.currentHubId
-  if (!hubId) {
-    console.log('[CacheWarmer] Skipped: no hub_id')
-    return
-  }
-
-  // Cooldown check: don't re-warm too frequently (bypass with force)
-  if (!force) {
-    const lastWarm = await getSyncMeta('lastCacheWarm')
-    if (lastWarm && Date.now() - lastWarm < WARM_COOLDOWN_MS) {
-      console.log('[CacheWarmer] Skipped: cooldown active (last warm ' +
-        Math.round((Date.now() - lastWarm) / 1000) + 's ago)')
-      return
-    }
-  }
-
-  console.log(`[CacheWarmer] Starting cache warm for hub ${hubId}` +
-    (force ? ' (forced)' : ''))
-  const startTime = Date.now()
-
-  await setSyncMeta('lastCacheWarm', Date.now())
-
-  const isAdmin = authStore.isAdmin
+async function warmCacheForHub (api, hubId, isAdmin) {
+  console.log(`[CacheWarmer] Warming hub ${hubId}`)
 
   // Phase 1: Fetch all list and settings endpoints
   const listEndpoints = getEndpointsForHub(hubId, isAdmin)
@@ -133,10 +102,9 @@ export async function warmCache (api, authStore, { force = false } = {}) {
   )
 
   await runWithConcurrency(listTasks, CONCURRENCY)
-  console.log(`[CacheWarmer] Phase 1 done: ${listEndpoints.length} list endpoints`)
+  console.log(`[CacheWarmer]   Hub ${hubId} Phase 1: ${listEndpoints.length} list endpoints`)
 
   // Phase 2: Fetch individual detail pages from list results
-  // We re-read the cached list data to extract IDs
   const detailTasks = []
   let batteriesRes, usersRes, pueRes, batteryRentalsRes, pueRentalsRes, jobCardsRes
 
@@ -173,7 +141,7 @@ export async function warmCache (api, authStore, { force = false } = {}) {
   if (detailTasks.length > 0) {
     await runWithConcurrency(detailTasks, CONCURRENCY)
   }
-  console.log(`[CacheWarmer] Phase 2 done: ${detailTasks.length} detail endpoints`)
+  console.log(`[CacheWarmer]   Hub ${hubId} Phase 2: ${detailTasks.length} detail endpoints`)
 
   // Phase 3: Fetch sub-resources for individual items (notes, inspections, rentals, accounts)
   const SUB_RESOURCE_CAP = 20
@@ -218,9 +186,87 @@ export async function warmCache (api, authStore, { force = false } = {}) {
   if (subResourceTasks.length > 0) {
     await runWithConcurrency(subResourceTasks, CONCURRENCY)
   }
-  console.log(`[CacheWarmer] Phase 3 done: ${subResourceTasks.length} sub-resource endpoints`)
+  console.log(`[CacheWarmer]   Hub ${hubId} Phase 3: ${subResourceTasks.length} sub-resource endpoints`)
+
+  return listEndpoints.length + detailTasks.length + subResourceTasks.length
+}
+
+/**
+ * Warm the cache by pre-fetching all key API endpoints.
+ * Superadmins: warms ALL hubs. Regular users: warms their assigned hub.
+ * Runs in the background, never throws, never blocks UI.
+ */
+export async function warmCache (api, authStore, { force = false } = {}) {
+  if (!navigator.onLine) {
+    console.log('[CacheWarmer] Skipped: offline')
+    return
+  }
+  if (!authStore.isAuthenticated) {
+    console.log('[CacheWarmer] Skipped: not authenticated')
+    return
+  }
+
+  // Cooldown check: don't re-warm too frequently (bypass with force)
+  if (!force) {
+    const lastWarm = await getSyncMeta('lastCacheWarm')
+    if (lastWarm && Date.now() - lastWarm < WARM_COOLDOWN_MS) {
+      console.log('[CacheWarmer] Skipped: cooldown active (last warm ' +
+        Math.round((Date.now() - lastWarm) / 1000) + 's ago)')
+      return
+    }
+  }
+
+  const startTime = Date.now()
+  await setSyncMeta('lastCacheWarm', Date.now())
+
+  const isAdmin = authStore.isAdmin
+  const isSuperAdmin = authStore.isSuperAdmin
+  let totalEndpoints = 0
+
+  if (isSuperAdmin) {
+    // Superadmin: warm ALL hubs
+    console.log('[CacheWarmer] Superadmin detected — warming all hubs' +
+      (force ? ' (forced)' : ''))
+
+    try {
+      const hubsRes = await api.get('/hubs/')
+      const hubs = Array.isArray(hubsRes.data) ? hubsRes.data : hubsRes.data?.items || []
+
+      if (hubs.length === 0) {
+        console.log('[CacheWarmer] No hubs found')
+      }
+
+      for (const hub of hubs) {
+        const hId = hub.hub_id || hub.id
+        if (!hId) continue
+        try {
+          const count = await warmCacheForHub(api, hId, isAdmin)
+          totalEndpoints += count
+        } catch (err) {
+          console.warn(`[CacheWarmer] Failed to warm hub ${hId}:`, err.message)
+        }
+      }
+    } catch (err) {
+      console.warn('[CacheWarmer] Failed to fetch hubs list:', err.message)
+      // Fallback: warm the user's assigned hub
+      const hubId = authStore.currentHubId
+      if (hubId) {
+        totalEndpoints = await warmCacheForHub(api, hubId, isAdmin)
+      }
+    }
+  } else {
+    // Regular user: warm their assigned hub only
+    const hubId = authStore.currentHubId
+    if (!hubId) {
+      console.log('[CacheWarmer] Skipped: no hub_id')
+      return
+    }
+
+    console.log(`[CacheWarmer] Starting cache warm for hub ${hubId}` +
+      (force ? ' (forced)' : ''))
+    totalEndpoints = await warmCacheForHub(api, hubId, isAdmin)
+  }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-  const totalEndpoints = listEndpoints.length + detailTasks.length + subResourceTasks.length
   console.log(`[CacheWarmer] Complete: ${totalEndpoints} endpoints cached in ${elapsed}s`)
 }
