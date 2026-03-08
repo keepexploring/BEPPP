@@ -1,3 +1,4 @@
+o
 """
 Enhanced Panel Dashboard for Battery Analytics with Hub and PUE Analytics
 Features:

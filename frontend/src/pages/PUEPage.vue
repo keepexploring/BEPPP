@@ -272,9 +272,11 @@
                     <q-item v-bind="scope.itemProps">
                       <q-item-section>
                         <q-item-label>{{ scope.opt.name }}</q-item-label>
-                        <q-item-label caption v-if="scope.opt.description">{{ scope.opt.description }}</q-item-label>
                         <q-item-label caption v-if="scope.opt.components && scope.opt.components.length">
                           {{ scope.opt.components.map(c => c.component_name).join(', ') }}
+                        </q-item-label>
+                        <q-item-label caption>
+                          {{ scope.opt.item_type === 'pue_type' ? 'Shared type structure — will link' : 'Item-specific — will clone for this item' }}
                         </q-item-label>
                       </q-item-section>
                     </q-item>
@@ -290,30 +292,147 @@
                   outlined
                   :rules="[val => costStructureMode !== 'create' || !!val || 'Name is required']"
                 />
-                <div class="row q-col-gutter-sm">
-                  <div class="col">
+                <q-input
+                  v-model.number="newCostStructure.deposit"
+                  label="Deposit amount"
+                  type="number"
+                  step="0.01"
+                  outlined
+                  hint="Security deposit required at rental"
+                />
+
+                <!-- Cost Components -->
+                <div class="text-subtitle2 q-mt-sm">Cost Components</div>
+                <div
+                  v-for="(comp, ci) in newCostStructure.components"
+                  :key="ci"
+                  class="row q-col-gutter-sm items-center q-mb-xs"
+                >
+                  <div class="col-12 col-sm-4">
+                    <q-select
+                      v-model="comp.unit_type"
+                      :options="unitTypeOptions"
+                      emit-value
+                      map-options
+                      label="Type"
+                      outlined
+                      dense
+                      @update:model-value="onUnitTypeChange(comp)"
+                    />
                     <q-input
-                      v-model.number="newCostStructure.rate"
-                      label="Rate per day"
+                      v-if="comp.unit_type === 'custom'"
+                      v-model="comp.custom_unit_type"
+                      label="Custom unit (e.g. per_litre)"
+                      outlined
+                      dense
+                      class="q-mt-xs"
+                      @update:model-value="onCustomUnitChange(comp)"
+                    />
+                  </div>
+                  <div class="col col-sm-4">
+                    <q-input
+                      v-model="comp.component_name"
+                      label="Name"
+                      outlined
+                      dense
+                    />
+                  </div>
+                  <div class="col col-sm-3">
+                    <q-input
+                      v-model.number="comp.rate"
+                      label="Rate"
                       type="number"
                       step="0.01"
                       outlined
-                      :rules="[val => costStructureMode !== 'create' || (val > 0) || 'Rate is required']"
+                      dense
+                      :rules="[val => costStructureMode !== 'create' || (val > 0) || 'Required']"
+                    />
+                  </div>
+                  <div class="col-auto" style="padding-top: 0">
+                    <q-btn
+                      flat
+                      round
+                      dense
+                      icon="close"
+                      color="negative"
+                      size="sm"
+                      @click="newCostStructure.components.splice(ci, 1)"
+                      :disable="newCostStructure.components.length <= 1"
+                    />
+                  </div>
+                </div>
+                <q-btn
+                  flat
+                  dense
+                  icon="add"
+                  label="Add Component"
+                  color="primary"
+                  size="sm"
+                  @click="addNewComponent"
+                  class="q-mb-sm"
+                />
+
+                <!-- Duration Options -->
+                <div class="text-subtitle2 q-mt-sm">Duration Choices</div>
+                <div class="text-caption text-grey-7 q-mb-xs">
+                  Define rental duration options shown to users
+                </div>
+                <div
+                  v-for="(choice, di) in newCostStructure.durationChoices"
+                  :key="di"
+                  class="row q-col-gutter-sm items-center q-mb-xs"
+                >
+                  <div class="col-3">
+                    <q-input
+                      v-model.number="choice.value"
+                      label="Value"
+                      type="number"
+                      min="1"
+                      outlined
+                      dense
+                    />
+                  </div>
+                  <div class="col-3">
+                    <q-select
+                      v-model="choice.unit"
+                      :options="durationUnitOptions"
+                      emit-value
+                      map-options
+                      label="Unit"
+                      outlined
+                      dense
                     />
                   </div>
                   <div class="col">
                     <q-input
-                      v-model.number="newCostStructure.deposit"
-                      label="Deposit amount"
-                      type="number"
-                      step="0.01"
+                      v-model="choice.label"
+                      label="Label"
                       outlined
+                      dense
+                    />
+                  </div>
+                  <div class="col-auto" style="padding-top: 0">
+                    <q-btn
+                      flat
+                      round
+                      dense
+                      icon="close"
+                      color="negative"
+                      size="sm"
+                      @click="newCostStructure.durationChoices.splice(di, 1)"
+                      :disable="newCostStructure.durationChoices.length <= 1"
                     />
                   </div>
                 </div>
-                <div class="text-caption text-grey-7">
-                  You can add more pricing components and configure durations later in Settings > Cost Structures.
-                </div>
+                <q-btn
+                  flat
+                  dense
+                  icon="add"
+                  label="Add Duration Choice"
+                  color="primary"
+                  size="sm"
+                  @click="addDurationChoice"
+                />
               </template>
             </template>
 
@@ -516,7 +635,85 @@ const costStructureMode = ref('none') // 'none', 'existing', 'create'
 const selectedCostStructureId = ref(null)
 const availableCostStructures = ref([])
 const loadingCostStructures = ref(false)
-const newCostStructure = ref({ name: '', rate: null, deposit: null })
+const newCostStructure = ref({
+  name: '',
+  deposit: null,
+  components: [{ component_name: 'Daily Rate', unit_type: 'per_day', rate: null, is_calculated_on_return: false, sort_order: 0 }],
+  durationChoices: [{ value: 1, unit: 'days', label: '1 Day' }]
+})
+
+const unitTypeOptions = [
+  { label: 'Per Day', value: 'per_day' },
+  { label: 'Per Week', value: 'per_week' },
+  { label: 'Per Month', value: 'per_month' },
+  { label: 'Per Hour', value: 'per_hour' },
+  { label: 'Per kWh', value: 'per_kwh' },
+  { label: 'Per Kg', value: 'per_kg' },
+  { label: 'Per Litre', value: 'per_litre' },
+  { label: 'Per Unit', value: 'per_unit' },
+  { label: 'Per Recharge', value: 'per_recharge' },
+  { label: 'One Time', value: 'one_time' },
+  { label: 'Fixed Fee', value: 'fixed' },
+  { label: 'Custom...', value: 'custom' }
+]
+
+const durationUnitOptions = [
+  { label: 'Hours', value: 'hours' },
+  { label: 'Days', value: 'days' },
+  { label: 'Weeks', value: 'weeks' },
+  { label: 'Months', value: 'months' }
+]
+
+const unitTypeLabels = {
+  'per_day': 'Daily Rate',
+  'per_week': 'Weekly Rate',
+  'per_month': 'Monthly Rate',
+  'per_hour': 'Hourly Rate',
+  'per_kwh': 'kWh Usage',
+  'per_kg': 'Weight Charge',
+  'per_litre': 'Volume Charge',
+  'per_unit': 'Per Unit',
+  'per_recharge': 'Recharge Fee',
+  'one_time': 'One-Time Fee',
+  'fixed': 'Fixed Fee'
+}
+
+const onUnitTypeChange = (component) => {
+  const standardNames = Object.values(unitTypeLabels)
+  if (!component.component_name || standardNames.includes(component.component_name)) {
+    component.component_name = unitTypeLabels[component.unit_type] || ''
+  }
+  if (component.unit_type !== 'custom') {
+    component.custom_unit_type = undefined
+  }
+}
+
+const onCustomUnitChange = (component) => {
+  if (component.custom_unit_type) {
+    const label = component.custom_unit_type
+      .replace(/^per_/, 'Per ')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase())
+    const standardNames = Object.values(unitTypeLabels)
+    if (!component.component_name || standardNames.includes(component.component_name) || component.component_name === label) {
+      component.component_name = label
+    }
+  }
+}
+
+const addNewComponent = () => {
+  newCostStructure.value.components.push({
+    component_name: 'Daily Rate',
+    unit_type: 'per_day',
+    rate: 0,
+    is_calculated_on_return: false,
+    sort_order: newCostStructure.value.components.length
+  })
+}
+
+const addDurationChoice = () => {
+  newCostStructure.value.durationChoices.push({ value: 1, unit: 'days', label: '1 Day' })
+}
 
 const statusOptions = ['available', 'rented', 'maintenance', 'retired']
 const usageLocationOptions = ['hub_only', 'battery_only', 'both']
@@ -792,7 +989,12 @@ const onHubSelected = (hubId) => {
   // Reset cost structure selections
   costStructureMode.value = 'none'
   selectedCostStructureId.value = null
-  newCostStructure.value = { name: '', rate: null, deposit: null }
+  newCostStructure.value = {
+    name: '',
+    deposit: null,
+    components: [{ component_name: 'Daily Rate', unit_type: 'per_day', rate: null, is_calculated_on_return: false, sort_order: 0 }],
+    durationChoices: [{ value: 1, unit: 'days', label: '1 Day' }]
+  }
   // Load PUE types and cost structures for the selected hub
   if (hubId) {
     loadPUETypes(hubId)
@@ -838,21 +1040,58 @@ const savePUE = async () => {
         const createdPueId = result.data.pue_id
         try {
           if (costStructureMode.value === 'existing' && selectedCostStructureId.value) {
-            await settingsAPI.addPUEItemToStructure(selectedCostStructureId.value, createdPueId)
+            const sourceCs = availableCostStructures.value.find(c => c.structure_id === selectedCostStructureId.value)
+            if (sourceCs && sourceCs.item_type === 'pue_item') {
+              // Clone item-specific structure for this new PUE
+              const cloneComponents = (sourceCs.components || []).map((c, i) => ({
+                component_name: c.component_name,
+                unit_type: c.unit_type,
+                rate: c.rate || 0,
+                is_calculated_on_return: c.is_calculated_on_return || false,
+                sort_order: i
+              }))
+              const cloneDurationOpts = sourceCs.duration_options && sourceCs.duration_options.length > 0
+                ? sourceCs.duration_options : undefined
+              await settingsAPI.createCostStructure({
+                hub_id: formData.value.hub_id,
+                name: `${sourceCs.name} (${formData.value.name || createdPueId})`,
+                item_type: 'pue_item',
+                item_reference: createdPueId,
+                components: JSON.stringify(cloneComponents),
+                duration_options: cloneDurationOpts ? JSON.stringify(cloneDurationOpts) : undefined,
+                deposit_amount: sourceCs.deposit_amount || 0,
+                pue_item_ids: JSON.stringify([createdPueId])
+              })
+            } else {
+              // Shared type structure: just link
+              await settingsAPI.addPUEItemToStructure(selectedCostStructureId.value, createdPueId)
+            }
           } else if (costStructureMode.value === 'create' && newCostStructure.value.name) {
-            const components = [{
-              component_name: 'Daily Rate',
-              unit_type: 'per_day',
-              rate: newCostStructure.value.rate || 0,
-              is_calculated_on_return: false,
+            const components = newCostStructure.value.components.map((c, i) => ({
+              component_name: c.component_name,
+              unit_type: c.unit_type === 'custom' && c.custom_unit_type ? c.custom_unit_type : c.unit_type,
+              rate: c.rate || 0,
+              is_calculated_on_return: c.is_calculated_on_return || false,
+              sort_order: i
+            }))
+            const durationOptions = newCostStructure.value.durationChoices.length > 0 ? [{
+              input_type: 'dropdown',
+              label: 'Rental Duration',
+              custom_unit: 'days',
+              dropdown_options: JSON.stringify(newCostStructure.value.durationChoices.map(ch => ({
+                value: ch.value,
+                unit: ch.unit,
+                label: ch.label
+              }))),
               sort_order: 0
-            }]
+            }] : undefined
             await settingsAPI.createCostStructure({
               hub_id: formData.value.hub_id,
               name: newCostStructure.value.name,
               item_type: 'pue_item',
               item_reference: createdPueId,
               components: JSON.stringify(components),
+              duration_options: durationOptions ? JSON.stringify(durationOptions) : undefined,
               deposit_amount: newCostStructure.value.deposit || 0,
               pue_item_ids: JSON.stringify([createdPueId])
             })
@@ -936,7 +1175,12 @@ const resetForm = () => {
   editingPUE.value = null
   costStructureMode.value = 'none'
   selectedCostStructureId.value = null
-  newCostStructure.value = { name: '', rate: null, deposit: null }
+  newCostStructure.value = {
+    name: '',
+    deposit: null,
+    components: [{ component_name: 'Daily Rate', unit_type: 'per_day', rate: null, is_calculated_on_return: false, sort_order: 0 }],
+    durationChoices: [{ value: 1, unit: 'days', label: '1 Day' }]
+  }
 }
 
 onMounted(() => {

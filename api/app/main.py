@@ -4226,8 +4226,26 @@ async def list_hub_available_pue_items(
         ProductiveUseEquipment.is_active == True,
         ProductiveUseEquipment.status == "available"
     ).all()
-    
-    return available_pue_items
+
+    # Convert to dicts to ensure proper serialization (matching /hubs/{hub_id}/pue format)
+    return [{
+        "pue_id": pue.pue_id,
+        "hub_id": pue.hub_id,
+        "name": pue.name,
+        "description": pue.description,
+        "power_rating_watts": pue.power_rating_watts,
+        "usage_location": pue.usage_location.value if pue.usage_location else None,
+        "storage_location": pue.storage_location,
+        "suggested_cost_per_day": pue.suggested_cost_per_day,
+        "pue_type_id": pue.pue_type_id,
+        "short_id": pue.short_id,
+        "rental_cost": pue.rental_cost,
+        "status": pue.status,
+        "rental_count": pue.rental_count,
+        "created_at": pue.created_at,
+        "updated_at": pue.updated_at,
+        "is_active": pue.is_active
+    } for pue in available_pue_items]
 
 # ============================================================================
 # RENTAL ENDPOINTS
@@ -7271,10 +7289,17 @@ async def list_pue_rentals(
     # Status filter (PUERental uses is_active, not status)
     if status:
         if status == 'active':
-            query = query.filter(PUERental.is_active == True)
+            query = query.filter(PUERental.is_active == True, PUERental.date_returned == None)
         elif status == 'returned':
-            query = query.filter(PUERental.is_active == False)
-        # 'overdue' status not directly supported in PUERental model
+            query = query.filter(PUERental.date_returned != None)
+        elif status == 'overdue':
+            # Overdue = active (not returned) and past due date
+            query = query.filter(
+                PUERental.is_active == True,
+                PUERental.date_returned == None,
+                PUERental.due_back != None,
+                PUERental.due_back < datetime.now(timezone.utc)
+            )
 
     rentals = query.order_by(PUERental.timestamp_taken.desc()).all()
 
@@ -7297,13 +7322,13 @@ async def list_pue_rentals(
                     "ownership_transferred": ledger.ownership_transferred
                 }
 
-        # Determine status
+        # Determine rental status
         if rental.date_returned:
-            status = 'returned'
+            rental_status = 'returned'
         elif rental.is_active:
-            status = 'active'
+            rental_status = 'active'
         else:
-            status = 'inactive'
+            rental_status = 'inactive'
 
         # Build user object for frontend
         user_data = None
@@ -7336,7 +7361,7 @@ async def list_pue_rentals(
             "ownership_percentage": float(rental.ownership_percentage) if rental.ownership_percentage else 0.0,
             "deposit_amount": float(rental.deposit_amount) if rental.deposit_amount else 0.0,
             "is_active": rental.is_active,
-            "status": status,
+            "status": rental_status,
             "pay_to_own_progress": pay_to_own_progress
         })
 

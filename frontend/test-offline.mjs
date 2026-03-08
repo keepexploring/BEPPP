@@ -1749,7 +1749,7 @@ const costStructures = [
 await setCachedResponse(
   `GET:/settings/cost-structures?hub_id=${testHubId}`,
   `/settings/cost-structures?hub_id=${testHubId}`,
-  costStructures,
+  { cost_structures: costStructures },
   200
 )
 
@@ -1940,6 +1940,30 @@ try {
   assert.strictEqual(result, null, 'null rental returns null')
   pass('null rental returns null')
 } catch (e) { fail('null rental returns null', e) }
+
+// Test 9: Battery rental with real API field names (rental_start_date, deposit_paid)
+try {
+  const twoDaysAgo = new Date(Date.now() - 2 * 86400 * 1000).toISOString()
+  const rental = {
+    rental_id: 9,
+    rentral_id: 9,
+    hub_id: testHubId,
+    user_id: testUserId,
+    cost_structure_id: testCostStructureId,
+    rental_start_date: twoDaysAgo,
+    timestamp_taken: twoDaysAgo,
+    deposit_paid: 25,
+    due_back: new Date(Date.now() + 86400 * 1000).toISOString(),
+    recharges_used: 0
+  }
+
+  const result = await calculateReturnCostLocally(rental, 'battery')
+  assert.ok(result, 'result is not null with API field names')
+  assert.ok(result._offlineEstimate === true, 'has _offlineEstimate flag')
+  assert.ok(result.subtotal > 0, 'subtotal calculated')
+  assert.strictEqual(result.payment_status.amount_paid_so_far, 25, 'deposit_paid used correctly')
+  pass('battery rental with real API field names')
+} catch (e) { fail('battery rental with real API field names', e) }
 
 // ── Summary ──────────────────────────────────────────────────────────
 

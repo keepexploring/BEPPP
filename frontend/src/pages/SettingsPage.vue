@@ -1220,17 +1220,7 @@
               <div class="col-2">
                 <q-select
                   v-model="component.unit_type"
-                  :options="[
-                    {label: 'Per Day', value: 'per_day'},
-                    {label: 'Per Week', value: 'per_week'},
-                    {label: 'Per Month', value: 'per_month'},
-                    {label: 'Per Hour', value: 'per_hour'},
-                    {label: 'Per kWh', value: 'per_kwh'},
-                    {label: 'Per Kg', value: 'per_kg'},
-                    {label: 'Per Recharge', value: 'per_recharge'},
-                    {label: 'One Time', value: 'one_time'},
-                    {label: 'Fixed Fee', value: 'fixed'}
-                  ]"
+                  :options="unitTypeOptions"
                   option-label="label"
                   option-value="value"
                   emit-value
@@ -1239,6 +1229,16 @@
                   dense
                   outlined
                   @update:model-value="onUnitTypeChange(component)"
+                />
+                <q-input
+                  v-if="component.unit_type === 'custom'"
+                  v-model="component.custom_unit_type"
+                  label="Custom unit (e.g. per_litre, per_bag)"
+                  dense
+                  outlined
+                  class="q-mt-xs"
+                  hint="Will be stored as the unit type"
+                  @update:model-value="onCustomUnitChange(component)"
                 />
               </div>
 
@@ -3406,24 +3406,58 @@ const removeComponent = (index) => {
   })
 }
 
-const onUnitTypeChange = (component) => {
-  // Auto-populate component name based on unit type, but only if empty or matches a previous unit type name
-  const unitTypeLabels = {
-    'per_day': 'Daily Rate',
-    'per_week': 'Weekly Rate',
-    'per_month': 'Monthly Rate',
-    'per_hour': 'Hourly Rate',
-    'per_kwh': 'kWh Usage',
-    'per_kg': 'Weight Charge',
-    'per_recharge': 'Recharge Fee',
-    'one_time': 'One-Time Fee',
-    'fixed': 'Fixed Fee'
-  }
+const unitTypeOptions = [
+  { label: 'Per Day', value: 'per_day' },
+  { label: 'Per Week', value: 'per_week' },
+  { label: 'Per Month', value: 'per_month' },
+  { label: 'Per Hour', value: 'per_hour' },
+  { label: 'Per kWh', value: 'per_kwh' },
+  { label: 'Per Kg', value: 'per_kg' },
+  { label: 'Per Litre', value: 'per_litre' },
+  { label: 'Per Unit', value: 'per_unit' },
+  { label: 'Per Recharge', value: 'per_recharge' },
+  { label: 'One Time', value: 'one_time' },
+  { label: 'Fixed Fee', value: 'fixed' },
+  { label: 'Custom...', value: 'custom' }
+]
 
+const unitTypeLabels = {
+  'per_day': 'Daily Rate',
+  'per_week': 'Weekly Rate',
+  'per_month': 'Monthly Rate',
+  'per_hour': 'Hourly Rate',
+  'per_kwh': 'kWh Usage',
+  'per_kg': 'Weight Charge',
+  'per_litre': 'Volume Charge',
+  'per_unit': 'Per Unit',
+  'per_recharge': 'Recharge Fee',
+  'one_time': 'One-Time Fee',
+  'fixed': 'Fixed Fee'
+}
+
+const onUnitTypeChange = (component) => {
   // Only auto-populate if the name is empty or matches one of the standard names
   const standardNames = Object.values(unitTypeLabels)
   if (!component.component_name || standardNames.includes(component.component_name)) {
     component.component_name = unitTypeLabels[component.unit_type] || ''
+  }
+  // Clear custom field when switching away from custom
+  if (component.unit_type !== 'custom') {
+    component.custom_unit_type = undefined
+  }
+}
+
+const onCustomUnitChange = (component) => {
+  // Auto-populate component name from the custom unit
+  if (component.custom_unit_type) {
+    const label = component.custom_unit_type
+      .replace(/^per_/, 'Per ')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase())
+    const standardNames = Object.values(unitTypeLabels)
+    if (!component.component_name || standardNames.includes(component.component_name) || component.component_name === label) {
+      component.component_name = label
+    }
   }
 }
 
@@ -3576,7 +3610,10 @@ const saveStructure = async () => {
       description: newStructure.value.description,
       item_type: newStructure.value.item_type,
       item_reference: String(itemReference),
-      components: JSON.stringify(newStructure.value.components),
+      components: JSON.stringify(newStructure.value.components.map(c => ({
+        ...c,
+        unit_type: c.unit_type === 'custom' && c.custom_unit_type ? c.custom_unit_type : c.unit_type
+      }))),
       duration_options: processedDurationOptions.length > 0 ? JSON.stringify(processedDurationOptions) : undefined,
       count_initial_checkout_as_recharge: newStructure.value.count_initial_checkout_as_recharge,
       is_pay_to_own: newStructure.value.is_pay_to_own,
@@ -3626,14 +3663,20 @@ const editStructure = (structure) => {
   })
 
   // Ensure components have pay-to-own and recurring payment defaults
-  const components = (structure.components || []).map(comp => ({
-    ...comp,
-    contributes_to_ownership: comp.contributes_to_ownership !== undefined ? comp.contributes_to_ownership : true,
-    is_percentage_of_remaining: comp.is_percentage_of_remaining !== undefined ? comp.is_percentage_of_remaining : false,
-    percentage_value: comp.percentage_value || null,
-    is_recurring_payment: comp.is_recurring_payment !== undefined ? comp.is_recurring_payment : false,
-    recurring_interval: comp.recurring_interval || null
-  }))
+  const knownUnitTypes = unitTypeOptions.map(o => o.value).filter(v => v !== 'custom')
+  const components = (structure.components || []).map(comp => {
+    const isCustom = !knownUnitTypes.includes(comp.unit_type)
+    return {
+      ...comp,
+      custom_unit_type: isCustom ? comp.unit_type : undefined,
+      unit_type: isCustom ? 'custom' : comp.unit_type,
+      contributes_to_ownership: comp.contributes_to_ownership !== undefined ? comp.contributes_to_ownership : true,
+      is_percentage_of_remaining: comp.is_percentage_of_remaining !== undefined ? comp.is_percentage_of_remaining : false,
+      percentage_value: comp.percentage_value || null,
+      is_recurring_payment: comp.is_recurring_payment !== undefined ? comp.is_recurring_payment : false,
+      recurring_interval: comp.recurring_interval || null
+    }
+  })
 
   newStructure.value = {
     name: structure.name,

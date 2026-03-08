@@ -17,10 +17,10 @@ export async function calculateReturnCostLocally (rental, rentalType) {
     ? rental.pue_rental_id
     : (rental.rental_id || rental.rentral_id || rental.id)
 
-  // Determine start date field
+  // Determine start date field (handle multiple field naming conventions)
   const startDateStr = rentalType === 'pue'
-    ? rental.timestamp_taken
-    : rental.start_date
+    ? (rental.timestamp_taken || rental.start_date || rental.rental_start_date)
+    : (rental.start_date || rental.rental_start_date || rental.timestamp_taken)
 
   if (!startDateStr) return null
 
@@ -48,14 +48,18 @@ export async function calculateReturnCostLocally (rental, rentalType) {
   let components = []
 
   if (rental.cost_structure_id) {
-    // Try to get cost structures from cached settings
+    // Try to get cost structures from cached settings (ignoreExpiry since we're offline)
     const costStructuresEntry = hubId
-      ? await getCachedResponse(`GET:/settings/cost-structures?hub_id=${hubId}`)
+      ? await getCachedResponse(`GET:/settings/cost-structures?hub_id=${hubId}`, { ignoreExpiry: true })
       : null
 
-    if (costStructuresEntry && Array.isArray(costStructuresEntry.data)) {
-      costStructure = costStructuresEntry.data.find(
-        cs => cs.structure_id === rental.cost_structure_id
+    if (costStructuresEntry) {
+      // Backend returns { cost_structures: [...] } or possibly a plain array
+      const csData = costStructuresEntry.data
+      const csList = Array.isArray(csData) ? csData : (csData?.cost_structures || [])
+      const csId = rental.cost_structure_id
+      costStructure = csList.find(
+        cs => cs.structure_id === csId || String(cs.structure_id) === String(csId)
       )
       if (costStructure && Array.isArray(costStructure.components)) {
         components = costStructure.components
@@ -117,11 +121,17 @@ export async function calculateReturnCostLocally (rental, rentalType) {
         calculationSteps.push(explanation)
         continue
       case 'fixed':
+      case 'one_time':
         quantity = 1
         componentCost = component.rate
         explanation = `${component.component_name}: Fixed charge = R${componentCost.toFixed(2)}`
         break
       default:
+        // Handle custom unit types (per_kg, per_litre, etc.) - skip for offline
+        if (component.unit_type && component.unit_type.startsWith('per_')) {
+          explanation = `${component.component_name}: ${component.unit_type} cost finalized on sync`
+          calculationSteps.push(explanation)
+        }
         continue
     }
 
@@ -139,10 +149,10 @@ export async function calculateReturnCostLocally (rental, rentalType) {
     }
   }
 
-  // Get hub VAT from cache
+  // Get hub VAT from cache (ignoreExpiry since we're offline)
   let vatPercentage = 15.0
   if (hubId) {
-    const hubEntry = await getCachedResponse(`GET:/settings/hub/${hubId}`)
+    const hubEntry = await getCachedResponse(`GET:/settings/hub/${hubId}`, { ignoreExpiry: true })
     if (hubEntry && hubEntry.data && hubEntry.data.vat_percentage != null) {
       vatPercentage = hubEntry.data.vat_percentage
     }
@@ -151,22 +161,22 @@ export async function calculateReturnCostLocally (rental, rentalType) {
   const vatAmount = subtotal * (vatPercentage / 100)
   const total = subtotal + vatAmount
 
-  // Get user account balance from cache
+  // Get user account balance from cache (ignoreExpiry since we're offline)
   let accountBalance = 0
   if (rental.user_id) {
-    const accountEntry = await getCachedResponse(`GET:/accounts/user/${rental.user_id}`)
+    const accountEntry = await getCachedResponse(`GET:/accounts/user/${rental.user_id}`, { ignoreExpiry: true })
     if (accountEntry && accountEntry.data && accountEntry.data.balance != null) {
       accountBalance = accountEntry.data.balance
     }
   }
 
-  // Payment calculations
-  const depositPaid = rental.deposit_amount || 0
+  // Payment calculations (handle multiple field naming conventions)
+  const depositPaid = rental.deposit_amount || rental.deposit_paid || 0
   const amountStillOwed = Math.max(0, total - depositPaid)
   const amountAfterCredit = Math.max(0, amountStillOwed - accountBalance)
 
-  // Check if late
-  let endDateAware = rental.end_date || rental.expected_return_date
+  // Check if late (handle multiple field naming conventions)
+  let endDateAware = rental.end_date || rental.expected_return_date || rental.rental_end_date || rental.due_back
   let isLate = false
   if (endDateAware) {
     try {

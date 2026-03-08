@@ -1387,35 +1387,34 @@ const loadRentals = async () => {
     let allRentals = []
 
     // Load rentals based on rental type filter
+    // Use allSettled so partial cache hits still show data offline
     if (rentalTypeFilter.value === 'all') {
-      // Load both battery and PUE rentals
-      const [batteryResponse, pueResponse] = await Promise.all([
+      const [batteryResult, pueResult] = await Promise.allSettled([
         batteryRentalsAPI.list(params),
         pueRentalsAPI.list(params)
       ])
 
-      // Add rental_type field to each item
-      const batteryRentals = (batteryResponse.data || []).map(rental => ({
-        ...rental,
-        rental_type: 'battery'
-      }))
+      const batteryRentals = batteryResult.status === 'fulfilled'
+        ? (batteryResult.value.data || []).map(rental => ({ ...rental, rental_type: 'battery' }))
+        : []
+      const pueRentals = pueResult.status === 'fulfilled'
+        ? (pueResult.value.data || []).map(rental => ({ ...rental, rental_type: 'pue' }))
+        : []
 
-      const pueRentals = (pueResponse.data || []).map(rental => ({
-        ...rental,
-        rental_type: 'pue'
-      }))
-
-      console.log('PUE Rentals loaded:', pueRentals)
       allRentals = [...batteryRentals, ...pueRentals]
+
+      // If both failed, don't clear existing data
+      if (batteryResult.status === 'rejected' && pueResult.status === 'rejected') {
+        console.warn('Both rental APIs failed — keeping existing data')
+        return
+      }
     } else if (rentalTypeFilter.value === 'battery') {
-      // Load only battery rentals
       const response = await batteryRentalsAPI.list(params)
       allRentals = (response.data || []).map(rental => ({
         ...rental,
         rental_type: 'battery'
       }))
     } else if (rentalTypeFilter.value === 'pue') {
-      // Load only PUE rentals
       const response = await pueRentalsAPI.list(params)
       allRentals = (response.data || []).map(rental => ({
         ...rental,
@@ -1423,16 +1422,22 @@ const loadRentals = async () => {
       }))
     }
 
+    // Client-side filter as safety net for stale cached data
+    // (e.g. a rental returned offline still present in the overdue cache)
+    if (statusFilter.value !== 'all') {
+      allRentals = allRentals.filter(r => r.status === statusFilter.value)
+    }
+
     rentals.value = allRentals
   } catch (error) {
     console.error('Failed to load rentals:', error)
-    if (navigator.onLine) {
-      $q.notify({
-        type: 'negative',
-        message: error.response?.data?.detail || 'Failed to load rentals',
-        position: 'top'
-      })
-    }
+    // When offline, keep existing data instead of clearing
+    if (!navigator.onLine) return
+    $q.notify({
+      type: 'negative',
+      message: error.response?.data?.detail || 'Failed to load rentals',
+      position: 'top'
+    })
   } finally {
     loading.value = false
   }
@@ -2753,9 +2758,12 @@ const processSaveRental = async () => {
         throw new Error('Cost structure is required')
       }
 
-      // Transform data to match BatteryRentalCreate schema
+      // Transform data to match BatteryRentalCreate schema (include hub_id and user_name for offline display)
+      const rentalUser = userOptions.value.find(u => u.user_id === formData.value.user_id)
       const batteryRentalData = {
+        hub_id: formData.value.hub_id,
         user_id: formData.value.user_id,
+        user_name: rentalUser?.Name || rentalUser?.username || '',
         battery_ids: [formData.value.battery_id], // Convert single battery to array
         cost_structure_id: selectedCostStructure.value,
         rental_start_date: new Date(formData.value.timestamp_taken).toISOString(),
@@ -3376,12 +3384,18 @@ const savePUERental = async () => {
       }
     }
 
-    // Prepare rental data for API
+    // Prepare rental data for API (include hub_id and names for offline display)
+    const selectedUser = userOptions.value.find(u => u.user_id === pueFormData.value.user_id)
+    const selectedPueItem = availablePUE.value.find(p => p.pue_id === pueFormData.value.pue_id)
     const rentalData = {
+      hub_id: pueFormData.value.hub_id,
       user_id: pueFormData.value.user_id,
+      user_name: selectedUser?.Name || selectedUser?.username || '',
       pue_id: pueFormData.value.pue_id,
+      pue_name: selectedPueItem?.name || `PUE ${pueFormData.value.pue_id}`,
       cost_structure_id: pueFormData.value.cost_structure_id,
       rental_start_date: new Date(pueFormData.value.rental_start_date).toISOString(),
+      due_date: pueFormData.value.due_date ? new Date(pueFormData.value.due_date).toISOString() : null,
       is_pay_to_own: isPUEPayToOwn.value,
       pay_to_own_price: isPUEPayToOwn.value ? selectedPUECostStructureObject.value?.item_total_cost : null,
       initial_payment: pueFormData.value.amount_paid || 0,

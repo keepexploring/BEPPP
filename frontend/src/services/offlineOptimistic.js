@@ -220,8 +220,10 @@ async function handlePueRentalCreate (data) {
 
   // Mark PUE as rented
   if (data.pue_id) {
-    await updateItemInCache('GET:/pue/', 'id', data.pue_id, { status: 'rented' })
-    await updateItemInCache('GET:/pue?', 'id', data.pue_id, { status: 'rented' })
+    await updateItemInCache('GET:/pue/', 'pue_id', String(data.pue_id), { status: 'rented' })
+    await updateItemInCache('GET:/pue?', 'pue_id', String(data.pue_id), { status: 'rented' })
+    // Also update hub PUE cache entries
+    await updateItemInCache('GET:/hubs/', 'pue_id', String(data.pue_id), { status: 'rented' })
   }
 
   const now = new Date().toISOString()
@@ -279,9 +281,10 @@ async function handleBatteryReturn (rentalId) {
     await updateItemInCache('GET:/batteries?', 'battery_id', String(batId), { status: 'available' })
   }
 
-  // Update rental status in cache
-  await updateItemInCache('GET:/battery-rentals', 'rental_id', Number(rentalId), { status: 'returned' })
-  await updateItemInCache('GET:/rentals/', 'rental_id', Number(rentalId), { status: 'returned' })
+  // Update rental status in cache (include date_returned so status filters work)
+  const returnUpdates = { status: 'returned', actual_return_date: new Date().toISOString() }
+  await updateItemInCache('GET:/battery-rentals', 'rental_id', Number(rentalId), returnUpdates)
+  await updateItemInCache('GET:/rentals/', 'rental_id', Number(rentalId), returnUpdates)
 
   return { tempId: null, syntheticData: { rental_id: Number(rentalId), status: 'returned', _offlineQueued: true } }
 }
@@ -300,7 +303,7 @@ async function handlePueReturn (rentalId) {
     const listCache = await getCachedResponse('GET:/pue-rentals')
     if (listCache && Array.isArray(listCache.data)) {
       const rental = listCache.data.find(r =>
-        String(r.rental_id) === String(rentalId) || String(r.id) === String(rentalId)
+        String(r.pue_rental_id) === String(rentalId) || String(r.rental_id) === String(rentalId)
       )
       if (rental) pueId = rental.pue_id
     }
@@ -308,13 +311,17 @@ async function handlePueReturn (rentalId) {
 
   // Mark PUE as available
   if (pueId) {
-    await updateItemInCache('GET:/pue/', 'id', pueId, { status: 'available' })
-    await updateItemInCache('GET:/pue?', 'id', pueId, { status: 'available' })
+    await updateItemInCache('GET:/pue/', 'pue_id', String(pueId), { status: 'available' })
+    await updateItemInCache('GET:/pue?', 'pue_id', String(pueId), { status: 'available' })
+    // Also update the /hubs/ PUE cache entries
+    await updateItemInCache('GET:/hubs/', 'pue_id', String(pueId), { status: 'available' })
   }
 
-  await updateItemInCache('GET:/pue-rentals', 'rental_id', Number(rentalId), { status: 'returned' })
+  // Update by pue_rental_id (PUE rentals use this field, not rental_id)
+  const rentalIdNum = Number(rentalId)
+  await updateItemInCache('GET:/pue-rentals', 'pue_rental_id', rentalIdNum, { status: 'returned', date_returned: new Date().toISOString(), is_active: false })
 
-  return { tempId: null, syntheticData: { rental_id: Number(rentalId), status: 'returned', _offlineQueued: true } }
+  return { tempId: null, syntheticData: { pue_rental_id: rentalIdNum, status: 'returned', _offlineQueued: true } }
 }
 
 // Handle job card creation

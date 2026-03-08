@@ -918,3 +918,11 @@ cp update.sh /opt/battery-hub/
 
   cd /opt/battery-hub
   bash update.sh
+
+
+  -----
+  => => # memory. Do not use it. Check out lru-cache if you want a good and tested way 
+ => => #  to coalesce async requests by a key value, which is much more comprehensive
+ => => #  and powerful.                                                              
+ => => # npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supp
+ => => # orted                                                                       
