@@ -66,30 +66,95 @@
 
         <!-- Cost Structure Selection (shown below customer) -->
         <div class="col-12">
-          <q-select
-            v-model="formData.costStructure"
-            :options="costStructureOptions"
-            option-label="name"
-            label="Cost Structure *"
-            outlined
-            :loading="costStructuresLoading"
-            :rules="[val => !!val || 'Cost structure is required']"
-            :disable="!formData.hub_id"
-            :hint="!formData.hub_id ? 'Select a hub first' : costStructureOptions.length === 0 ? `No cost structures available (Hub ID: ${formData.hub_id})` : `${costStructureOptions.length} cost structure(s) available`"
-          >
-            <template v-slot:prepend>
-              <q-icon name="attach_money" />
-            </template>
-            <template v-slot:option="scope">
-              <q-item v-bind="scope.itemProps">
-                <q-item-section>
-                  <q-item-label>{{ scope.opt.name }}</q-item-label>
-                  <q-item-label caption>{{ scope.opt.description }}</q-item-label>
-                </q-item-section>
-              </q-item>
-            </template>
-          </q-select>
+          <div class="row items-center q-gutter-sm">
+            <div class="col">
+              <q-select
+                v-model="formData.costStructure"
+                :options="filteredCostStructures"
+                option-label="name"
+                label="Cost Structure *"
+                outlined
+                :loading="costStructuresLoading"
+                :rules="[val => !!val || 'Cost structure is required']"
+                :disable="!formData.hub_id"
+                :hint="costStructureHint"
+              >
+                <template v-slot:prepend>
+                  <q-icon name="attach_money" />
+                </template>
+                <template v-slot:option="scope">
+                  <q-item v-bind="scope.itemProps">
+                    <q-item-section>
+                      <q-item-label>{{ scope.opt.name }}</q-item-label>
+                      <q-item-label caption>
+                        {{ scope.opt.description }}
+                        <q-badge color="green" class="q-ml-xs">{{ scope.opt._availableBatteries }} batteries available</q-badge>
+                      </q-item-label>
+                    </q-item-section>
+                  </q-item>
+                </template>
+              </q-select>
+            </div>
+            <div class="col-auto" v-if="formData.hub_id && costStructuresWithAvailability.length > 0">
+              <q-btn
+                flat
+                dense
+                icon="visibility"
+                label="View All"
+                color="primary"
+                @click="showCostStructureDialog = true"
+              />
+            </div>
+          </div>
         </div>
+
+        <!-- Cost Structure Info Dialog -->
+        <q-dialog v-model="showCostStructureDialog" maximized>
+          <q-card>
+            <q-card-section class="row items-center q-pb-none">
+              <div class="text-h6">All Cost Structures</div>
+              <q-space />
+              <q-btn icon="close" flat round dense v-close-popup />
+            </q-card-section>
+            <q-card-section>
+              <q-markup-table flat bordered separator="cell" wrap-cells>
+                <thead>
+                  <tr>
+                    <th class="text-left">Name</th>
+                    <th class="text-left">Description</th>
+                    <th class="text-left">Components</th>
+                    <th class="text-center">Available Batteries</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="cs in costStructuresWithAvailability"
+                    :key="cs.cost_structure_id || cs.structure_id"
+                    :class="{ 'text-grey-5': cs._availableBatteries === 0 }"
+                  >
+                    <td>{{ cs.name }}</td>
+                    <td>{{ cs.description }}</td>
+                    <td>
+                      <div v-for="comp in (cs.cost_components || cs.components || [])" :key="comp.component_name" class="text-caption">
+                        {{ comp.component_name }}: {{ currencySymbol }}{{ comp.rate }}/{{ formatUnitType(comp.unit_type) }}
+                      </div>
+                    </td>
+                    <td class="text-center">
+                      <q-badge :color="cs._availableBatteries > 0 ? 'green' : 'red'">
+                        {{ cs._availableBatteries }} of {{ cs._totalBatteries }}
+                      </q-badge>
+                      <div v-if="cs._availableBatteries > 0" class="q-mt-xs">
+                        <div v-for="b in availableBatteries" :key="b.battery_id" class="text-caption">
+                          #{{ b.battery_id }}<span v-if="b.short_id"> ({{ b.short_id }})</span>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </q-markup-table>
+            </q-card-section>
+          </q-card>
+        </q-dialog>
 
         <!-- Battery Selection with Chips (MOVED BEFORE DURATION) -->
         <div v-if="formData.costStructure" class="col-12">
@@ -398,9 +463,11 @@ const hubOptions = ref([])
 const userOptions = ref([])
 const allUsers = ref([])
 const availableBatteries = ref([])
+const allHubBatteries = ref([])
 const costStructureOptions = ref([])
 const costEstimate = ref(null)
 const batterySearchFilter = ref('')
+const showCostStructureDialog = ref(false)
 
 // Auto-select hub for admin and hub_admin
 onMounted(async () => {
@@ -449,6 +516,7 @@ const onHubChange = async () => {
     await Promise.all([
       loadUsers(),
       loadBatteries(),
+      loadAllHubBatteries(),
       loadCostStructures()
     ])
   } catch (error) {
@@ -508,7 +576,11 @@ const loadBatteries = async () => {
       hub_id: formData.value.hub_id,
       status: 'available'
     })
-    availableBatteries.value = response.data || []
+    // Client-side filter as safety net: when offline, cached list may include
+    // batteries whose status was optimistically changed to rented/maintenance.
+    // Server already filters for status=available, so only exclude non-available.
+    const batteries = response.data || []
+    availableBatteries.value = batteries.filter(b => !b.status || b.status === 'available')
   } catch (error) {
     console.error('Failed to load batteries:', error)
     if (!isOffline.value) {
@@ -567,6 +639,46 @@ const loadCostStructures = async () => {
     costStructuresLoading.value = false
   }
 }
+
+// Load All Hub Batteries (for availability info)
+const loadAllHubBatteries = async () => {
+  if (!formData.value.hub_id) return
+
+  try {
+    const response = await hubsAPI.getBatteries(formData.value.hub_id)
+    allHubBatteries.value = response.data || []
+  } catch (error) {
+    console.error('Failed to load all hub batteries:', error)
+    allHubBatteries.value = []
+  }
+}
+
+// Enrich cost structures with availability info
+const costStructuresWithAvailability = computed(() => {
+  const totalBatteries = allHubBatteries.value.length
+  const availCount = availableBatteries.value.length
+  return costStructureOptions.value.map(cs => ({
+    ...cs,
+    _totalBatteries: totalBatteries,
+    _availableBatteries: availCount
+  }))
+})
+
+// Filtered cost structures (only those with available batteries)
+const filteredCostStructures = computed(() => {
+  return costStructuresWithAvailability.value.filter(cs => cs._availableBatteries > 0)
+})
+
+// Hint for cost structure dropdown
+const costStructureHint = computed(() => {
+  if (!formData.value.hub_id) return 'Select a hub first'
+  if (costStructureOptions.value.length === 0) return `No cost structures available (Hub ID: ${formData.value.hub_id})`
+  const hidden = costStructuresWithAvailability.value.length - filteredCostStructures.value.length
+  if (hidden > 0) {
+    return `${filteredCostStructures.value.length} cost structure(s) available (${hidden} hidden - no batteries available)`
+  }
+  return `${filteredCostStructures.value.length} cost structure(s) available`
+})
 
 // Available Durations
 const availableDurations = computed(() => {

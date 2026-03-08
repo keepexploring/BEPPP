@@ -66,33 +66,106 @@
 
         <!-- Cost Structure Selection (shown below customer) -->
         <div class="col-12">
-          <q-select
-            v-model="formData.costStructure"
-            :options="costStructureOptions"
-            option-label="name"
-            label="Cost Structure *"
-            outlined
-            :loading="costStructuresLoading"
-            :rules="[val => !!val || 'Cost structure is required']"
-            :disable="!formData.hub_id"
-            :hint="!formData.hub_id ? 'Select a hub first' : costStructureOptions.length === 0 ? 'No cost structures available for this hub' : ''"
-          >
-            <template v-slot:prepend>
-              <q-icon name="attach_money" />
-            </template>
-            <template v-slot:option="scope">
-              <q-item v-bind="scope.itemProps">
-                <q-item-section>
-                  <q-item-label>{{ scope.opt.name }}</q-item-label>
-                  <q-item-label caption>
-                    {{ scope.opt.description }}
-                    <q-badge v-if="scope.opt.is_pay_to_own" color="purple" label="Pay to Own" class="q-ml-xs" />
-                  </q-item-label>
-                </q-item-section>
-              </q-item>
-            </template>
-          </q-select>
+          <div class="row items-center q-gutter-sm">
+            <div class="col">
+              <q-select
+                v-model="formData.costStructure"
+                :options="filteredCostStructures"
+                option-label="name"
+                label="Cost Structure *"
+                outlined
+                :loading="costStructuresLoading"
+                :rules="[val => !!val || 'Cost structure is required']"
+                :disable="!formData.hub_id"
+                :hint="costStructureHint"
+              >
+                <template v-slot:prepend>
+                  <q-icon name="attach_money" />
+                </template>
+                <template v-slot:option="scope">
+                  <q-item v-bind="scope.itemProps">
+                    <q-item-section>
+                      <q-item-label>{{ scope.opt.name }}</q-item-label>
+                      <q-item-label caption>
+                        {{ scope.opt.description }}
+                        <q-badge v-if="scope.opt.is_pay_to_own" color="purple" label="Pay to Own" class="q-ml-xs" />
+                        <q-badge color="green" class="q-ml-xs">{{ scope.opt._availableCount }} available</q-badge>
+                      </q-item-label>
+                    </q-item-section>
+                  </q-item>
+                </template>
+              </q-select>
+            </div>
+            <div class="col-auto" v-if="formData.hub_id && costStructuresWithAvailability.length > 0">
+              <q-btn
+                flat
+                dense
+                icon="visibility"
+                label="View All"
+                color="primary"
+                @click="showCostStructureDialog = true"
+              />
+            </div>
+          </div>
         </div>
+
+        <!-- Cost Structure Info Dialog -->
+        <q-dialog v-model="showCostStructureDialog" maximized>
+          <q-card>
+            <q-card-section class="row items-center q-pb-none">
+              <div class="text-h6">All Cost Structures</div>
+              <q-space />
+              <q-btn icon="close" flat round dense v-close-popup />
+            </q-card-section>
+            <q-card-section>
+              <q-markup-table flat bordered separator="cell" wrap-cells>
+                <thead>
+                  <tr>
+                    <th class="text-left">Name</th>
+                    <th class="text-left">Type</th>
+                    <th class="text-left">Components</th>
+                    <th class="text-center">Total Items</th>
+                    <th class="text-center">Available</th>
+                    <th class="text-left">Item Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="cs in costStructuresWithAvailability"
+                    :key="cs.cost_structure_id || cs.structure_id"
+                    :class="{ 'text-grey-5': cs._availableCount === 0 }"
+                  >
+                    <td>
+                      {{ cs.name }}
+                      <q-badge v-if="cs.is_pay_to_own" color="purple" label="Pay to Own" class="q-ml-xs" />
+                    </td>
+                    <td>{{ formatItemType(cs.item_type, cs.item_reference) }}</td>
+                    <td>
+                      <div v-for="comp in (cs.cost_components || cs.components || [])" :key="comp.component_name" class="text-caption">
+                        {{ comp.component_name }}: {{ currencySymbol }}{{ comp.rate }}/{{ formatUnitType(comp.unit_type) }}
+                      </div>
+                    </td>
+                    <td class="text-center">{{ cs._linkedItems.length }}</td>
+                    <td class="text-center">
+                      <q-badge :color="cs._availableCount > 0 ? 'green' : 'red'">
+                        {{ cs._availableCount }}
+                      </q-badge>
+                    </td>
+                    <td>
+                      <div v-for="item in cs._linkedItems" :key="item.pue_id" class="text-caption">
+                        {{ item.name || 'PUE' }} (#{{ item.pue_id }}) -
+                        <span :class="item.status === 'available' ? 'text-positive' : 'text-negative'">
+                          {{ item.status || 'unknown' }}
+                        </span>
+                      </div>
+                      <div v-if="cs._linkedItems.length === 0" class="text-caption text-grey">No linked items</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </q-markup-table>
+            </q-card-section>
+          </q-card>
+        </q-dialog>
 
         <!-- PUE Item Selection with Chips (MOVED BEFORE DURATION) -->
         <div v-if="formData.costStructure" class="col-12">
@@ -504,8 +577,10 @@ const userOptions = ref([])
 const allUsers = ref([])
 const availablePUEs = ref([])
 const costStructureOptions = ref([])
+const allHubPUEs = ref([])
 const costEstimate = ref(null)
 const pueSearchFilter = ref('')
+const showCostStructureDialog = ref(false)
 
 // Auto-select hub for admin and hub_admin
 onMounted(async () => {
@@ -551,7 +626,8 @@ const onHubChange = async () => {
   try {
     await Promise.all([
       loadUsers(),
-      loadCostStructures()
+      loadCostStructures(),
+      loadAllHubPUEs()
     ])
   } catch (error) {
     console.error('Error loading hub data:', error)
@@ -628,6 +704,78 @@ const loadCostStructures = async () => {
   }
 }
 
+// Load All Hub PUEs (for availability calculation)
+const loadAllHubPUEs = async () => {
+  if (!formData.value.hub_id) return
+
+  try {
+    const response = await hubsAPI.getPUE(formData.value.hub_id)
+    allHubPUEs.value = response.data || []
+  } catch (error) {
+    console.error('Failed to load all hub PUEs:', error)
+    allHubPUEs.value = []
+  }
+}
+
+// Get PUEs matching a cost structure
+const getItemsForStructure = (cs, pueList) => {
+  if (cs.item_type === 'pue_item') {
+    if (cs.pue_item_ids && cs.pue_item_ids.length > 0) {
+      const allowedIds = new Set(cs.pue_item_ids.map(String))
+      return pueList.filter(p => allowedIds.has(String(p.pue_id)))
+    } else if (cs.item_reference && cs.item_reference !== 'all') {
+      return pueList.filter(p => String(p.pue_id) === String(cs.item_reference))
+    }
+    return []
+  } else if (cs.item_type === 'pue_type') {
+    if (cs.item_reference && cs.item_reference !== 'all') {
+      return pueList.filter(p => String(p.pue_type_id) === String(cs.item_reference))
+    }
+    return pueList
+  } else if (cs.item_type === 'pue' && cs.item_reference === 'all') {
+    return pueList
+  }
+  return []
+}
+
+// Enrich cost structures with availability info
+const costStructuresWithAvailability = computed(() => {
+  return costStructureOptions.value.map(cs => {
+    const linked = getItemsForStructure(cs, allHubPUEs.value)
+    const available = linked.filter(p => p.status === 'available')
+    return {
+      ...cs,
+      _linkedItems: linked,
+      _availableItems: available,
+      _availableCount: available.length
+    }
+  })
+})
+
+// Filtered cost structures (only those with available items)
+const filteredCostStructures = computed(() => {
+  return costStructuresWithAvailability.value.filter(cs => cs._availableCount > 0)
+})
+
+// Hint for cost structure dropdown
+const costStructureHint = computed(() => {
+  if (!formData.value.hub_id) return 'Select a hub first'
+  if (costStructureOptions.value.length === 0) return 'No cost structures available for this hub'
+  const hidden = costStructuresWithAvailability.value.length - filteredCostStructures.value.length
+  if (hidden > 0) {
+    return `${filteredCostStructures.value.length} cost structure(s) available (${hidden} hidden - no items available)`
+  }
+  return `${filteredCostStructures.value.length} cost structure(s) available`
+})
+
+// Format item type for display
+const formatItemType = (itemType, itemReference) => {
+  if (itemType === 'pue_item') return 'PUE Item'
+  if (itemType === 'pue_type') return 'PUE Type'
+  if (itemType === 'pue' && itemReference === 'all') return 'All PUE'
+  return itemType
+}
+
 // Watch cost structure to load PUEs
 watch(() => formData.value.costStructure, async (newVal) => {
   if (newVal) {
@@ -644,7 +792,7 @@ const loadPUEs = async () => {
   pueLoading.value = true
   try {
     const response = await hubsAPI.getAvailablePUE(formData.value.hub_id)
-    let pues = response.data || []
+    let pues = (response.data || []).filter(p => !p.status || p.status === 'available')
 
     // Filter by cost structure type
     const cs = formData.value.costStructure
@@ -788,7 +936,11 @@ const availableDurations = computed(() => {
   const durationOptions = formData.value.costStructure.duration_options
 
   if (durationOptions.length === 1 && durationOptions[0].input_type === 'dropdown') {
-    const dropdownOpts = durationOptions[0].dropdown_options || []
+    let dropdownOpts = durationOptions[0].dropdown_options || durationOptions[0].dropdown_choices || []
+    // Handle case where dropdown_options is still a JSON string
+    if (typeof dropdownOpts === 'string') {
+      try { dropdownOpts = JSON.parse(dropdownOpts) } catch (e) { dropdownOpts = [] }
+    }
     return dropdownOpts.map(opt => ({
       ...opt,
       label: opt.label,
