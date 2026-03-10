@@ -6,7 +6,7 @@
 
         <q-toolbar-title>
           <q-icon name="battery_charging_full" size="sm" />
-          Battery Hub Manager
+          BEPPP
         </q-toolbar-title>
 
         <q-btn

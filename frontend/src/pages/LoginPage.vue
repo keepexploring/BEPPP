@@ -5,7 +5,7 @@
         <q-card class="login-card">
           <q-card-section class="text-center">
             <q-icon name="battery_charging_full" size="64px" color="primary" />
-            <div class="text-h5 q-mt-sm">Battery Hub Manager</div>
+            <div class="text-h5 q-mt-sm">BEPPP</div>
             <div class="text-subtitle2 text-grey-7">Sign in to continue</div>
           </q-card-section>
 

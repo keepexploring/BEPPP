@@ -92,8 +92,8 @@ module.exports = configure(function (/* ctx */) {
       },
 
       manifest: {
-        name: 'Battery Hub Manager',
-        short_name: 'Battery Hub',
+        name: 'BEPPP',
+        short_name: 'BEPPP',
         description: 'Battery Rental Management System',
         display: 'standalone',
         orientation: 'portrait',

@@ -2,7 +2,7 @@
   "name": "battery-rental-pwa",
   "version": "1.0.0",
   "description": "Battery Rental Management PWA",
-  "productName": "Battery Hub Manager",
+  "productName": "BEPPP",
   "author": "Your Name",
   "private": true,
   "scripts": {
