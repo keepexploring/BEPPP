@@ -2176,7 +2176,7 @@ async def receive_batch_live_data(
             endpoint="/webhook/batch-live-data",
             method="POST",
             request_headers=request_headers,
-            request_body={"battery_id": battery_id, "entry_count": len(entries)},
+            request_body=request_body,
             response_status=200,
             response_body=result,
             error_message=None,
