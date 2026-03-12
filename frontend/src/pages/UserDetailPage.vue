@@ -238,6 +238,59 @@
         </q-card-section>
       </q-card>
 
+      <!-- Credit & Deposits Card -->
+      <q-card v-if="creditSummary.holds.length > 0 || creditSummary.held_deposits > 0" class="q-mb-md">
+        <q-card-section>
+          <div class="text-h6 q-mb-md">Credit & Deposits</div>
+
+          <div class="row q-col-gutter-md q-mb-md">
+            <div class="col-12 col-md-4">
+              <q-card flat bordered>
+                <q-card-section>
+                  <div class="text-overline text-grey-7">Total Balance</div>
+                  <div class="text-h5">{{ currencySymbol }}{{ (creditSummary.balance || 0).toFixed(2) }}</div>
+                </q-card-section>
+              </q-card>
+            </div>
+            <div class="col-12 col-md-4">
+              <q-card flat bordered class="bg-warning-1">
+                <q-card-section>
+                  <div class="text-overline text-grey-7">Held as Deposits</div>
+                  <div class="text-h5 text-warning">{{ currencySymbol }}{{ (creditSummary.held_deposits || 0).toFixed(2) }}</div>
+                </q-card-section>
+              </q-card>
+            </div>
+            <div class="col-12 col-md-4">
+              <q-card flat bordered>
+                <q-card-section>
+                  <div class="text-overline text-grey-7">Available Credit</div>
+                  <div class="text-h5" :class="creditSummary.available_credit >= 0 ? 'text-positive' : 'text-negative'">
+                    {{ currencySymbol }}{{ (creditSummary.available_credit || 0).toFixed(2) }}
+                  </div>
+                </q-card-section>
+              </q-card>
+            </div>
+          </div>
+
+          <q-table
+            v-if="creditSummary.holds.length > 0"
+            :rows="creditSummary.holds"
+            :columns="[
+              { name: 'rental_type', label: 'Type', field: 'rental_type', align: 'left' },
+              { name: 'rental_id', label: 'Rental', field: row => row.rental_id || row.pue_rental_id, align: 'left' },
+              { name: 'amount', label: 'Amount', field: 'amount', align: 'right', format: val => `${currencySymbol}${val.toFixed(2)}` },
+              { name: 'created_at', label: 'Held Since', field: 'created_at', align: 'left', format: val => val ? new Date(val).toLocaleDateString() : '' }
+            ]"
+            flat
+            bordered
+            dense
+            :rows-per-page-options="[5]"
+            title="Active Deposit Holds"
+            hide-bottom
+          />
+        </q-card-section>
+      </q-card>
+
       <!-- Subscriptions Card -->
       <q-card class="q-mb-md">
         <q-card-section>
@@ -1792,6 +1845,12 @@ const account = ref({
   total_spent: 0,
   total_owed: 0
 })
+const creditSummary = ref({
+  balance: 0,
+  held_deposits: 0,
+  available_credit: 0,
+  holds: []
+})
 const transactions = ref([])
 const transactionSearch = ref('')
 const pagination = ref({
@@ -2212,6 +2271,15 @@ const loadAccount = async () => {
   } catch (error) {
     console.error('Failed to load account:', error)
     if (navigator.onLine) $q.notify({ type: 'negative', message: 'Failed to load account details', position: 'top' })
+  }
+}
+
+const loadCreditSummary = async () => {
+  try {
+    const response = await accountsAPI.getCreditSummary(userId.value)
+    creditSummary.value = response.data
+  } catch (error) {
+    console.error('Failed to load credit summary:', error)
   }
 }
 
@@ -3041,6 +3109,7 @@ onMounted(async () => {
   await loadUser()
   loadPaymentTypes()
   loadAccount()
+  loadCreditSummary()
   loadTransactions()
   loadUserSubscriptions()
   loadSubscriptionPackages()

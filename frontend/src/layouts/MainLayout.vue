@@ -41,6 +41,30 @@
           Syncing {{ offlinePendingCount }}
         </q-chip>
 
+        <q-chip
+          v-if="offlineFailedCount > 0"
+          color="red"
+          text-color="white"
+          icon="error"
+          dense
+          clickable
+          class="q-mr-sm"
+          @click="showFailedDialog = true"
+        >
+          {{ offlineFailedCount }} failed
+        </q-chip>
+
+        <q-chip
+          v-if="showCacheUpdated"
+          color="teal"
+          text-color="white"
+          icon="cached"
+          dense
+          class="q-mr-sm"
+        >
+          Updated
+        </q-chip>
+
         <q-btn flat round dense icon="notifications">
           <q-badge v-if="unreadCount > 0" color="red" floating>{{ unreadCount }}</q-badge>
           <q-menu max-width="400px">
@@ -191,6 +215,19 @@
           </q-item-section>
         </q-item>
 
+        <q-item
+          clickable
+          :to="{ name: 'customers' }"
+          v-ripple
+        >
+          <q-item-section avatar>
+            <q-icon name="group" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Customers</q-item-label>
+          </q-item-section>
+        </q-item>
+
         <q-separator />
 
         <q-item
@@ -282,15 +319,55 @@
     <q-page-container>
       <router-view />
     </q-page-container>
+
+    <!-- Failed Mutations Dialog -->
+    <q-dialog v-model="showFailedDialog">
+      <q-card style="min-width: 400px; max-width: 600px">
+        <q-card-section>
+          <div class="text-h6">Failed Sync Items</div>
+          <div class="text-caption text-grey-7">These changes could not be saved to the server.</div>
+        </q-card-section>
+
+        <q-card-section v-if="failedMutations.length === 0">
+          <div class="text-center text-grey-6">No failed items</div>
+        </q-card-section>
+
+        <q-list separator v-else>
+          <q-item v-for="m in failedMutations" :key="m.id">
+            <q-item-section>
+              <q-item-label>{{ m.method?.toUpperCase() }} {{ formatMutationUrl(m.url) }}</q-item-label>
+              <q-item-label caption class="text-negative">{{ m.lastError || 'Unknown error' }}</q-item-label>
+              <q-item-label caption>Queued: {{ formatTimestamp(m.createdAt) }}</q-item-label>
+            </q-item-section>
+            <q-item-section side>
+              <div class="q-gutter-xs">
+                <q-btn flat dense size="sm" icon="replay" color="primary" @click="retryMutation(m.id)">
+                  <q-tooltip>Retry</q-tooltip>
+                </q-btn>
+                <q-btn flat dense size="sm" icon="delete" color="negative" @click="discardMutation(m.id)">
+                  <q-tooltip>Discard</q-tooltip>
+                </q-btn>
+              </div>
+            </q-item-section>
+          </q-item>
+        </q-list>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Close" v-close-popup />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-layout>
 </template>
 
 <script setup>
-import { ref, computed, inject, onMounted, onUnmounted } from 'vue'
+import { ref, computed, inject, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from 'stores/auth'
 import { useQuasar } from 'quasar'
 import { notificationsAPI } from 'src/services/api'
+import { getFailedMutations } from 'src/services/offlineDb'
+import { retryFailedMutation, discardFailedMutation } from 'src/services/syncManager'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
@@ -302,6 +379,49 @@ const networkState = inject('networkState', { online: ref(true) })
 const offlineSyncState = inject('offlineSyncState', { syncing: false, pendingCount: 0 })
 const networkOnline = computed(() => networkState.online.value)
 const offlinePendingCount = computed(() => offlineSyncState.pendingCount)
+const offlineFailedCount = computed(() => offlineSyncState.failedCount || 0)
+
+// Cache-updated indicator
+const showCacheUpdated = ref(false)
+let cacheUpdatedTimer = null
+
+// Failed mutations dialog
+const showFailedDialog = ref(false)
+const failedMutations = ref([])
+
+const formatMutationUrl = (url) => {
+  try {
+    const parsed = new URL(url)
+    return parsed.pathname
+  } catch {
+    return url
+  }
+}
+
+const loadFailedMutations = async () => {
+  failedMutations.value = await getFailedMutations()
+}
+
+const retryMutation = async (id) => {
+  await retryFailedMutation(id)
+  await loadFailedMutations()
+  if (failedMutations.value.length === 0) {
+    showFailedDialog.value = false
+  }
+}
+
+const discardMutation = async (id) => {
+  await discardFailedMutation(id)
+  await loadFailedMutations()
+  if (failedMutations.value.length === 0) {
+    showFailedDialog.value = false
+  }
+}
+
+// Load failed mutations when dialog opens
+watch(showFailedDialog, (val) => {
+  if (val) loadFailedMutations()
+})
 
 // Notifications
 const notifications = ref([])
@@ -430,14 +550,26 @@ const onMutationQueued = () => {
   })
 }
 
+// Cache-updated handler
+const onCacheUpdated = () => {
+  showCacheUpdated.value = true
+  if (cacheUpdatedTimer) clearTimeout(cacheUpdatedTimer)
+  cacheUpdatedTimer = setTimeout(() => {
+    showCacheUpdated.value = false
+  }, 2000)
+}
+
 // Trigger notification check and load on mount
 onMounted(() => {
   triggerNotificationCheck()
   window.addEventListener('offline-mutation-queued', onMutationQueued)
+  window.addEventListener('cache-updated', onCacheUpdated)
 })
 
 onUnmounted(() => {
   window.removeEventListener('offline-mutation-queued', onMutationQueued)
+  window.removeEventListener('cache-updated', onCacheUpdated)
+  if (cacheUpdatedTimer) clearTimeout(cacheUpdatedTimer)
 })
 </script>
 

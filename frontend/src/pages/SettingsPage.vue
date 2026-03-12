@@ -254,6 +254,49 @@
           </div>
         </div>
 
+        <!-- Export Timeframe Selector -->
+        <q-card flat bordered class="q-mb-md">
+          <q-card-section>
+            <div class="text-subtitle2 q-mb-sm">Export Timeframe</div>
+            <div class="row q-gutter-md items-end">
+              <q-select
+                v-model="surveyExportTimeframe"
+                :options="[
+                  { label: 'Last Week', value: 'last_week' },
+                  { label: 'Last Month', value: 'last_month' },
+                  { label: 'Last 3 Months', value: 'last_3_months' },
+                  { label: 'Custom Range', value: 'custom' },
+                  { label: 'All Data', value: 'all' }
+                ]"
+                emit-value
+                map-options
+                outlined
+                dense
+                label="Timeframe"
+                style="min-width: 200px"
+              />
+              <template v-if="surveyExportTimeframe === 'custom'">
+                <q-input
+                  v-model="surveyExportStartDate"
+                  type="date"
+                  label="Start Date"
+                  outlined
+                  dense
+                  style="min-width: 160px"
+                />
+                <q-input
+                  v-model="surveyExportEndDate"
+                  type="date"
+                  label="End Date"
+                  outlined
+                  dense
+                  style="min-width: 160px"
+                />
+              </template>
+            </div>
+          </q-card-section>
+        </q-card>
+
         <div class="text-caption text-grey-7 q-mb-md">
           Configure survey questions that will be presented to customers when they return batteries or PUE items.
           Questions support conditional logic and can be applied to specific rental types.
@@ -1460,6 +1503,7 @@
                   <q-input
                     v-model.number="option.default_value"
                     type="number"
+                    step="0.01"
                     label="Default"
                     dense
                     outlined
@@ -1469,6 +1513,7 @@
                   <q-input
                     v-model.number="option.min_value"
                     type="number"
+                    step="0.01"
                     label="Min"
                     dense
                     outlined
@@ -1478,6 +1523,7 @@
                   <q-input
                     v-model.number="option.max_value"
                     type="number"
+                    step="0.01"
                     label="Max"
                     dense
                     outlined
@@ -1505,6 +1551,7 @@
                   <q-input
                     v-model.number="choice.value"
                     type="number"
+                    step="0.01"
                     label="Value"
                     dense
                     outlined
@@ -2095,6 +2142,9 @@ const surveyQuestions = ref([])
 const loadingSurveyQuestions = ref(false)
 const surveyFilterType = ref('all')
 const surveyShowInactive = ref(false)
+const surveyExportTimeframe = ref('last_week')
+const surveyExportStartDate = ref('')
+const surveyExportEndDate = ref('')
 const returnSurveyRequired = ref(false)
 const showAddSurveyQuestionDialog = ref(false)
 const showEditSurveyQuestionDialog = ref(false)
@@ -3069,6 +3119,26 @@ const exportSurveyResponses = async () => {
     const params = {
       hub_id: activeHubId.value
     }
+
+    // Apply timeframe filter
+    const now = new Date()
+    if (surveyExportTimeframe.value === 'last_week') {
+      const start = new Date(now)
+      start.setDate(start.getDate() - 7)
+      params.start_date = start.toISOString().split('T')[0]
+    } else if (surveyExportTimeframe.value === 'last_month') {
+      const start = new Date(now)
+      start.setMonth(start.getMonth() - 1)
+      params.start_date = start.toISOString().split('T')[0]
+    } else if (surveyExportTimeframe.value === 'last_3_months') {
+      const start = new Date(now)
+      start.setMonth(start.getMonth() - 3)
+      params.start_date = start.toISOString().split('T')[0]
+    } else if (surveyExportTimeframe.value === 'custom') {
+      if (surveyExportStartDate.value) params.start_date = surveyExportStartDate.value
+      if (surveyExportEndDate.value) params.end_date = surveyExportEndDate.value
+    }
+    // 'all' sends no date params
 
     console.log('Exporting survey responses with params:', params)
     const response = await surveyAPI.exportResponses(params)

@@ -9,7 +9,7 @@
 
     <div class="row items-center q-mb-md q-col-gutter-sm">
       <div class="col-12 col-sm-auto">
-        <div class="text-h5">Users</div>
+        <div class="text-h5">{{ pageTitle }}</div>
       </div>
       <div class="col-12 col-sm row items-center q-gutter-sm">
         <HubFilter v-model="selectedHub" @change="onHubChange" />
@@ -302,6 +302,8 @@
               label="GESI Status"
               outlined
               clearable
+              multiple
+              use-chips
               hint="Optional - Gender Equality & Social Inclusion category"
             />
 
@@ -314,22 +316,38 @@
               hint="Optional - Size/type of business"
             />
 
-            <q-input
-              v-model.number="formData.monthly_energy_expenditure"
-              label="Monthly Energy Expenditure"
-              type="number"
-              outlined
-              :prefix="currencySymbol"
-              hint="Optional - Current monthly spending on energy/power"
-            />
+            <div class="row q-gutter-sm">
+              <div class="col-12 col-sm-6">
+                <q-input
+                  v-model.number="formData.monthly_energy_electricity"
+                  label="Monthly Electricity Spend"
+                  type="number"
+                  outlined
+                  :prefix="currencySymbol"
+                  hint="Optional - electricity costs"
+                />
+              </div>
+              <div class="col-12 col-sm-6">
+                <q-input
+                  v-model.number="formData.monthly_energy_heat"
+                  label="Monthly Heat/Other Spend"
+                  type="number"
+                  outlined
+                  :prefix="currencySymbol"
+                  hint="Optional - heat, fuel, other energy"
+                />
+              </div>
+            </div>
 
             <q-select
               v-model="formData.main_reason_for_signup"
               :options="signupReasonOptions"
-              label="Main Reason for Signing Up"
+              label="Reason(s) for Signing Up"
               outlined
               clearable
-              hint="Optional - Primary motivation for joining"
+              multiple
+              use-chips
+              hint="Optional - Motivation(s) for joining"
             />
 
             <div class="row justify-end q-gutter-sm">
@@ -396,6 +414,13 @@ import { useRouter, useRoute } from 'vue-router'
 import HubFilter from 'src/components/HubFilter.vue'
 import ResetPasswordDialog from 'src/components/ResetPasswordDialog.vue'
 
+const props = defineProps({
+  roleFilter: {
+    type: String,
+    default: null
+  }
+})
+
 const $q = useQuasar()
 const authStore = useAuthStore()
 const hubSettingsStore = useHubSettingsStore()
@@ -405,7 +430,22 @@ const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 const router = useRouter()
 const route = useRoute()
 
-const users = ref([])
+// Effective role filter: hub_admin always sees only customers
+const effectiveRoleFilter = computed(() => {
+  if (authStore.role === 'hub_admin') return 'user'
+  return props.roleFilter
+})
+
+// Page title changes based on filter
+const pageTitle = computed(() => effectiveRoleFilter.value === 'user' ? 'Customers' : 'Users')
+
+const allUsers = ref([])
+const users = computed(() => {
+  if (effectiveRoleFilter.value) {
+    return allUsers.value.filter(u => u.user_access_level === effectiveRoleFilter.value)
+  }
+  return allUsers.value
+})
 const hubOptions = ref([])
 const loading = ref(false)
 const filter = ref('')
@@ -437,7 +477,8 @@ const formData = ref({
   date_of_birth: null,
   gesi_status: null,
   business_category: null,
-  monthly_energy_expenditure: null,
+  monthly_energy_electricity: null,
+  monthly_energy_heat: null,
   main_reason_for_signup: null
 })
 
@@ -568,21 +609,21 @@ const loadUsers = async () => {
     if (selectedHub.value) {
       // Load users for selected hub only
       const usersResponse = await hubsAPI.getUsers(selectedHub.value)
-      users.value = usersResponse.data
+      allUsers.value = usersResponse.data
     } else {
       // Note: The API doesn't have a list all users endpoint
       // We'll need to load users from hubs
       const hubsResponse = await hubsAPI.list()
-      const allUsers = new Map()
+      const userMap = new Map()
 
       for (const hub of hubsResponse.data) {
         const usersResponse = await hubsAPI.getUsers(hub.hub_id)
         usersResponse.data.forEach(user => {
-          allUsers.set(user.user_id, user)
+          userMap.set(user.user_id, user)
         })
       }
 
-      users.value = Array.from(allUsers.values())
+      allUsers.value = Array.from(userMap.values())
     }
   } catch (error) {
     if (navigator.onLine) {
@@ -639,7 +680,7 @@ const saveUser = async () => {
       const queued = response.data?._offlineQueued
       if (queued) {
         // Add synthetic user to local list immediately for offline UX
-        users.value = [...users.value, response.data]
+        allUsers.value = [...allUsers.value, response.data]
       }
       $q.notify({
         type: queued ? 'info' : 'positive',

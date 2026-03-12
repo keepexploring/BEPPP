@@ -17,6 +17,7 @@ CREDENTIALS.txt
 .venv/
 venv/
 env/
+hardware/
 *.pyc
 __pycache__/
 *.egg-info/
@@ -64,14 +65,6 @@ temp/
 *.swp
 *.swo
 
-# Hardware firmware source
-hardware/
-
-# SSH keys
-beppp
-beppp.pub
-beppp_id.pub
-beppp_id.pub.pub
-
 # Legacy/Archive
 prisma-heroku/
+

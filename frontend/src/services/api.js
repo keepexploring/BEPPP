@@ -33,7 +33,10 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // Only trigger logout on real 401 responses from the server.
+    // Network errors (no error.response) should NOT log the user out —
+    // the token is still valid and will work when connectivity returns.
+    if (error.response && error.response.status === 401) {
       const authStore = useAuthStore()
       authStore.logout()
       Notify.create({
@@ -359,6 +362,10 @@ export const accountsAPI = {
     api.post(`/accounts/user/${userId}/manual-adjustment`, null, { params: data }),
   getUserTransactions: (userId, params) =>
     api.get(`/accounts/user/${userId}/transactions`, { params }),
+  getDepositHolds: (userId, params) =>
+    api.get(`/accounts/user/${userId}/deposit-holds`, { params }),
+  getCreditSummary: (userId) =>
+    api.get(`/accounts/user/${userId}/credit-summary`),
 
   // Hub Accounts
   getHubSummary: (hubId, params) =>

@@ -40,6 +40,12 @@ const routes = [
         component: () => import('pages/UsersPage.vue')
       },
       {
+        path: 'customers',
+        name: 'customers',
+        component: () => import('pages/UsersPage.vue'),
+        props: { roleFilter: 'user' }
+      },
+      {
         path: 'users/:id',
         name: 'user-detail',
         component: () => import('pages/UserDetailPage.vue')

@@ -16,7 +16,7 @@ Before relying on offline mode, understand these constraints:
 
 - **Queued mutations are not editable**: Once a change is queued for sync, it cannot be modified or cancelled from the UI. It will be sent as-is when connectivity returns.
 
-- **Failed mutations are discarded after retries**: If a queued mutation fails with a server error (5xx) after 5 retry attempts, or with a client error (4xx) on the first attempt, it is marked as failed and will not be retried.
+- **Failed mutations are visible and actionable**: If a queued mutation fails with a server error (5xx) after 5 retry attempts, or with a client error (4xx) on the first attempt, it is marked as failed. A red chip in the toolbar shows the count; clicking it opens a dialog where you can Retry or Discard each failed mutation.
 
 - **Cache has TTL limits**: Cached data expires based on data type (e.g. settings: 60min, batteries: 5min, telemetry: 1min). Stale data may be shown if you've been offline longer than the TTL. Expired cache entries are cleaned up periodically.
 
@@ -39,7 +39,8 @@ Page calls someAPI.method()
 ```
 
 ### GET Requests (Reads)
-- **Network-first with IndexedDB fallback**: Every successful GET response is cached to IndexedDB. When offline or on network failure, the cached response is served instead.
+- **Stale-while-revalidate when online**: If cached data exists, the app returns it immediately and fires a background network request. When the background request succeeds, the cache is updated silently and a brief "Updated" indicator appears. This ensures instant page loads on slow connections.
+- **Cache fallback when offline**: When fully offline, cached data is served directly from IndexedDB with no network attempt.
 - Data is keyed by `METHOD:path?query` (e.g. `GET:/hubs/3/batteries`).
 
 ### POST/PUT/DELETE Requests (Mutations)
@@ -92,6 +93,7 @@ The system supports chaining related operations while fully offline. For example
 | Battery Rental | Batteries marked "rented" in cache; synthetic rental added to rental lists | Batteries marked "available"; rental marked "returned" |
 | PUE | Synthetic PUE added to PUE list caches | N/A |
 | PUE Rental | PUE marked "rented" in cache; synthetic rental added | PUE marked "available"; rental marked "returned" |
+| Cost Structure | Synthetic structure added to cost-structures list cache | N/A |
 
 ## Files
 
@@ -106,10 +108,12 @@ The system supports chaining related operations while fully offline. For example
 
 ## UI Indicators
 
-Two small chips appear in the top toolbar (MainLayout.vue):
+Four indicator chips can appear in the top toolbar (MainLayout.vue):
 
 - **Orange "Offline" chip** with cloud_off icon: shown when `navigator.onLine` is false
 - **Blue "Syncing N" chip** with spinning sync icon: shown when online with N pending mutations in the queue
+- **Red "N Failed" chip** with error icon: shown when failed mutations exist. Click to open a dialog listing each failed mutation with Retry and Discard buttons.
+- **Teal "Updated" chip** with check icon: briefly shown (2 seconds) when background revalidation refreshes cached data
 
 ## TTL Cache Strategy
 

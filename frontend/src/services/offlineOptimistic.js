@@ -72,6 +72,9 @@ function parseResourceFromUrl (url, method) {
   if (/^\/job-cards\/?(\?|$)/.test(path)) return { resource: 'job-card', action: 'create' }
   if (/^\/notifications\/?(\?|$)/.test(path)) return { resource: 'notification', action: 'create' }
 
+  // Cost structures: POST /settings/cost-structures
+  if (/^\/settings\/cost-structures\/?(\?|$)/.test(path) && m === 'post') return { resource: 'cost-structure', action: 'create' }
+
   // Return actions
   const batteryReturnMatch = path.match(/^\/battery-rentals\/([^/]+)\/return/)
   if (batteryReturnMatch) return { resource: 'battery-rental', action: 'return', id: batteryReturnMatch[1] }
@@ -495,6 +498,25 @@ async function handleNotificationCreate (data) {
   return { tempId, syntheticData: syntheticNotification }
 }
 
+// Handle cost structure creation: make it available for rental forms offline
+async function handleCostStructureCreate (data) {
+  const tempId = await getNextTempId()
+
+  const syntheticStructure = {
+    ...data,
+    structure_id: tempId,
+    id: tempId,
+    is_active: true,
+    components: data.components ? (typeof data.components === 'string' ? JSON.parse(data.components) : data.components) : [],
+    duration_options: data.duration_options ? (typeof data.duration_options === 'string' ? JSON.parse(data.duration_options) : data.duration_options) : [],
+    _offlineCreated: true
+  }
+
+  await mergeItemIntoCache('GET:/settings/cost-structures', syntheticStructure)
+
+  return { tempId, syntheticData: syntheticStructure }
+}
+
 // Handle account transaction creation
 async function handleAccountTransaction (userId, data) {
   // Invalidate the account summary cache so it re-fetches on sync
@@ -528,6 +550,7 @@ export async function processOptimisticMutation (method, url, data) {
         case 'notification': return await handleNotificationCreate(data || {})
         case 'inspection': return await handleInspectionCreate(parsed.parentId, data || {})
         case 'account-transaction': return await handleAccountTransaction(parsed.userId, data || {})
+        case 'cost-structure': return await handleCostStructureCreate(data || {})
         case 'survey': return { tempId: null, syntheticData: { _offlineQueued: true } }
       }
     }

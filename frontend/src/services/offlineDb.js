@@ -207,6 +207,24 @@ export async function getPendingMutationCount () {
 }
 
 /**
+ * Get all failed mutations from the queue
+ */
+export async function getFailedMutations () {
+  const db = await openDb()
+  const all = await db.getAll('mutationQueue')
+  return all.filter(m => m.status === 'failed')
+}
+
+/**
+ * Get count of failed mutations
+ */
+export async function getFailedMutationCount () {
+  const db = await openDb()
+  const all = await db.getAll('mutationQueue')
+  return all.filter(m => m.status === 'failed').length
+}
+
+/**
  * Update a mutation in the queue
  */
 export async function updateMutation (id, updates) {

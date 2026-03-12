@@ -1,1 +1,38 @@
 /* app global css */
+
+/* ── Mobile form overflow fixes ── */
+
+/* Prevent horizontal overflow on pages */
+.q-page {
+  overflow-x: hidden;
+}
+
+/* Constrain dialog cards on mobile */
+.q-dialog__inner .q-card {
+  max-width: 95vw;
+  max-height: 90vh;
+}
+
+/* Make dialog card sections scrollable */
+.q-dialog__inner .q-card > .q-card-section {
+  overflow-y: auto;
+}
+
+/* Prevent form rows from overflowing */
+.q-form .row {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* Ensure inputs don't exceed container width */
+.q-input,
+.q-select,
+.q-field {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Fix tables on small screens */
+.q-table__container {
+  overflow-x: auto;
+}

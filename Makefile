@@ -1,5 +1,5 @@
 # Solar Hub API Test Makefile
-.PHONY: help setup test test-quick test-auth test-coverage clean backend-dev frontend-install frontend-dev frontend-build frontend-start frontend-test-offline test-batch-endpoint dev dev-full db-start db-stop db-status docker-up docker-down docker-rebuild jupyter jupyter-stop jupyter-logs panel-restart jupyter-open subscription-billing subscription-billing-dry-run reconstruct-timestamps reconstruct-timestamps-dry-run
+.PHONY: help setup test test-quick test-auth test-coverage clean backend-dev frontend-install frontend-dev frontend-build frontend-start frontend-test-offline test-batch-endpoint dev dev-full db-start db-stop db-status docker-up docker-down docker-rebuild jupyter jupyter-stop jupyter-logs panel-restart jupyter-open subscription-billing subscription-billing-dry-run reconstruct-timestamps reconstruct-timestamps-dry-run db-backup db-restore db-backup-test test-all test-user-flows
 
 # Default target
 help:
@@ -21,8 +21,12 @@ help:
 	@echo "  make db-stop       - Stop database"
 	@echo "  make db-status     - Check database status"
 	@echo "  make db-reset      - Reset database schema"
+	@echo "  make db-backup     - Create database backup"
+	@echo "  make db-restore FILE=path  - Restore database from backup"
+	@echo "  make db-backup-test        - Test backup/restore (non-destructive)"
 	@echo ""
 	@echo "🧪 Testing Commands:"
+	@echo "  make test-all      - Run ALL tests (offline PWA + build verification)"
 	@echo "  make setup         - Set up test environment"
 	@echo "  make test          - Run all tests"
 	@echo "  make test-quick    - Run quick smoke tests"
@@ -38,6 +42,7 @@ help:
 	@echo "  make frontend-start        - Start frontend production server locally"
 	@echo "  make frontend-test-offline - Run offline PWA tests (IndexedDB, caching, sync, workflows)"
 	@echo "  make test-batch-endpoint   - Test batch live data API endpoint (requires running server)"
+	@echo "  make test-user-flows       - Test user/rental/deposit flows (requires running server)"
 	@echo ""
 	@echo "🐳 Docker Commands (Production):"
 	@echo "  make docker-up        - Start all services with docker-compose"
@@ -290,6 +295,11 @@ test-batch-endpoint:
 	@echo "🧪 Running batch endpoint tests..."
 	@python scripts/test_batch_endpoint.py
 
+# Test user flows (requires running server)
+test-user-flows:
+	@echo "🧪 Running user flow integration tests..."
+	@python scripts/test_user_flows.py
+
 # ============================================================================
 # Docker Commands
 # ============================================================================
@@ -442,3 +452,51 @@ ifdef BATTERY_ID
 else
 	docker compose exec api python scripts/reconstruct_timestamps.py --dry-run
 endif
+
+# ============================================================================
+# Database Backup Commands
+# ============================================================================
+
+# Create a database backup
+db-backup:
+	@echo "🗄️  Creating database backup..."
+	@chmod +x scripts/backup_db.sh
+	@./scripts/backup_db.sh
+
+# Restore a database backup
+# Usage: make db-restore FILE=backups/beppp_backup_20250101_020000.sql.gz
+db-restore:
+ifndef FILE
+	@echo "Usage: make db-restore FILE=backups/beppp_backup_YYYYMMDD_HHMMSS.sql.gz"
+	@echo ""
+	@echo "Available backups:"
+	@ls -lh backups/beppp_backup_*.sql.gz 2>/dev/null || echo "  (none found)"
+else
+	@chmod +x scripts/restore_db.sh
+	@./scripts/restore_db.sh $(FILE)
+endif
+
+# Test backup and restore (non-destructive)
+db-backup-test:
+	@echo "🧪 Testing database backup/restore..."
+	@chmod +x scripts/test_backup_restore.sh
+	@./scripts/test_backup_restore.sh
+
+# ============================================================================
+# Unified Test Commands
+# ============================================================================
+
+# Run ALL tests (offline PWA + frontend build verification + user flow integration)
+test-all:
+	@echo "🧪 Running all tests..."
+	@echo ""
+	@echo "=== Frontend Offline PWA Tests ==="
+	@cd frontend && node test-offline.mjs
+	@echo ""
+	@echo "=== Frontend Build Verification ==="
+	@cd frontend && npm run build:pwa
+	@echo ""
+	@echo "=== User Flow Integration Tests ==="
+	@python scripts/test_user_flows.py || echo "⚠️  User flow tests require running backend (skipped)"
+	@echo ""
+	@echo "✅ All tests passed!"

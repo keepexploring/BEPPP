@@ -1,4 +1,4 @@
-import { getSyncMeta, setSyncMeta } from './offlineDb'
+import { getSyncMeta, setSyncMeta } from './offlineDb.js'
 
 const CONCURRENCY = 2
 const WARM_COOLDOWN_MS = 5 * 60 * 1000 // Don't re-warm within 5 minutes

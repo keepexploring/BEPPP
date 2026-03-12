@@ -95,7 +95,9 @@ class User(Base):
     date_of_birth = Column(DateTime, nullable=True)  # Customer's date of birth
     gesi_status = Column(String(100), nullable=True)  # GESI (Gender Equality & Social Inclusion) status - configurable
     business_category = Column(String(100), nullable=True)  # Business size/category - configurable
-    monthly_energy_expenditure = Column(Float, nullable=True)  # Current monthly spending on energy/power
+    monthly_energy_expenditure = Column(Float, nullable=True)  # Current monthly spending on energy/power (sum of electricity + heat)
+    monthly_energy_electricity = Column(Float, nullable=True)  # Monthly spending on electricity
+    monthly_energy_heat = Column(Float, nullable=True)  # Monthly spending on heat/cooking fuel
     main_reason_for_signup = Column(String(100), nullable=True)  # Main reason for signing up - configurable
 
     hub_id = Column(BigInteger, ForeignKey('solarhub.hub_id'))
@@ -548,9 +550,9 @@ class CostStructureDurationOption(Base):
     label = Column(String(100), nullable=False)  # e.g., "Rental Duration", "Select Period"
 
     # For custom input type
-    default_value = Column(Integer, nullable=True)  # Default value for custom inputs
-    min_value = Column(Integer, nullable=True)  # Minimum value for custom inputs (e.g., 1)
-    max_value = Column(Integer, nullable=True)  # Maximum value for custom inputs (e.g., 90)
+    default_value = Column(Float, nullable=True)  # Default value for custom inputs (supports decimals e.g. 0.5 months)
+    min_value = Column(Float, nullable=True)  # Minimum value for custom inputs (e.g., 0.5)
+    max_value = Column(Float, nullable=True)  # Maximum value for custom inputs (e.g., 90)
     custom_unit = Column(String(20), nullable=True)  # 'days', 'weeks', 'months' - for custom input
 
     # For dropdown type - JSON array of objects: [{"value": 1, "unit": "days", "label": "1 Day"}, ...]
@@ -663,6 +665,24 @@ class UserAccount(Base):
     # Relationships
     user = relationship("User", foreign_keys=[user_id], backref=backref("account", uselist=False))
     transactions = relationship("AccountTransaction", back_populates="account", cascade="all, delete-orphan")
+
+
+class DepositHold(Base):
+    """Credit holds for active rental deposits"""
+    __tablename__ = 'deposit_holds'
+
+    hold_id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(Integer, ForeignKey('user_accounts.account_id', ondelete='CASCADE'), nullable=False)
+    rental_id = Column(BigInteger, nullable=True)  # battery_rentals.rental_id
+    pue_rental_id = Column(BigInteger, nullable=True)  # puerental.pue_rental_id
+    rental_type = Column(String(20), nullable=False)  # 'battery' or 'pue'
+    amount = Column(Float, nullable=False)
+    status = Column(String(20), server_default='held', nullable=False)  # 'held' or 'released'
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    released_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    account = relationship("UserAccount", backref="deposit_holds")
 
 
 class AccountTransaction(Base):

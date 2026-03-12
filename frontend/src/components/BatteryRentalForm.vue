@@ -384,6 +384,69 @@
           </q-input>
         </div>
 
+        <!-- Credit check warning for deposit -->
+        <div v-if="costEstimate && costEstimate.deposit_amount > 0 && userCreditSummary" class="col-12">
+          <q-banner v-if="userCreditSummary.available_credit < costEstimate.deposit_amount" class="bg-orange-1" rounded dense>
+            <template v-slot:avatar>
+              <q-icon name="warning" color="orange" size="sm" />
+            </template>
+            Deposit required: {{ currencySymbol }}{{ costEstimate.deposit_amount.toFixed(2) }}.
+            Available credit: {{ currencySymbol }}{{ (userCreditSummary.available_credit || 0).toFixed(2) }}.
+            <strong>Insufficient credit - add credit before renting.</strong>
+          </q-banner>
+          <q-banner v-else class="bg-green-1" rounded dense>
+            <template v-slot:avatar>
+              <q-icon name="check_circle" color="positive" size="sm" />
+            </template>
+            Deposit: {{ currencySymbol }}{{ costEstimate.deposit_amount.toFixed(2) }} | Available credit: {{ currencySymbol }}{{ (userCreditSummary.available_credit || 0).toFixed(2) }}
+          </q-banner>
+        </div>
+
+        <!-- Upfront Payment Collection -->
+        <template v-if="upfrontAmountDue > 0">
+          <div class="col-12">
+            <q-separator class="q-my-sm" />
+            <div class="text-subtitle2 q-mb-sm">Upfront Payment Collection</div>
+            <q-banner class="bg-blue-1 q-mb-sm" rounded dense>
+              <template v-slot:avatar>
+                <q-icon name="payment" color="primary" size="sm" />
+              </template>
+              Amount due at checkout: <strong>{{ currencySymbol }}{{ upfrontAmountDue.toFixed(2) }}</strong>
+            </q-banner>
+          </div>
+          <div class="col-12 col-md-6">
+            <q-select
+              v-model="formData.paymentMethod"
+              :options="paymentMethodOptions"
+              label="Payment Method"
+              outlined
+              emit-value
+              map-options
+            >
+              <template v-slot:prepend>
+                <q-icon name="credit_card" />
+              </template>
+            </q-select>
+          </div>
+          <div class="col-12 col-md-6">
+            <q-input
+              v-model.number="formData.paymentAmount"
+              label="Amount Collected"
+              outlined
+              type="number"
+              step="0.01"
+              min="0"
+            >
+              <template v-slot:prepend>
+                <q-icon name="payments" />
+              </template>
+              <template v-slot:append>
+                <span>{{ currencySymbol }}</span>
+              </template>
+            </q-input>
+          </div>
+        </template>
+
         <!-- Notes -->
         <div class="col-12">
           <q-input
@@ -423,7 +486,7 @@
 <script setup>
 import { ref, computed, inject, onMounted, watch } from 'vue'
 import { useQuasar, date } from 'quasar'
-import { hubsAPI, batteriesAPI, settingsAPI, batteryRentalsAPI } from 'src/services/api'
+import { hubsAPI, batteriesAPI, settingsAPI, batteryRentalsAPI, accountsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
 
@@ -448,7 +511,32 @@ const formData = ref({
   rentalStartDate: new Date().toISOString().slice(0, 16),
   dueDate: null,
   depositAmount: 0,
-  notes: ''
+  notes: '',
+  paymentMethod: 'cash',
+  paymentAmount: 0
+})
+
+// Payment method options
+const paymentMethodOptions = [
+  { label: 'Cash', value: 'cash' },
+  { label: 'Mobile Money', value: 'mobile_money' },
+  { label: 'Bank Transfer', value: 'bank_transfer' },
+  { label: 'Card', value: 'card' }
+]
+
+// Computed: upfront amount due (deposit + any one-time/upfront charges)
+const upfrontAmountDue = computed(() => {
+  const cs = formData.value.costStructure
+  if (!cs) return 0
+  let total = formData.value.depositAmount || 0
+  if (cs.components) {
+    for (const comp of cs.components) {
+      if (comp.unit_type === 'one_time' || comp.unit_type === 'fixed') {
+        total += comp.rate || 0
+      }
+    }
+  }
+  return total
 })
 
 // Loading States
@@ -466,6 +554,7 @@ const availableBatteries = ref([])
 const allHubBatteries = ref([])
 const costStructureOptions = ref([])
 const costEstimate = ref(null)
+const userCreditSummary = ref(null)
 const batterySearchFilter = ref('')
 const showCostStructureDialog = ref(false)
 
@@ -873,6 +962,20 @@ watch(() => formData.value.hub_id, async (newHubId, oldHubId) => {
   }
 })
 
+// Watch for user selection to load credit summary
+watch(() => formData.value.user, async (newUser) => {
+  if (newUser && newUser.user_id) {
+    try {
+      const res = await accountsAPI.getCreditSummary(newUser.user_id)
+      userCreditSummary.value = res.data
+    } catch (e) {
+      userCreditSummary.value = null
+    }
+  } else {
+    userCreditSummary.value = null
+  }
+})
+
 // Watch for cost structure or duration changes
 watch([() => formData.value.costStructure, () => formData.value.duration], () => {
   if (formData.value.costStructure && formData.value.duration) {
@@ -902,7 +1005,11 @@ const handleSubmit = async () => {
       rental_start_date: formData.value.rentalStartDate ? new Date(formData.value.rentalStartDate).toISOString() : undefined,
       due_date: formData.value.dueDate ? new Date(formData.value.dueDate).toISOString() : undefined,
       deposit_amount: formData.value.depositAmount > 0 ? formData.value.depositAmount : undefined,
-      notes: formData.value.notes ? [formData.value.notes] : undefined
+      notes: formData.value.notes ? [formData.value.notes] : undefined,
+      upfront_payment: formData.value.paymentAmount > 0 ? {
+        payment_amount: formData.value.paymentAmount,
+        payment_method: formData.value.paymentMethod
+      } : undefined
     }
 
     const response = await batteryRentalsAPI.create(rentalData)

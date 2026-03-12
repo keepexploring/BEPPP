@@ -390,10 +390,12 @@ class UserCreate(BaseModel):
 
     # New customer demographic fields
     date_of_birth: Optional[datetime] = None
-    gesi_status: Optional[str] = None
+    gesi_status: Optional[Union[str, List[str]]] = None
     business_category: Optional[str] = None
     monthly_energy_expenditure: Optional[float] = None
-    main_reason_for_signup: Optional[str] = None
+    monthly_energy_electricity: Optional[float] = None
+    monthly_energy_heat: Optional[float] = None
+    main_reason_for_signup: Optional[Union[str, List[str]]] = None
 
     hub_id: int
     user_access_level: str
@@ -417,10 +419,12 @@ class UserUpdate(BaseModel):
 
     # New customer demographic fields
     date_of_birth: Optional[datetime] = None
-    gesi_status: Optional[str] = None
+    gesi_status: Optional[Union[str, List[str]]] = None
     business_category: Optional[str] = None
     monthly_energy_expenditure: Optional[float] = None
-    main_reason_for_signup: Optional[str] = None
+    monthly_energy_electricity: Optional[float] = None
+    monthly_energy_heat: Optional[float] = None
+    main_reason_for_signup: Optional[Union[str, List[str]]] = None
 
     user_access_level: Optional[str] = None
     username: Optional[str] = None
@@ -622,6 +626,7 @@ class BatteryRentalCreate(BaseModel):
     rental_start_date: Optional[datetime] = Field(None, description="Rental start date (defaults to now)")
     due_date: Optional[datetime] = Field(None, description="Expected return date")
     deposit_amount: Optional[float] = Field(None, description="Deposit collected")
+    upfront_payment: Optional[dict] = Field(None, description="Upfront payment: {payment_method, payment_amount}")
     notes: Optional[List[str]] = Field(None, description="Notes about the rental")
 
     @field_validator('battery_ids', mode='before')
@@ -3130,6 +3135,17 @@ async def revoke_hub_access(
 # USER ENDPOINTS
 # ============================================================================
 
+def serialize_user(user):
+    """Serialize a User ORM object, splitting comma-separated multi-select fields into lists"""
+    from sqlalchemy import inspect as sa_inspect
+    data = {c.key: getattr(user, c.key) for c in sa_inspect(user).mapper.column_attrs}
+    # Split multi-select fields into lists
+    if data.get("gesi_status") and "," in str(data["gesi_status"]):
+        data["gesi_status"] = [s.strip() for s in data["gesi_status"].split(",")]
+    if data.get("main_reason_for_signup") and "," in str(data["main_reason_for_signup"]):
+        data["main_reason_for_signup"] = [s.strip() for s in data["main_reason_for_signup"].split(",")]
+    return data
+
 @app.post("/users/")
 async def create_user(
     user: UserCreate,
@@ -3201,6 +3217,18 @@ async def create_user(
         elif user_data.get("address"):
             user_data["physical_address"] = user_data["address"]
 
+        # Handle multi-select fields - join lists with comma for storage
+        if isinstance(user_data.get("gesi_status"), list):
+            user_data["gesi_status"] = ",".join(user_data["gesi_status"])
+        if isinstance(user_data.get("main_reason_for_signup"), list):
+            user_data["main_reason_for_signup"] = ",".join(user_data["main_reason_for_signup"])
+
+        # Handle energy split - compute total from electricity + heat
+        electricity = user_data.get("monthly_energy_electricity")
+        heat = user_data.get("monthly_energy_heat")
+        if electricity is not None or heat is not None:
+            user_data["monthly_energy_expenditure"] = (electricity or 0) + (heat or 0)
+
         # Auto-generate username from name if not provided
         generated_username = None
         if not user_data.get("username"):
@@ -3239,7 +3267,7 @@ async def create_user(
 
         # Return user with generated credentials if they were auto-generated
         response_data = {
-            "user": db_user,
+            "user": serialize_user(db_user),
             "generated_credentials": {}
         }
         if generated_username:
@@ -3273,8 +3301,8 @@ async def get_user(
     if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
         if user.hub_id != current_user.get('hub_id'):
             raise HTTPException(status_code=403, detail="Access denied")
-    
-    return user
+
+    return serialize_user(user)
 
 @app.put("/users/{user_id}")
 async def update_user(
@@ -3337,12 +3365,29 @@ async def update_user(
         elif "address" in update_data:
             update_data["physical_address"] = update_data["address"]
 
+        # Handle multi-select fields - join lists with comma for storage
+        if isinstance(update_data.get("gesi_status"), list):
+            update_data["gesi_status"] = ",".join(update_data["gesi_status"])
+        if isinstance(update_data.get("main_reason_for_signup"), list):
+            update_data["main_reason_for_signup"] = ",".join(update_data["main_reason_for_signup"])
+
+        # Handle energy split - compute total from electricity + heat
+        electricity = update_data.get("monthly_energy_electricity")
+        heat = update_data.get("monthly_energy_heat")
+        if electricity is not None or heat is not None:
+            # Use existing values if only one field is being updated
+            if electricity is None:
+                electricity = user.monthly_energy_electricity or 0
+            if heat is None:
+                heat = user.monthly_energy_heat or 0
+            update_data["monthly_energy_expenditure"] = electricity + heat
+
         for key, value in update_data.items():
             setattr(user, key, value)
 
         db.commit()
         db.refresh(user)
-        return user
+        return serialize_user(user)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -3482,7 +3527,8 @@ async def list_hub_users(
         if current_user.get('hub_id') != hub_id:
             raise HTTPException(status_code=403, detail="Access denied")
 
-    return db.query(User).filter(User.hub_id == hub_id).all()
+    users = db.query(User).filter(User.hub_id == hub_id).all()
+    return [serialize_user(u) for u in users]
 
 @app.get("/users/by-short-id/{short_id}")
 async def get_user_by_short_id(
@@ -3503,7 +3549,7 @@ async def get_user_by_short_id(
         if user.hub_id != current_user.get('hub_id'):
             raise HTTPException(status_code=403, detail="Access denied")
 
-    return user
+    return serialize_user(user)
 
 # ============================================================================
 # USER ID DOCUMENT PHOTO ENDPOINTS
@@ -5994,80 +6040,17 @@ async def create_battery_rental(
             new_rental.estimated_vat = estimated_vat
             new_rental.estimated_cost_total = estimated_total
 
-        # Note: Upfront cost charging feature removed - costs are now calculated on return
-        # This can be re-implemented at the cost structure level if needed
-
+        # Upfront payment collection (if frontend sends upfront_payment)
         upfront_total = 0
         upfront_charges = []
 
-        if False:  # Disabled for now
-            # Calculate and charge known costs upfront
-            upfront_subtotal = 0
+        if rental.upfront_payment:
+            payment_amount = rental.upfront_payment.get('payment_amount', 0)
+            payment_method = rental.upfront_payment.get('payment_method', 'cash')
 
-            # Get cost components
-            components = db.query(CostComponent).filter(
-                CostComponent.structure_id == rental.cost_structure_id
-            ).all()
+            if payment_amount and payment_amount > 0:
+                upfront_total = float(payment_amount)
 
-            # Calculate duration if we have an end date
-            duration_known = rental.due_date is not None
-            if duration_known:
-                duration_delta = rental.due_date - rental_start
-                hours = duration_delta.total_seconds() / 3600
-                days = duration_delta.total_seconds() / 86400
-                weeks = days / 7
-                months = days / 30
-
-            for component in components:
-                component_cost = 0
-                quantity = 0
-                can_charge_now = False
-
-                if component.unit_type == 'fixed':
-                    # Fixed costs are always known
-                    quantity = 1
-                    component_cost = component.rate
-                    can_charge_now = True
-                elif duration_known:
-                    # Time-based costs can be charged if duration is known
-                    if component.unit_type == 'per_hour':
-                        quantity = hours
-                        component_cost = component.rate * hours
-                        can_charge_now = True
-                    elif component.unit_type == 'per_day':
-                        quantity = days
-                        component_cost = component.rate * days
-                        can_charge_now = True
-                    elif component.unit_type == 'per_week':
-                        quantity = weeks
-                        component_cost = component.rate * weeks
-                        can_charge_now = True
-                    elif component.unit_type == 'per_month':
-                        quantity = months
-                        component_cost = component.rate * months
-                        can_charge_now = True
-
-                # Per-recharge and per-kwh costs cannot be charged upfront
-                # They will be charged at return time
-
-                if can_charge_now and component_cost > 0:
-                    upfront_charges.append({
-                        "component_name": component.component_name,
-                        "unit_type": component.unit_type,
-                        "rate": float(component.rate),
-                        "quantity": round(quantity, 2),
-                        "amount": round(component_cost, 2)
-                    })
-                    upfront_subtotal += component_cost
-
-            # Apply VAT to upfront charges
-            hub = db.query(SolarHub).filter(SolarHub.hub_id == user.hub_id).first()
-            vat_percentage = hub.vat_percentage if (hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None) else 15.0
-            upfront_vat = upfront_subtotal * (vat_percentage / 100)
-            upfront_total = upfront_subtotal + upfront_vat
-
-            # Create charge transaction if there are upfront costs
-            if upfront_total > 0:
                 # Get or create user account
                 user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
                 if not user_account:
@@ -6075,24 +6058,101 @@ async def create_battery_rental(
                     db.add(user_account)
                     db.flush()
 
-                # Create charge description
-                charge_description = f"Battery Rental #{new_rental.rental_id} - Upfront charges"
-                if upfront_charges:
-                    charge_description += f" ({', '.join([c['component_name'] for c in upfront_charges])})"
+                # Record upfront payment as credit received then charge applied
+                charge_description = f"Battery Rental #{new_rental.rental_id} - Upfront payment ({payment_method})"
 
-                # Create charge transaction (debit from account = debt owed)
-                user_account.balance -= upfront_total  # Decrease balance = increase debt (negative = owes money)
+                # Add payment to account (credit)
+                user_account.balance += upfront_total
+                payment_transaction = AccountTransaction(
+                    account_id=user_account.account_id,
+                    transaction_type='payment_received',
+                    amount=upfront_total,
+                    balance_after=user_account.balance,
+                    description=f"Upfront payment for Battery Rental #{new_rental.rental_id}",
+                    payment_type=payment_method,
+                    payment_method='upfront'
+                )
+                db.add(payment_transaction)
+
+                # Charge the rental cost (debit)
+                user_account.balance -= upfront_total
                 user_account.total_spent += upfront_total
-                user_account.total_owed += upfront_total
                 charge_transaction = AccountTransaction(
                     account_id=user_account.account_id,
-                    rental_id=None,  # This is for old Rental model, not BatteryRental
                     transaction_type='rental_charge',
-                    amount=-upfront_total,  # Negative for charges (debit)
+                    amount=-upfront_total,
                     balance_after=user_account.balance,
-                    description=charge_description
+                    description=charge_description,
+                    payment_type=payment_method,
+                    payment_method='upfront'
                 )
                 db.add(charge_transaction)
+
+                # Update rental payment tracking
+                new_rental.amount_paid = upfront_total
+                new_rental.payment_method = 'upfront'
+                new_rental.payment_type = payment_method
+
+                upfront_charges.append({
+                    "payment_method": payment_method,
+                    "amount": round(upfront_total, 2)
+                })
+
+        # Deposit hold system
+        deposit_hold_info = None
+        cost_structure = db.query(CostStructure).filter(
+            CostStructure.structure_id == rental.cost_structure_id
+        ).first()
+
+        if cost_structure and cost_structure.deposit_amount and cost_structure.deposit_amount > 0:
+            deposit_amount = float(cost_structure.deposit_amount)
+
+            # Get or create user account
+            user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+            if not user_account:
+                user_account = UserAccount(user_id=rental.user_id, balance=0)
+                db.add(user_account)
+                db.flush()
+
+            # Calculate available credit (balance minus active held deposits)
+            active_holds_total = db.query(func.coalesce(func.sum(DepositHold.amount), 0)).filter(
+                DepositHold.account_id == user_account.account_id,
+                DepositHold.status == 'held'
+            ).scalar()
+            available_credit = user_account.balance - float(active_holds_total)
+
+            if available_credit < deposit_amount:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient credit for deposit. Required: {deposit_amount}, Available: {round(available_credit, 2)}"
+                )
+
+            # Create deposit hold
+            hold = DepositHold(
+                account_id=user_account.account_id,
+                rental_id=new_rental.rental_id,
+                rental_type='battery',
+                amount=deposit_amount,
+                status='held'
+            )
+            db.add(hold)
+            new_rental.deposit_amount = deposit_amount
+            deposit_hold_info = {"amount": deposit_amount, "status": "held"}
+
+            # Check remaining credit and create low-credit notification if needed
+            remaining_available = available_credit - deposit_amount
+            if remaining_available < 0:
+                notification = Notification(
+                    hub_id=new_rental.hub_id,
+                    user_id=rental.user_id,
+                    notification_type='low_credit',
+                    title='Low Credit Warning',
+                    message=f"User {user.Name or user.first_names} has insufficient credit (available: {round(remaining_available, 2)})",
+                    severity='warning',
+                    link_type='user',
+                    link_id=str(rental.user_id)
+                )
+                db.add(notification)
 
         db.commit()
         db.refresh(new_rental)
@@ -6108,7 +6168,8 @@ async def create_battery_rental(
             "status": new_rental.status,
             "deposit_paid": float(new_rental.deposit_amount),
             "cost_structure_id": new_rental.cost_structure_id,
-            "upfront_charges": None  # Upfront charging disabled
+            "upfront_charges": upfront_charges if upfront_charges else None,
+            "deposit_hold": deposit_hold_info
         }
 
     except HTTPException:
@@ -6355,6 +6416,19 @@ async def return_batteries(
         if remaining == 0:
             rental.actual_return_date = return_date
             rental.status = 'returned'
+
+            # Release deposit hold
+            user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+            if user_account:
+                active_hold = db.query(DepositHold).filter(
+                    DepositHold.account_id == user_account.account_id,
+                    DepositHold.rental_id == rental_id,
+                    DepositHold.rental_type == 'battery',
+                    DepositHold.status == 'held'
+                ).first()
+                if active_hold:
+                    active_hold.status = 'released'
+                    active_hold.released_at = return_date
 
         # Handle payment recording
         total_payment_collected = 0
@@ -7233,6 +7307,62 @@ async def create_pue_rental(
         # Update PUE status
         pue.status = 'rented'
 
+        # Deposit hold system for PUE rentals
+        deposit_hold_info = None
+        pue_cost_structure = db.query(CostStructure).filter(
+            CostStructure.structure_id == rental.cost_structure_id
+        ).first()
+
+        if pue_cost_structure and pue_cost_structure.deposit_amount and pue_cost_structure.deposit_amount > 0:
+            pue_deposit_amount = float(pue_cost_structure.deposit_amount)
+
+            # Get or create user account
+            pue_user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+            if not pue_user_account:
+                pue_user_account = UserAccount(user_id=rental.user_id, balance=0)
+                db.add(pue_user_account)
+                db.flush()
+
+            # Calculate available credit
+            active_holds_total = db.query(func.coalesce(func.sum(DepositHold.amount), 0)).filter(
+                DepositHold.account_id == pue_user_account.account_id,
+                DepositHold.status == 'held'
+            ).scalar()
+            available_credit = pue_user_account.balance - float(active_holds_total)
+
+            if available_credit < pue_deposit_amount:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient credit for deposit. Required: {pue_deposit_amount}, Available: {round(available_credit, 2)}"
+                )
+
+            # Create deposit hold
+            hold = DepositHold(
+                account_id=pue_user_account.account_id,
+                pue_rental_id=new_rental.pue_rental_id,
+                rental_type='pue',
+                amount=pue_deposit_amount,
+                status='held'
+            )
+            db.add(hold)
+            new_rental.deposit_amount = pue_deposit_amount
+            deposit_hold_info = {"amount": pue_deposit_amount, "status": "held"}
+
+            # Low credit notification
+            remaining_available = available_credit - pue_deposit_amount
+            if remaining_available < 0:
+                notification = Notification(
+                    hub_id=pue.hub_id,
+                    user_id=rental.user_id,
+                    notification_type='low_credit',
+                    title='Low Credit Warning',
+                    message=f"User {user.Name or user.first_names} has insufficient credit (available: {round(remaining_available, 2)})",
+                    severity='warning',
+                    link_type='user',
+                    link_id=str(rental.user_id)
+                )
+                db.add(notification)
+
         # Add notes if provided
         if rental.notes:
             for note_content in rental.notes:
@@ -7791,6 +7921,19 @@ async def return_pue_rental(
         pue = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == rental.pue_id).first()
         if pue:
             pue.status = 'available'
+
+        # Release deposit hold
+        pue_user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+        if pue_user_account:
+            active_hold = db.query(DepositHold).filter(
+                DepositHold.account_id == pue_user_account.account_id,
+                DepositHold.pue_rental_id == rental_id,
+                DepositHold.rental_type == 'pue',
+                DepositHold.status == 'held'
+            ).first()
+            if active_hold:
+                active_hold.status = 'released'
+                active_hold.released_at = return_date
 
         # Handle payment if collecting
         if return_data.get('collect_payment'):
@@ -11894,6 +12037,83 @@ async def get_user_transactions(
         ],
         "count": len(transactions)
     }
+
+@app.get("/accounts/user/{user_id}/deposit-holds", tags=["Accounts"])
+async def get_user_deposit_holds(
+    user_id: int,
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get deposit holds for a user"""
+    user_account = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
+    if not user_account:
+        return []
+
+    query = db.query(DepositHold).filter(DepositHold.account_id == user_account.account_id)
+    if status:
+        query = query.filter(DepositHold.status == status)
+
+    holds = query.order_by(DepositHold.created_at.desc()).all()
+    return [
+        {
+            "hold_id": h.hold_id,
+            "rental_id": h.rental_id,
+            "pue_rental_id": h.pue_rental_id,
+            "rental_type": h.rental_type,
+            "amount": float(h.amount),
+            "status": h.status,
+            "created_at": h.created_at.isoformat() if h.created_at else None,
+            "released_at": h.released_at.isoformat() if h.released_at else None
+        }
+        for h in holds
+    ]
+
+
+@app.get("/accounts/user/{user_id}/credit-summary", tags=["Accounts"])
+async def get_user_credit_summary(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get credit summary including held deposits for a user"""
+    user_account = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
+    if not user_account:
+        return {
+            "user_id": user_id,
+            "balance": 0,
+            "held_deposits": 0,
+            "available_credit": 0,
+            "holds": []
+        }
+
+    # Get active holds
+    active_holds = db.query(DepositHold).filter(
+        DepositHold.account_id == user_account.account_id,
+        DepositHold.status == 'held'
+    ).all()
+
+    held_total = sum(float(h.amount) for h in active_holds)
+    available_credit = float(user_account.balance) - held_total
+
+    return {
+        "user_id": user_id,
+        "balance": float(user_account.balance),
+        "held_deposits": round(held_total, 2),
+        "available_credit": round(available_credit, 2),
+        "holds": [
+            {
+                "hold_id": h.hold_id,
+                "rental_id": h.rental_id,
+                "pue_rental_id": h.pue_rental_id,
+                "rental_type": h.rental_type,
+                "amount": float(h.amount),
+                "created_at": h.created_at.isoformat() if h.created_at else None
+            }
+            for h in active_holds
+        ]
+    }
+
 
 @app.get("/accounts/hub/{hub_id}/summary", tags=["Accounts"])
 async def get_hub_summary(

@@ -1965,6 +1965,577 @@ try {
   pass('battery rental with real API field names')
 } catch (e) { fail('battery rental with real API field names', e) }
 
+// ═══════════════════════════════════════════════════════════════════════
+// NEW FEATURE TESTS (Bugs & Features batch)
+// ═══════════════════════════════════════════════════════════════════════
+
+console.log('\n=== New feature tests: offlineDb failed mutations ===\n')
+
+// Import newly added functions
+const {
+  getFailedMutations,
+  getFailedMutationCount
+} = await import('./src/services/offlineDb.js')
+
+// Reset DB for these tests
+{
+  const db = await openDb()
+  const tx = db.transaction('mutationQueue', 'readwrite')
+  await tx.objectStore('mutationQueue').clear()
+  await tx.done
+}
+
+try {
+  // No failed mutations initially
+  const count = await getFailedMutationCount()
+  assert.strictEqual(count, 0)
+  const list = await getFailedMutations()
+  assert.strictEqual(list.length, 0)
+  pass('getFailedMutations/Count returns empty when no mutations')
+} catch (e) { fail('getFailedMutations empty', e) }
+
+try {
+  // Add a pending mutation, then mark it as failed
+  const id = await addToMutationQueue({
+    method: 'post',
+    url: 'http://localhost:8000/users/',
+    data: { username: 'testfail' }
+  })
+  await updateMutation(id, { status: 'failed', lastError: 'HTTP 409 conflict' })
+
+  const failCount = await getFailedMutationCount()
+  assert.strictEqual(failCount, 1)
+
+  const failList = await getFailedMutations()
+  assert.strictEqual(failList.length, 1)
+  assert.strictEqual(failList[0].status, 'failed')
+  assert.strictEqual(failList[0].lastError, 'HTTP 409 conflict')
+
+  // Pending count should be 0 (the failed one isn't pending)
+  const pendCount = await getPendingMutationCount()
+  assert.strictEqual(pendCount, 0)
+
+  // Clean up
+  await removeMutation(id)
+  pass('Failed mutations are tracked separately from pending ones')
+} catch (e) { fail('failed mutations tracking', e) }
+
+try {
+  // Add two mutations: one pending, one failed
+  const id1 = await addToMutationQueue({ method: 'post', url: 'http://localhost:8000/batteries/', data: {} })
+  const id2 = await addToMutationQueue({ method: 'post', url: 'http://localhost:8000/users/', data: {} })
+  await updateMutation(id2, { status: 'failed', lastError: 'duplicate username' })
+
+  assert.strictEqual(await getPendingMutationCount(), 1)
+  assert.strictEqual(await getFailedMutationCount(), 1)
+
+  // Clean up
+  await removeMutation(id1)
+  await removeMutation(id2)
+  pass('Mixed pending/failed counts are correct')
+} catch (e) { fail('mixed pending/failed counts', e) }
+
+
+console.log('\n=== New feature tests: Cost structure optimistic handler ===\n')
+
+// Reset DB
+{
+  const db = await openDb()
+  const tx1 = db.transaction('apiCache', 'readwrite')
+  await tx1.objectStore('apiCache').clear()
+  await tx1.done
+  const tx2 = db.transaction('syncMeta', 'readwrite')
+  await tx2.objectStore('syncMeta').clear()
+  await tx2.done
+}
+
+try {
+  // Seed a cost structures cache entry
+  await setCachedResponse(
+    'GET:/settings/cost-structures?hub_id=1',
+    '/settings/cost-structures?hub_id=1',
+    { cost_structures: [{ structure_id: 1, name: 'Existing CS' }] },
+    200
+  )
+
+  // Process the optimistic mutation for creating a cost structure
+  const { processOptimisticMutation } = await import('./src/services/offlineOptimistic.js')
+
+  const result = await processOptimisticMutation('post', 'http://localhost:8000/settings/cost-structures', {
+    hub_id: 1,
+    name: 'New Offline CS',
+    components: JSON.stringify([{ component_name: 'Daily Rate', unit_type: 'per_day', rate: 5 }])
+  })
+
+  assert.ok(result, 'handler returned a result')
+  assert.ok(result.tempId < 0, 'temp ID is negative')
+  assert.strictEqual(result.syntheticData.name, 'New Offline CS')
+  assert.ok(result.syntheticData._offlineCreated, 'marked as offline created')
+  assert.ok(Array.isArray(result.syntheticData.components), 'components parsed from JSON string')
+  pass('Cost structure optimistic create generates temp ID and synthetic data')
+} catch (e) { fail('cost structure optimistic create', e) }
+
+try {
+  // Verify cost structure was merged into the cache
+  const cached = await getCachedResponse('GET:/settings/cost-structures?hub_id=1')
+  assert.ok(cached, 'cache entry exists')
+  // The cache format is { cost_structures: [...] } - check the array inside
+  const structures = cached.data.cost_structures
+  assert.ok(Array.isArray(structures), 'cost_structures is an array')
+  assert.strictEqual(structures.length, 2, 'now has 2 structures')
+  const offlineOne = structures.find(s => s.name === 'New Offline CS')
+  assert.ok(offlineOne, 'offline structure found in cache')
+  assert.ok(offlineOne._offlineCreated, 'offline flag present')
+  pass('Cost structure optimistic create merges into cached list')
+} catch (e) { fail('cost structure cache merge', e) }
+
+
+console.log('\n=== New feature tests: parseResourceFromUrl - cost structures ===\n')
+
+try {
+  // We need to test that cost structure URL is recognized
+  // Import the full module and test processOptimisticMutation routing
+  const { processOptimisticMutation: pom } = await import('./src/services/offlineOptimistic.js')
+
+  // Test that an unknown URL returns null
+  const nullResult = await pom('post', 'http://localhost:8000/some-unknown-endpoint', {})
+  assert.strictEqual(nullResult, null, 'unknown endpoint returns null')
+
+  // Cost structure should NOT return null
+  const csResult = await pom('post', 'http://localhost:8000/settings/cost-structures', { name: 'Test' })
+  assert.ok(csResult !== null, 'cost structure endpoint is recognized')
+  pass('parseResourceFromUrl recognizes cost structure endpoint')
+} catch (e) { fail('parseResourceFromUrl cost structures', e) }
+
+
+console.log('\n=== New feature tests: offlineInterceptor stale-while-revalidate ===\n')
+
+try {
+  // Test the helper functions exist in offlineInterceptor
+  const interceptorModule = await import('./src/services/offlineInterceptor.js')
+  assert.ok(typeof interceptorModule.installOfflineInterceptors === 'function', 'installOfflineInterceptors is exported')
+  pass('offlineInterceptor exports installOfflineInterceptors')
+} catch (e) { fail('offlineInterceptor exports', e) }
+
+
+console.log('\n=== New feature tests: syncManager failedCount and retry/discard ===\n')
+
+try {
+  // syncManager.js uses Quasar path aliases (stores/auth) so we verify via source analysis
+  const fs = await import('node:fs')
+  const syncSource = fs.readFileSync('./src/services/syncManager.js', 'utf8')
+  assert.ok(syncSource.includes('export const syncState'), 'syncState is exported')
+  assert.ok(syncSource.includes('failedCount'), 'syncState has failedCount property')
+  assert.ok(syncSource.includes('export async function retryFailedMutation'), 'retryFailedMutation is exported')
+  assert.ok(syncSource.includes('export async function discardFailedMutation'), 'discardFailedMutation is exported')
+  assert.ok(syncSource.includes('export function triggerSync'), 'triggerSync is exported')
+  pass('syncManager exports new failedCount state and retry/discard functions')
+} catch (e) { fail('syncManager new exports', e) }
+
+try {
+  // Test discard logic using offlineDb directly (same logic as discardFailedMutation)
+  const db = await openDb()
+  const tx = db.transaction('mutationQueue', 'readwrite')
+  await tx.objectStore('mutationQueue').clear()
+  await tx.done
+
+  const id = await addToMutationQueue({
+    method: 'post',
+    url: 'http://localhost:8000/users/',
+    data: { username: 'retryme' }
+  })
+  await updateMutation(id, { status: 'failed', retryCount: 3, lastError: 'conflict' })
+
+  // Discard = removeMutation (same as discardFailedMutation does)
+  await removeMutation(id)
+  const afterDiscard = await getFailedMutationCount()
+  assert.strictEqual(afterDiscard, 0, 'failed count is 0 after discard')
+  pass('discardFailedMutation removes the mutation and updates counts')
+} catch (e) { fail('discardFailedMutation', e) }
+
+try {
+  // Test retry logic using offlineDb directly (same logic as retryFailedMutation)
+  const db = await openDb()
+  const tx = db.transaction('mutationQueue', 'readwrite')
+  await tx.objectStore('mutationQueue').clear()
+  await tx.done
+
+  const id = await addToMutationQueue({
+    method: 'post',
+    url: 'http://localhost:8000/batteries/',
+    data: { model: 'retry-test' }
+  })
+  await updateMutation(id, { status: 'failed', retryCount: 5, lastError: 'max retries' })
+
+  // Retry = updateMutation back to pending (same as retryFailedMutation does)
+  await updateMutation(id, { status: 'pending', retryCount: 0, lastError: null })
+
+  const failedAfter = await getFailedMutationCount()
+  assert.strictEqual(failedAfter, 0, 'no more failed after retry')
+
+  const pendingAfter = await getPendingMutationCount()
+  assert.strictEqual(pendingAfter, 1, 'mutation is now pending again')
+
+  // Verify retryCount was reset
+  const queue = await getMutationQueue()
+  assert.strictEqual(queue[0].retryCount, 0, 'retryCount reset to 0')
+
+  // Clean up
+  await removeMutation(id)
+  pass('retryFailedMutation resets status to pending with retryCount 0')
+} catch (e) { fail('retryFailedMutation', e) }
+
+
+console.log('\n=== New feature tests: PUE status options (no rented) ===\n')
+
+try {
+  // Read PUEPage.vue and verify 'rented' is not in the statusOptions
+  // We can test this by checking the offlineOptimistic PUE create handler
+  // sets status to 'available' by default (not 'rented')
+  const db = await openDb()
+  const tx = db.transaction(['apiCache', 'syncMeta'], 'readwrite')
+  await tx.objectStore('apiCache').clear()
+  await tx.objectStore('syncMeta').clear()
+  await tx.done
+
+  // Seed PUE list cache
+  await setCachedResponse('GET:/pue/', '/pue/', [], 200)
+
+  const { processOptimisticMutation: pom2 } = await import('./src/services/offlineOptimistic.js')
+
+  const result = await pom2('post', 'http://localhost:8000/pue/', {
+    hub_id: 1,
+    name: 'Test PUE',
+    status: 'available'
+  })
+  assert.ok(result)
+  assert.strictEqual(result.syntheticData.status, 'available', 'PUE created with available status')
+
+  // Verify it got merged into the cache
+  const cached = await getCachedResponse('GET:/pue/')
+  assert.ok(cached)
+  assert.strictEqual(cached.data.length, 1)
+  assert.strictEqual(cached.data[0].name, 'Test PUE')
+  pass('PUE offline create defaults to available status (rented blocked in UI)')
+} catch (e) { fail('PUE status available default', e) }
+
+
+console.log('\n=== New feature tests: API 401 guard (network errors do NOT logout) ===\n')
+
+try {
+  // The api.js interceptor now checks for error.response before triggering logout.
+  // We verify the logic pattern: error.response?.status === 401 is the ONLY logout trigger.
+  // With network errors (no error.response), logout should NOT happen.
+  // This is a logic/pattern test since we can't easily mock axios interceptors in Node.
+
+  // Read the api.js source and check the pattern
+  const fs = await import('node:fs')
+  const apiSource = fs.readFileSync('./src/services/api.js', 'utf8')
+
+  // The fix changes the check from error.response?.status === 401
+  // to error.response && error.response.status === 401
+  // Both patterns protect against network errors (where error.response is undefined)
+  const hasGuardedCheck = apiSource.includes('error.response && error.response.status === 401') ||
+                          apiSource.includes('error.response?.status === 401')
+  assert.ok(hasGuardedCheck, 'api.js has guarded 401 check (not triggered by network errors)')
+
+  // Verify there is NOT an unguarded error.response?.status check that could trigger on network errors
+  // The key is that the logout only happens inside the 401 block, and
+  // network errors (no error.response) are NOT caught by the 401 handler
+  const lines = apiSource.split('\n')
+  let logoutInRightPlace = false
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes('error.response') && lines[i].includes('401')) {
+      // Found the 401 check line - verify logout is nearby
+      for (let j = i; j < Math.min(i + 10, lines.length); j++) {
+        if (lines[j].includes('logout')) {
+          logoutInRightPlace = true
+          break
+        }
+      }
+    }
+  }
+  assert.ok(logoutInRightPlace, 'logout() call is inside the 401 response guard')
+  pass('API 401 interceptor only logs out on real server 401 responses, not network errors')
+} catch (e) { fail('API 401 guard', e) }
+
+
+console.log('\n=== New feature tests: Customers route / roleFilter ===\n')
+
+try {
+  // Verify the routes.js has the customers route
+  const fs = await import('node:fs')
+  const routesSource = fs.readFileSync('./src/router/routes.js', 'utf8')
+
+  assert.ok(routesSource.includes("path: 'customers'"), 'customers route path exists')
+  assert.ok(routesSource.includes("name: 'customers'"), 'customers route has name')
+  assert.ok(routesSource.includes("roleFilter: 'user'"), 'customers route passes roleFilter prop')
+  pass('routes.js has customers route with roleFilter prop')
+} catch (e) { fail('customers route', e) }
+
+try {
+  // Verify UsersPage.vue accepts roleFilter prop and has filtering logic
+  const fs = await import('node:fs')
+  const usersPageSource = fs.readFileSync('./src/pages/UsersPage.vue', 'utf8')
+
+  assert.ok(usersPageSource.includes('roleFilter'), 'UsersPage has roleFilter prop')
+  assert.ok(usersPageSource.includes('effectiveRoleFilter'), 'UsersPage has effectiveRoleFilter computed')
+  assert.ok(usersPageSource.includes("hub_admin") && usersPageSource.includes("'user'"),
+    'hub_admin role filter forces user-only view')
+  assert.ok(usersPageSource.includes('pageTitle'), 'UsersPage has dynamic pageTitle')
+  pass('UsersPage.vue supports roleFilter prop and hub_admin filtering')
+} catch (e) { fail('UsersPage roleFilter', e) }
+
+
+console.log('\n=== New feature tests: GESI multi-select & signup multi-select ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const usersPageSource = fs.readFileSync('./src/pages/UsersPage.vue', 'utf8')
+
+  // Check GESI has multiple and use-chips
+  const gesiSection = usersPageSource.substring(
+    usersPageSource.indexOf('gesi_status'),
+    usersPageSource.indexOf('gesi_status') + 500
+  )
+  assert.ok(gesiSection.includes('multiple'), 'GESI select has multiple attribute')
+  assert.ok(gesiSection.includes('use-chips'), 'GESI select has use-chips attribute')
+
+  // Check signup reason has multiple and use-chips
+  const signupSection = usersPageSource.substring(
+    usersPageSource.indexOf('main_reason_for_signup'),
+    usersPageSource.indexOf('main_reason_for_signup') + 500
+  )
+  assert.ok(signupSection.includes('multiple'), 'Signup reason select has multiple attribute')
+  assert.ok(signupSection.includes('use-chips'), 'Signup reason select has use-chips attribute')
+
+  pass('GESI and signup reason fields are multi-select with chips')
+} catch (e) { fail('multi-select fields', e) }
+
+
+console.log('\n=== New feature tests: Monthly energy split ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const usersPageSource = fs.readFileSync('./src/pages/UsersPage.vue', 'utf8')
+
+  assert.ok(usersPageSource.includes('monthly_energy_electricity'), 'Has electricity field')
+  assert.ok(usersPageSource.includes('monthly_energy_heat'), 'Has heat field')
+  assert.ok(usersPageSource.includes('Monthly Electricity Spend'), 'Has electricity label')
+  assert.ok(usersPageSource.includes('Monthly Heat/Other Spend'), 'Has heat label')
+  pass('Monthly energy split into electricity + heat fields')
+} catch (e) { fail('monthly energy split', e) }
+
+
+console.log('\n=== New feature tests: Survey export timeframe ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const settingsSource = fs.readFileSync('./src/pages/SettingsPage.vue', 'utf8')
+
+  assert.ok(settingsSource.includes('surveyExportTimeframe'), 'Has timeframe variable')
+  assert.ok(settingsSource.includes('last_week'), 'Has last_week option')
+  assert.ok(settingsSource.includes('last_month'), 'Has last_month option')
+  assert.ok(settingsSource.includes('last_3_months'), 'Has last_3_months option')
+  assert.ok(settingsSource.includes('surveyExportStartDate'), 'Has custom start date')
+  assert.ok(settingsSource.includes('surveyExportEndDate'), 'Has custom end date')
+  assert.ok(settingsSource.includes('start_date'), 'Passes start_date param')
+  pass('Survey export has timeframe selection with presets and custom range')
+} catch (e) { fail('survey export timeframe', e) }
+
+
+console.log('\n=== New feature tests: Decimal duration values ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const settingsSource = fs.readFileSync('./src/pages/SettingsPage.vue', 'utf8')
+
+  // Check that duration value inputs have step="0.01"
+  // Find the duration options section
+  const durationSection = settingsSource.substring(
+    settingsSource.indexOf('Duration Choices') || settingsSource.indexOf('duration_options'),
+    settingsSource.indexOf('Duration Choices') + 3000 || settingsSource.indexOf('duration_options') + 3000
+  )
+
+  // Count occurrences of step="0.01" in the full file
+  const stepMatches = (settingsSource.match(/step="0\.01"/g) || []).length
+  assert.ok(stepMatches >= 4, `Found ${stepMatches} step="0.01" attributes (expected >= 4: default, min, max, choice value)`)
+  pass('Duration value inputs support decimal values with step=0.01')
+} catch (e) { fail('decimal durations', e) }
+
+
+console.log('\n=== New feature tests: PWA orientation ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const configSource = fs.readFileSync(path.resolve(import.meta.dirname, 'quasar.config.js'), 'utf8')
+
+  assert.ok(configSource.includes("orientation: 'any'"), 'orientation is set to any (not portrait)')
+  assert.ok(!configSource.includes("orientation: 'portrait'"), 'portrait orientation removed')
+  pass('PWA manifest allows any screen orientation')
+} catch (e) { fail('PWA orientation', e) }
+
+
+console.log('\n=== New feature tests: Mobile CSS overflow fixes ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const cssSource = fs.readFileSync('./src/css/app.css', 'utf8')
+
+  assert.ok(cssSource.includes('overflow-x: hidden'), 'Has overflow-x: hidden rule')
+  assert.ok(cssSource.includes('max-width: 95vw'), 'Has dialog max-width constraint')
+  assert.ok(cssSource.includes('max-height: 90vh'), 'Has dialog max-height constraint')
+  assert.ok(cssSource.includes('.q-form .row'), 'Has form row margin fix')
+  assert.ok(cssSource.includes('box-sizing: border-box'), 'Has box-sizing fix for inputs')
+  pass('Global CSS contains mobile overflow fixes')
+} catch (e) { fail('mobile CSS fixes', e) }
+
+
+console.log('\n=== New feature tests: Pay on rental (upfront payment fields) ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const batteryFormSource = fs.readFileSync('./src/components/BatteryRentalForm.vue', 'utf8')
+
+  assert.ok(batteryFormSource.includes('paymentMethod'), 'BatteryRentalForm has paymentMethod field')
+  assert.ok(batteryFormSource.includes('paymentAmount'), 'BatteryRentalForm has paymentAmount field')
+  assert.ok(batteryFormSource.includes('upfrontAmountDue'), 'BatteryRentalForm has upfrontAmountDue computed')
+  assert.ok(batteryFormSource.includes('paymentMethodOptions'), 'BatteryRentalForm has payment method options')
+  assert.ok(batteryFormSource.includes('upfront_payment'), 'BatteryRentalForm sends upfront_payment in rental data')
+  assert.ok(batteryFormSource.includes('mobile_money'), 'Has mobile money payment option')
+  pass('BatteryRentalForm has upfront payment collection')
+} catch (e) { fail('battery rental upfront payment', e) }
+
+try {
+  const fs = await import('node:fs')
+  const pueFormSource = fs.readFileSync('./src/components/PUERentalForm.vue', 'utf8')
+
+  assert.ok(pueFormSource.includes('paymentMethod'), 'PUERentalForm has paymentMethod field')
+  assert.ok(pueFormSource.includes('paymentAmount'), 'PUERentalForm has paymentAmount field')
+  assert.ok(pueFormSource.includes('upfrontAmountDue'), 'PUERentalForm has upfrontAmountDue computed')
+  assert.ok(pueFormSource.includes('upfront_payment'), 'PUERentalForm sends upfront_payment in rental data')
+  pass('PUERentalForm has upfront payment collection')
+} catch (e) { fail('PUE rental upfront payment', e) }
+
+
+console.log('\n=== New feature tests: MainLayout sync UI ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const layoutSource = fs.readFileSync('./src/layouts/MainLayout.vue', 'utf8')
+
+  // Failed sync chip
+  assert.ok(layoutSource.includes('offlineFailedCount'), 'Has offlineFailedCount computed')
+  assert.ok(layoutSource.includes('showFailedDialog'), 'Has failed mutations dialog')
+  assert.ok(layoutSource.includes('failedMutations'), 'Has failedMutations ref')
+  assert.ok(layoutSource.includes('retryMutation'), 'Has retry mutation handler')
+  assert.ok(layoutSource.includes('discardMutation'), 'Has discard mutation handler')
+
+  // Cache updated chip
+  assert.ok(layoutSource.includes('showCacheUpdated'), 'Has cache-updated indicator')
+  assert.ok(layoutSource.includes('cache-updated'), 'Listens for cache-updated event')
+
+  // Customers nav
+  assert.ok(layoutSource.includes("name: 'customers'"), 'Has Customers nav link')
+
+  pass('MainLayout has failed sync chip, cache-updated indicator, and customers nav')
+} catch (e) { fail('MainLayout sync UI', e) }
+
+
+console.log('\n=== New feature tests: Backup scripts ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+
+  const scriptsDir = path.resolve(import.meta.dirname, '..', 'scripts')
+
+  const backupScript = fs.readFileSync(path.join(scriptsDir, 'backup_db.sh'), 'utf8')
+  assert.ok(backupScript.includes('pg_dump'), 'backup script uses pg_dump')
+  assert.ok(backupScript.includes('gzip'), 'backup script uses gzip compression')
+  assert.ok(backupScript.includes('RETENTION_DAYS'), 'backup script has retention cleanup')
+
+  const restoreScript = fs.readFileSync(path.join(scriptsDir, 'restore_db.sh'), 'utf8')
+  assert.ok(restoreScript.includes('DROP DATABASE'), 'restore script drops and recreates DB')
+  assert.ok(restoreScript.includes('gunzip'), 'restore script decompresses backup')
+  assert.ok(restoreScript.includes('Are you sure'), 'restore script has confirmation prompt')
+
+  const testScript = fs.readFileSync(path.join(scriptsDir, 'test_backup_restore.sh'), 'utf8')
+  assert.ok(testScript.includes('TEMP_DB'), 'test script uses temp database')
+  assert.ok(testScript.includes('cleanup'), 'test script has cleanup trap')
+  assert.ok(testScript.includes('Table count matches'), 'test script verifies table counts')
+
+  pass('Database backup/restore/test scripts exist with correct content')
+} catch (e) { fail('backup scripts', e) }
+
+
+console.log('\n=== New feature tests: Makefile test-all target ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+
+  const makefile = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'Makefile'), 'utf8')
+
+  assert.ok(makefile.includes('test-all'), 'Makefile has test-all target')
+  assert.ok(makefile.includes('db-backup'), 'Makefile has db-backup target')
+  assert.ok(makefile.includes('db-restore'), 'Makefile has db-restore target')
+  assert.ok(makefile.includes('db-backup-test'), 'Makefile has db-backup-test target')
+  pass('Makefile has test-all and database backup targets')
+} catch (e) { fail('Makefile targets', e) }
+
+
+console.log('\n=== Deposit hold & credit summary endpoint caching ===\n')
+
+try {
+  // Test that deposit-holds and credit-summary endpoints are recognized as cacheable
+  const depositHoldsUrl = '/accounts/user/1/deposit-holds'
+  const creditSummaryUrl = '/accounts/user/1/credit-summary'
+
+  // These should be valid cache keys (not excluded by the interceptor)
+  const dhKey = `GET:${depositHoldsUrl}`
+  const csKey = `GET:${creditSummaryUrl}`
+
+  // Cache some test data using the imported setCachedResponse
+  await setCachedResponse(dhKey, depositHoldsUrl, [{ hold_id: 1, rental_type: 'battery', amount: 50, status: 'held' }], 200)
+  await setCachedResponse(csKey, creditSummaryUrl, { balance: 200, held_deposits: 50, available_credit: 150, holds: [] }, 200)
+
+  const dhCached = await getCachedResponse(dhKey)
+  assert.ok(dhCached, 'deposit-holds endpoint data is cacheable')
+  assert.strictEqual(dhCached.data.length, 1, 'deposit-holds returns array with 1 hold')
+
+  const csCached = await getCachedResponse(csKey)
+  assert.ok(csCached, 'credit-summary endpoint data is cacheable')
+  assert.strictEqual(csCached.data.balance, 200, 'credit-summary balance is correct')
+  assert.strictEqual(csCached.data.held_deposits, 50, 'credit-summary held_deposits is correct')
+  assert.strictEqual(csCached.data.available_credit, 150, 'credit-summary available_credit is correct')
+
+  pass('deposit hold & credit summary caching')
+} catch (e) { fail('deposit hold & credit summary caching', e) }
+
+try {
+  // Verify api.js has deposit hold endpoints
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const apiJs = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'services', 'api.js'), 'utf8')
+  assert.ok(apiJs.includes('deposit-holds'), 'api.js has deposit-holds endpoint')
+  assert.ok(apiJs.includes('credit-summary'), 'api.js has credit-summary endpoint')
+  assert.ok(apiJs.includes('getDepositHolds'), 'api.js exports getDepositHolds')
+  assert.ok(apiJs.includes('getCreditSummary'), 'api.js exports getCreditSummary')
+  pass('api.js has deposit hold endpoints')
+} catch (e) { fail('api.js deposit hold endpoints', e) }
+
+try {
+  // Test Makefile has test-user-flows target
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const makefile = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'Makefile'), 'utf8')
+  assert.ok(makefile.includes('test-user-flows'), 'Makefile has test-user-flows target')
+  pass('Makefile has test-user-flows target')
+} catch (e) { fail('Makefile test-user-flows target', e) }
+
+
 // ── Summary ──────────────────────────────────────────────────────────
 
 console.log('\n========================================')

@@ -715,7 +715,8 @@ const addDurationChoice = () => {
   newCostStructure.value.durationChoices.push({ value: 1, unit: 'days', label: '1 Day' })
 }
 
-const statusOptions = ['available', 'rented', 'maintenance', 'retired']
+// 'rented' omitted from create/edit — to rent PUE, create a rental instead
+const statusOptions = ['available', 'maintenance', 'retired']
 const usageLocationOptions = ['hub_only', 'battery_only', 'both']
 const conditionOptions = ['Excellent', 'Good', 'Fair', 'Poor', 'Damaged']
 

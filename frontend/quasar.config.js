@@ -96,7 +96,7 @@ module.exports = configure(function (/* ctx */) {
         short_name: 'BEPPP',
         description: 'Battery Rental Management System',
         display: 'standalone',
-        orientation: 'portrait',
+        orientation: 'any',
         background_color: '#ffffff',
         theme_color: '#1976D2',
         icons: [

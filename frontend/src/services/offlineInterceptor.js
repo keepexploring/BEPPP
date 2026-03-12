@@ -3,8 +3,8 @@ import {
   getCachedResponse,
   setCachedResponse,
   addToMutationQueue
-} from './offlineDb'
-import { processOptimisticMutation } from './offlineOptimistic'
+} from './offlineDb.js'
+import { processOptimisticMutation } from './offlineOptimistic.js'
 
 // Endpoints that should never be cached or queued offline
 const EXCLUDED_PATTERNS = [
@@ -157,6 +157,34 @@ export function installOfflineInterceptors (axiosInstance) {
           return Promise.reject({
             __offlineQueued: true,
             __syntheticData: syntheticData,
+            config
+          })
+        }
+      }
+
+      // Online + GET: stale-while-revalidate — serve cache immediately, revalidate in background
+      if (isOnline() && isGetRequest(config)) {
+        const cached = await getCachedResponse(cacheKey)
+        if (cached) {
+          // Fire background revalidation
+          const bgConfig = { ...config, _bypassOffline: true }
+          axiosInstance(bgConfig)
+            .then((freshResponse) => {
+              if (freshResponse.status >= 200 && freshResponse.status < 300) {
+                setCachedResponse(cacheKey, fullUrl, freshResponse.data, freshResponse.status)
+                  .then(() => {
+                    window.dispatchEvent(new CustomEvent('cache-updated', { detail: { url: fullUrl } }))
+                  })
+                  .catch(() => {})
+              }
+            })
+            .catch(() => {}) // Silently ignore background fetch failures
+
+          // Return stale cache immediately
+          return Promise.reject({
+            __offlineCached: true,
+            cachedData: cached.data,
+            cachedStatus: cached.status,
             config
           })
         }

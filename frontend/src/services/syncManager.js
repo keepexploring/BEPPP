@@ -4,6 +4,7 @@ import {
   removeMutation,
   updateMutation,
   getPendingMutationCount,
+  getFailedMutationCount,
   invalidateCacheByPrefix,
   invalidateCacheByPattern,
   clearExpiredCache,
@@ -12,7 +13,7 @@ import {
   addTempIdMapping,
   getTempIdMappings,
   clearTempIdMappings
-} from './offlineDb'
+} from './offlineDb.js'
 import { useAuthStore } from 'stores/auth'
 
 const MAX_RETRIES = 5
@@ -24,6 +25,7 @@ const SYNC_LOCK_TIMEOUT_MS = 60000
 export const syncState = reactive({
   syncing: false,
   pendingCount: 0,
+  failedCount: 0,
   lastSyncAt: null,
   lastError: null
 })
@@ -61,6 +63,8 @@ function getCacheInvalidationTargets (url) {
     prefixes.push('GET:/pue-rentals')
     prefixes.push('GET:/rentals/')
     prefixes.push('GET:/rentals?')
+    // Rental create/return affects deposit holds and credit summary
+    prefixes.push('GET:/accounts/')
   }
 
   if (/\/users\//.test(path) || /^\/users\/?$/.test(path)) {
@@ -167,9 +171,11 @@ async function processQueue () {
 
     if (queue.length === 0) {
       syncState.syncing = false
+      syncState.failedCount = await getFailedMutationCount()
       return
     }
 
+    console.log(`[SyncManager] Processing ${queue.length} queued mutations`)
     const authStore = useAuthStore()
 
     for (const mutation of queue) {
@@ -205,6 +211,7 @@ async function processQueue () {
         }
 
         // Success - remove from queue and invalidate related cache
+        console.log(`[SyncManager] Synced: ${mutation.method} ${url}`)
         await removeMutation(mutation.id)
         syncState.pendingCount--
 
@@ -222,14 +229,16 @@ async function processQueue () {
         }
 
         if (error.response && error.response.status >= 400 && error.response.status < 500) {
-          await updateMutation(mutation.id, { status: 'failed' })
+          console.warn(`[SyncManager] Mutation failed (${error.response.status}): ${mutation.method} ${mutation.url}`, error.response?.data)
+          await updateMutation(mutation.id, { status: 'failed', lastError: error.response?.data?.detail || `HTTP ${error.response.status}` })
           syncState.pendingCount--
           continue
         }
 
         const newRetryCount = (mutation.retryCount || 0) + 1
         if (newRetryCount >= MAX_RETRIES) {
-          await updateMutation(mutation.id, { status: 'failed', retryCount: newRetryCount })
+          console.warn(`[SyncManager] Mutation exceeded retries: ${mutation.method} ${mutation.url}`)
+          await updateMutation(mutation.id, { status: 'failed', retryCount: newRetryCount, lastError: 'Max retries exceeded' })
           syncState.pendingCount--
           continue
         }
@@ -245,6 +254,7 @@ async function processQueue () {
     syncState.syncing = false
     await setSyncMeta('syncLockTime', null)
     syncState.pendingCount = await getPendingMutationCount()
+    syncState.failedCount = await getFailedMutationCount()
 
     // Clear temp ID mappings if queue is empty (all synced)
     if (syncState.pendingCount === 0) {
@@ -266,6 +276,19 @@ export function triggerSync () {
 
 export function getSyncState () {
   return syncState
+}
+
+export async function retryFailedMutation (mutationId) {
+  await updateMutation(mutationId, { status: 'pending', retryCount: 0, lastError: null })
+  syncState.failedCount = await getFailedMutationCount()
+  syncState.pendingCount = await getPendingMutationCount()
+  triggerSync()
+}
+
+export async function discardFailedMutation (mutationId) {
+  await removeMutation(mutationId)
+  syncState.failedCount = await getFailedMutationCount()
+  syncState.pendingCount = await getPendingMutationCount()
 }
 
 export async function initSyncManager (axios) {
