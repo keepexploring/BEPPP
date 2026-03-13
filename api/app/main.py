@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, status, Query, Request, File, UploadFile, Body
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response, JSONResponse, FileResponse
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 from sqlalchemy.orm import Session
@@ -389,7 +390,7 @@ class UserCreate(BaseModel):
     address: Optional[str] = None  # Legacy field for backward compatibility
 
     # New customer demographic fields
-    date_of_birth: Optional[datetime] = None
+    date_of_birth: Optional[date] = None
     gesi_status: Optional[Union[str, List[str]]] = None
     business_category: Optional[str] = None
     monthly_energy_expenditure: Optional[float] = None
@@ -418,7 +419,7 @@ class UserUpdate(BaseModel):
     address: Optional[str] = None  # Legacy field for backward compatibility
 
     # New customer demographic fields
-    date_of_birth: Optional[datetime] = None
+    date_of_birth: Optional[date] = None
     gesi_status: Optional[Union[str, List[str]]] = None
     business_category: Optional[str] = None
     monthly_energy_expenditure: Optional[float] = None
@@ -981,6 +982,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
     max_age=600,  # Cache preflight requests for 10 minutes
 )
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 security = HTTPBearer()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

@@ -26,12 +26,19 @@
               <q-input
                 v-model="password"
                 label="Password"
-                type="password"
+                :type="showPassword ? 'text' : 'password'"
                 outlined
                 :rules="[val => !!val || 'Password is required']"
               >
                 <template v-slot:prepend>
                   <q-icon name="lock" />
+                </template>
+                <template v-slot:append>
+                  <q-icon
+                    :name="showPassword ? 'visibility_off' : 'visibility'"
+                    class="cursor-pointer"
+                    @click="showPassword = !showPassword"
+                  />
                 </template>
               </q-input>
 
@@ -65,6 +72,7 @@ const authStore = useAuthStore()
 const username = ref('')
 const password = ref('')
 const loading = ref(false)
+const showPassword = ref(false)
 
 const handleLogin = async () => {
   loading.value = true

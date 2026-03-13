@@ -2536,6 +2536,140 @@ try {
 } catch (e) { fail('Makefile test-user-flows target', e) }
 
 
+// ── Stale-while-revalidate (ignoreExpiry) tests ─────────────────────
+
+try {
+  // Setup: put an expired entry in cache
+  const db = await openDb()
+  await db.put('apiCache', {
+    cacheKey: 'GET:/stale-test/',
+    url: '/stale-test/',
+    data: { items: [1, 2, 3] },
+    status: 200,
+    cachedAt: Date.now() - 999999999,
+    ttl: 1000
+  })
+
+  // Without ignoreExpiry: should return null (expired)
+  const withoutIgnore = await getCachedResponse('GET:/stale-test/')
+  assert.strictEqual(withoutIgnore, null)
+
+  // With ignoreExpiry: should return stale data
+  const withIgnore = await getCachedResponse('GET:/stale-test/', { ignoreExpiry: true })
+  assert.ok(withIgnore, 'ignoreExpiry should return expired entry')
+  assert.deepStrictEqual(withIgnore.data, { items: [1, 2, 3] })
+  assert.strictEqual(withIgnore.status, 200)
+  pass('getCachedResponse ignoreExpiry returns stale data for expired entries')
+} catch (e) { fail('getCachedResponse ignoreExpiry', e) }
+
+try {
+  // ignoreExpiry with valid (non-expired) entry should also work
+  await setCachedResponse('GET:/fresh-test/', '/fresh-test/', { fresh: true }, 200)
+  const result = await getCachedResponse('GET:/fresh-test/', { ignoreExpiry: true })
+  assert.ok(result)
+  assert.deepStrictEqual(result.data, { fresh: true })
+  pass('getCachedResponse ignoreExpiry works with non-expired entries too')
+} catch (e) { fail('getCachedResponse ignoreExpiry fresh', e) }
+
+try {
+  // ignoreExpiry with missing key should still return null
+  const missing = await getCachedResponse('GET:/does-not-exist/', { ignoreExpiry: true })
+  assert.strictEqual(missing, null)
+  pass('getCachedResponse ignoreExpiry returns null for missing keys')
+} catch (e) { fail('getCachedResponse ignoreExpiry missing', e) }
+
+try {
+  // Verify offlineInterceptor uses ignoreExpiry for stale-while-revalidate
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const interceptorSrc = fs.readFileSync(
+    path.resolve(import.meta.dirname, 'src', 'services', 'offlineInterceptor.js'), 'utf8'
+  )
+  assert.ok(
+    interceptorSrc.includes('ignoreExpiry: true'),
+    'offlineInterceptor passes ignoreExpiry: true to getCachedResponse'
+  )
+  pass('offlineInterceptor uses ignoreExpiry for stale-while-revalidate')
+} catch (e) { fail('offlineInterceptor ignoreExpiry check', e) }
+
+// ── Dockerfile.cron + Makefile cron targets ─────────────────────────
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const dockerfile = fs.readFileSync(
+    path.resolve(import.meta.dirname, '..', 'Dockerfile.cron'), 'utf8'
+  )
+  assert.ok(
+    dockerfile.includes('process_subscription_billing.py'),
+    'Dockerfile.cron copies subscription billing script'
+  )
+  assert.ok(
+    dockerfile.includes('process_recurring_pue_payments.py'),
+    'Dockerfile.cron copies PUE payments script'
+  )
+  assert.ok(
+    dockerfile.includes('mkdir -p scripts'),
+    'Dockerfile.cron creates scripts directory'
+  )
+  const makefile = fs.readFileSync(
+    path.resolve(import.meta.dirname, '..', 'Makefile'), 'utf8'
+  )
+  assert.ok(makefile.includes('test-cron-jobs'), 'Makefile has test-cron-jobs target')
+  pass('Dockerfile.cron copies both scripts and Makefile has test-cron-jobs target')
+} catch (e) { fail('Dockerfile.cron and cron targets', e) }
+
+// ── GZip middleware test ────────────────────────────────────────────
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const mainPy = fs.readFileSync(
+    path.resolve(import.meta.dirname, '..', 'api', 'app', 'main.py'), 'utf8'
+  )
+  assert.ok(mainPy.includes('GZipMiddleware'), 'main.py has GZipMiddleware')
+  assert.ok(mainPy.includes('minimum_size=500'), 'GZip has minimum_size=500')
+  pass('Backend has GZip compression middleware configured')
+} catch (e) { fail('GZip middleware check', e) }
+
+// ── date_of_birth schema test ───────────────────────────────────────
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const mainPy = fs.readFileSync(
+    path.resolve(import.meta.dirname, '..', 'api', 'app', 'main.py'), 'utf8'
+  )
+  // Should use Optional[date], not Optional[datetime] for date_of_birth
+  const dobMatches = mainPy.match(/date_of_birth:\s*Optional\[(\w+)\]/g)
+  assert.ok(dobMatches, 'date_of_birth fields found in schemas')
+  for (const match of dobMatches) {
+    assert.ok(
+      match.includes('Optional[date]'),
+      `Expected Optional[date] but found: ${match}`
+    )
+  }
+  pass('date_of_birth uses Optional[date] not Optional[datetime]')
+} catch (e) { fail('date_of_birth schema type', e) }
+
+// ── LoginPage password visibility toggle test ───────────────────────
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const loginPage = fs.readFileSync(
+    path.resolve(import.meta.dirname, 'src', 'pages', 'LoginPage.vue'), 'utf8'
+  )
+  assert.ok(loginPage.includes('showPassword'), 'LoginPage has showPassword ref')
+  assert.ok(loginPage.includes('visibility_off'), 'LoginPage has visibility_off icon')
+  assert.ok(loginPage.includes('visibility'), 'LoginPage has visibility icon')
+  assert.ok(
+    loginPage.includes("showPassword ? 'text' : 'password'"),
+    'LoginPage toggles input type based on showPassword'
+  )
+  pass('LoginPage has password visibility toggle')
+} catch (e) { fail('LoginPage password toggle', e) }
+
 // ── Summary ──────────────────────────────────────────────────────────
 
 console.log('\n========================================')

@@ -1,5 +1,5 @@
 # Solar Hub API Test Makefile
-.PHONY: help setup test test-quick test-auth test-coverage clean backend-dev frontend-install frontend-dev frontend-build frontend-start frontend-test-offline test-batch-endpoint dev dev-full db-start db-stop db-status docker-up docker-down docker-rebuild jupyter jupyter-stop jupyter-logs panel-restart jupyter-open subscription-billing subscription-billing-dry-run reconstruct-timestamps reconstruct-timestamps-dry-run db-backup db-restore db-backup-test test-all test-user-flows
+.PHONY: help setup test test-quick test-auth test-coverage clean backend-dev frontend-install frontend-dev frontend-build frontend-start frontend-test-offline test-batch-endpoint dev dev-full db-start db-stop db-status docker-up docker-down docker-rebuild jupyter jupyter-stop jupyter-logs panel-restart jupyter-open subscription-billing subscription-billing-dry-run reconstruct-timestamps reconstruct-timestamps-dry-run db-backup db-restore db-backup-test test-all test-user-flows test-cron-jobs
 
 # Default target
 help:
@@ -56,9 +56,11 @@ help:
 	@echo "  make jupyter-stop     - Stop JupyterLab"
 	@echo "  make jupyter-logs     - View JupyterLab logs"
 	@echo ""
-	@echo "💰 Subscription Billing Commands:"
+	@echo "💰 Subscription & Cron Job Commands:"
 	@echo "  make subscription-billing         - Process subscription billing (LIVE)"
 	@echo "  make subscription-billing-dry-run - Preview billing without charging"
+	@echo "  make process_recurring_pue_payments-dry-run - Preview PUE payments"
+	@echo "  make test-cron-jobs               - Dry-run all cron jobs (pre-deploy check)"
 	@echo ""
 	@echo "🔧 RTC Timestamp Reconstruction:"
 	@echo "  make reconstruct-timestamps BATTERY_ID=1         - Reconstruct timestamps (LIVE)"
@@ -410,24 +412,34 @@ jupyter-open:
 # Run subscription billing in live mode (charges users)
 subscription-billing:
 	@echo "💰 Processing subscription billing (LIVE MODE)..."
-	@docker-compose exec api python /app/process_subscription_billing.py
+	@docker compose exec api python scripts/process_subscription_billing.py
 	@echo "✅ Billing complete"
 
 # Run subscription billing in dry-run mode (preview only)
 subscription-billing-dry-run:
 	@echo "💰 Processing subscription billing (DRY RUN)..."
-	@docker-compose exec api python /app/process_subscription_billing.py --dry-run
+	@docker compose exec api python scripts/process_subscription_billing.py --dry-run
 	@echo "✅ Preview complete"
 
-
-#To testen cron job manually:
-  # Dry run (no actual charges)
+# Run recurring PUE payments in dry-run mode (preview only)
 process_recurring_pue_payments-dry-run:
-	docker compose exec api python scripts/process_recurring_pue_payments.py --dry-run
+	@docker compose exec api python scripts/process_recurring_pue_payments.py --dry-run
 
-  # Live run
+# Run recurring PUE payments in live mode (charges users)
 process_recurring_pue_payments-live:
-	docker compose exec api python scripts/process_recurring_pue_payments.py
+	@docker compose exec api python scripts/process_recurring_pue_payments.py
+
+# Test all cron jobs in dry-run mode (safe pre-deploy validation)
+test-cron-jobs:
+	@echo "🧪 Testing cron jobs (dry-run mode)..."
+	@echo ""
+	@echo "=== Subscription Billing ==="
+	@docker compose exec api python scripts/process_subscription_billing.py --dry-run
+	@echo ""
+	@echo "=== Recurring PUE Payments ==="
+	@docker compose exec api python scripts/process_recurring_pue_payments.py --dry-run
+	@echo ""
+	@echo "✅ All cron jobs executed successfully in dry-run mode"
 
 # ============================================================================
 # RTC Timestamp Reconstruction

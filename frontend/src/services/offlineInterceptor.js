@@ -164,7 +164,7 @@ export function installOfflineInterceptors (axiosInstance) {
 
       // Online + GET: stale-while-revalidate — serve cache immediately, revalidate in background
       if (isOnline() && isGetRequest(config)) {
-        const cached = await getCachedResponse(cacheKey)
+        const cached = await getCachedResponse(cacheKey, { ignoreExpiry: true })
         if (cached) {
           // Fire background revalidation
           const bgConfig = { ...config, _bypassOffline: true }
