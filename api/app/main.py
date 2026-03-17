@@ -694,6 +694,14 @@ class BatteryRentalRecharge(BaseModel):
     recharge_cost: Optional[float] = Field(None, description="Cost of recharge")
     notes: Optional[str] = Field(None, description="Recharge notes")
 
+class BatteryRentalSwap(BaseModel):
+    """Swap a battery during an active rental"""
+    new_battery_id: str = Field(..., description="New battery ID to swap in")
+    payment_amount: Optional[float] = Field(None, description="Cash payment amount", ge=0)
+    payment_type: str = Field('cash', description="Payment type: cash, mobile_money, bank_transfer, card")
+    payment_notes: Optional[str] = Field(None, description="Payment notes")
+    credit_applied: Optional[float] = Field(None, description="Account credit applied to payment", ge=0)
+
 class PUERentalCreateNew(BaseModel):
     """Create a new PUE rental with pay-to-own support"""
     user_id: int = Field(..., description="User ID renting the PUE")
@@ -869,8 +877,9 @@ def update_rental_payment_status(rental: "BatteryRental", payment_collected: flo
         rental.amount_paid = (rental.amount_paid or 0) + payment_collected
 
     # Calculate amount owed if final cost is available
+    # Note: deposit_amount is a held deposit (returned on completion), not a payment towards rental cost
     if rental.final_cost_total is not None:
-        total_paid = (rental.amount_paid or 0) + (rental.deposit_amount or 0)
+        total_paid = rental.amount_paid or 0
         rental.amount_owed = max(0, rental.final_cost_total - total_paid)
 
         # Update payment status
@@ -5948,7 +5957,8 @@ async def create_battery_rental(
             end_date=rental.due_date,
             deposit_amount=rental.deposit_amount or 0.0,
             status='active',
-            recharges_used=initial_recharges  # Set based on cost structure setting
+            recharges_used=initial_recharges,  # Set based on cost structure setting
+            max_recharges=cost_structure.max_recharges
         )
         db.add(new_rental)
         db.flush()  # Get rental_id
@@ -6042,9 +6052,16 @@ async def create_battery_rental(
             new_rental.estimated_vat = estimated_vat
             new_rental.estimated_cost_total = estimated_total
 
-        # Upfront payment collection (if frontend sends upfront_payment)
+        # Upfront payment collection + deposit hold system
         upfront_total = 0
         upfront_charges = []
+        deposit_hold_info = None
+
+        # Determine deposit requirement from cost structure
+        cost_structure = db.query(CostStructure).filter(
+            CostStructure.structure_id == rental.cost_structure_id
+        ).first()
+        deposit_required = float(cost_structure.deposit_amount) if (cost_structure and cost_structure.deposit_amount and cost_structure.deposit_amount > 0) else 0
 
         if rental.upfront_payment:
             payment_amount = rental.upfront_payment.get('payment_amount', 0)
@@ -6053,6 +6070,10 @@ async def create_battery_rental(
             if payment_amount and payment_amount > 0:
                 upfront_total = float(payment_amount)
 
+                # Split payment into rental cost portion and deposit portion
+                deposit_portion = min(deposit_required, upfront_total)
+                rental_cost_portion = upfront_total - deposit_portion
+
                 # Get or create user account
                 user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
                 if not user_account:
@@ -6060,55 +6081,48 @@ async def create_battery_rental(
                     db.add(user_account)
                     db.flush()
 
-                # Record upfront payment as credit received then charge applied
-                charge_description = f"Battery Rental #{new_rental.rental_id} - Upfront payment ({payment_method})"
+                # Record rental cost payment (single transaction)
+                if rental_cost_portion > 0:
+                    user_account.total_spent += rental_cost_portion
+                    payment_transaction = AccountTransaction(
+                        account_id=user_account.account_id,
+                        transaction_type='payment_received',
+                        amount=rental_cost_portion,
+                        balance_after=user_account.balance,
+                        description=f"Rental payment for Battery Rental #{new_rental.rental_id} ({payment_method})",
+                        payment_type=payment_method,
+                        payment_method='upfront'
+                    )
+                    db.add(payment_transaction)
 
-                # Add payment to account (credit)
-                user_account.balance += upfront_total
-                payment_transaction = AccountTransaction(
-                    account_id=user_account.account_id,
-                    transaction_type='payment_received',
-                    amount=upfront_total,
-                    balance_after=user_account.balance,
-                    description=f"Upfront payment for Battery Rental #{new_rental.rental_id}",
-                    payment_type=payment_method,
-                    payment_method='upfront'
-                )
-                db.add(payment_transaction)
+                # Record deposit payment (credit to account for hold)
+                if deposit_portion > 0:
+                    user_account.balance += deposit_portion
+                    deposit_transaction = AccountTransaction(
+                        account_id=user_account.account_id,
+                        transaction_type='deposit_received',
+                        amount=deposit_portion,
+                        balance_after=user_account.balance,
+                        description=f"Deposit for Battery Rental #{new_rental.rental_id} ({payment_method})",
+                        payment_type=payment_method,
+                        payment_method='upfront'
+                    )
+                    db.add(deposit_transaction)
 
-                # Charge the rental cost (debit)
-                user_account.balance -= upfront_total
-                user_account.total_spent += upfront_total
-                charge_transaction = AccountTransaction(
-                    account_id=user_account.account_id,
-                    transaction_type='rental_charge',
-                    amount=-upfront_total,
-                    balance_after=user_account.balance,
-                    description=charge_description,
-                    payment_type=payment_method,
-                    payment_method='upfront'
-                )
-                db.add(charge_transaction)
-
-                # Update rental payment tracking
-                new_rental.amount_paid = upfront_total
+                # Update rental payment tracking (only the rental cost portion)
+                new_rental.amount_paid = rental_cost_portion
                 new_rental.payment_method = 'upfront'
                 new_rental.payment_type = payment_method
 
                 upfront_charges.append({
                     "payment_method": payment_method,
-                    "amount": round(upfront_total, 2)
+                    "amount": round(upfront_total, 2),
+                    "rental_cost": round(rental_cost_portion, 2),
+                    "deposit": round(deposit_portion, 2)
                 })
 
-        # Deposit hold system
-        deposit_hold_info = None
-        cost_structure = db.query(CostStructure).filter(
-            CostStructure.structure_id == rental.cost_structure_id
-        ).first()
-
-        if cost_structure and cost_structure.deposit_amount and cost_structure.deposit_amount > 0:
-            deposit_amount = float(cost_structure.deposit_amount)
-
+        # Create deposit hold if cost structure requires it
+        if deposit_required > 0:
             # Get or create user account
             user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
             if not user_account:
@@ -6123,10 +6137,10 @@ async def create_battery_rental(
             ).scalar()
             available_credit = user_account.balance - float(active_holds_total)
 
-            if available_credit < deposit_amount:
+            if available_credit < deposit_required:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Insufficient credit for deposit. Required: {deposit_amount}, Available: {round(available_credit, 2)}"
+                    detail=f"Insufficient credit for deposit. Required: {deposit_required}, Available: {round(available_credit, 2)}. Deposit must be collected as part of the upfront payment."
                 )
 
             # Create deposit hold
@@ -6134,15 +6148,15 @@ async def create_battery_rental(
                 account_id=user_account.account_id,
                 rental_id=new_rental.rental_id,
                 rental_type='battery',
-                amount=deposit_amount,
+                amount=deposit_required,
                 status='held'
             )
             db.add(hold)
-            new_rental.deposit_amount = deposit_amount
-            deposit_hold_info = {"amount": deposit_amount, "status": "held"}
+            new_rental.deposit_amount = deposit_required
+            deposit_hold_info = {"amount": deposit_required, "status": "held"}
 
             # Check remaining credit and create low-credit notification if needed
-            remaining_available = available_credit - deposit_amount
+            remaining_available = available_credit - deposit_required
             if remaining_available < 0:
                 notification = Notification(
                     hub_id=new_rental.hub_id,
@@ -6253,6 +6267,8 @@ async def list_battery_rentals(
             "status": rental.status,  # Add status field for frontend
             "battery_id": items[0].battery_id if items else None,  # First battery for list view
             "battery_count": len(items),
+            "recharges_used": rental.recharges_used or 0,
+            "max_recharges": rental.max_recharges,
             "rental_type": "battery"  # Add type for frontend routing
         })
 
@@ -6308,6 +6324,8 @@ async def get_battery_rental(
                 "structure_id": cost_structure.structure_id,
                 "name": cost_structure.name,
                 "description": cost_structure.description,
+                "max_recharges": cost_structure.max_recharges,
+                "count_initial_checkout_as_recharge": cost_structure.count_initial_checkout_as_recharge,
                 "components": [{
                     "component_name": comp.component_name,
                     "unit_type": comp.unit_type,
@@ -6337,6 +6355,8 @@ async def get_battery_rental(
         "payment_status": rental.payment_status if rental.final_cost_total is not None else None,  # Only show payment status for returned rentals with calculated cost
         "rental_status": rental.status,
         "rental_type": "battery",
+        "recharges_used": rental.recharges_used or 0,
+        "max_recharges": rental.max_recharges,
         "batteries": batteries
     }
 
@@ -6799,24 +6819,34 @@ async def record_recharge(
         raise HTTPException(status_code=403, detail="Data admins cannot record recharges")
 
     try:
+        rental = db.query(BatteryRental).filter(BatteryRental.rental_id == rental_id).first()
+        if not rental:
+            raise HTTPException(status_code=404, detail="Rental not found")
+
+        if rental.status != 'active':
+            raise HTTPException(status_code=400, detail="Can only recharge active rentals")
+
+        # Check max recharges limit
+        if rental.max_recharges is not None and (rental.recharges_used or 0) >= rental.max_recharges:
+            raise HTTPException(status_code=400, detail="Maximum recharges reached for this rental")
+
         # Find the rental item
         item = db.query(BatteryRentalItem).filter(
             BatteryRentalItem.rental_id == rental_id,
             BatteryRentalItem.battery_id == recharge_data.battery_id,
-            BatteryRentalItem.return_date.is_(None)
+            BatteryRentalItem.returned_at.is_(None)
         ).first()
 
         if not item:
             raise HTTPException(status_code=404, detail="Battery not found in active rental")
 
-        # Increment recharge count
-        item.recharge_count = (item.recharge_count or 0) + 1
-        item.last_recharge_date = recharge_data.recharge_date or datetime.now(timezone.utc)
+        # Increment recharge count on the rental
+        rental.recharges_used = (rental.recharges_used or 0) + 1
+        recharge_date = recharge_data.recharge_date or datetime.now(timezone.utc)
 
         # Add note if provided
         if recharge_data.notes:
-            rental = db.query(BatteryRental).filter(BatteryRental.rental_id == rental_id).first()
-            note = Note(content=f"Recharge #{item.recharge_count}: {recharge_data.notes}")
+            note = Note(content=f"Recharge #{rental.recharges_used}: {recharge_data.notes}")
             db.add(note)
             db.flush()
             rental.notes.append(note)
@@ -6827,8 +6857,9 @@ async def record_recharge(
             "message": "Recharge recorded successfully",
             "rental_id": rental_id,
             "battery_id": recharge_data.battery_id,
-            "recharge_count": item.recharge_count,
-            "recharge_date": item.last_recharge_date.isoformat()
+            "recharges_used": rental.recharges_used,
+            "max_recharges": rental.max_recharges,
+            "recharge_date": recharge_date.isoformat()
         }
 
     except HTTPException:
@@ -6836,6 +6867,139 @@ async def record_recharge(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Error recording recharge: {str(e)}")
+
+@app.post("/battery-rentals/{rental_id}/swap",
+    tags=["Battery Rentals"],
+    summary="Swap Battery During Rental")
+async def swap_battery(
+    rental_id: int,
+    swap_data: BatteryRentalSwap,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Swap a battery during an active rental. The old battery is returned and a new
+    one is checked out. The rental period continues unchanged. Recharge count is
+    incremented and payment for the per-recharge fee is collected.
+    """
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot process swaps")
+
+    try:
+        rental = db.query(BatteryRental).filter(BatteryRental.rental_id == rental_id).first()
+        if not rental:
+            raise HTTPException(status_code=404, detail="Rental not found")
+
+        if rental.status != 'active':
+            raise HTTPException(status_code=400, detail="Can only swap batteries on active rentals")
+
+        # Check max recharges limit
+        if rental.max_recharges is not None and (rental.recharges_used or 0) >= rental.max_recharges:
+            raise HTTPException(status_code=400, detail="Maximum swaps reached for this rental")
+
+        # Find the current unreturned battery item
+        current_item = db.query(BatteryRentalItem).filter(
+            BatteryRentalItem.rental_id == rental_id,
+            BatteryRentalItem.returned_at.is_(None)
+        ).first()
+
+        if not current_item:
+            raise HTTPException(status_code=400, detail="No active battery found in rental")
+
+        old_battery_id = current_item.battery_id
+
+        # Validate the new battery
+        new_battery = db.query(BEPPPBattery).filter(
+            BEPPPBattery.battery_id == swap_data.new_battery_id
+        ).first()
+        if not new_battery:
+            raise HTTPException(status_code=404, detail=f"Battery {swap_data.new_battery_id} not found")
+        if new_battery.status != 'available':
+            raise HTTPException(status_code=400, detail=f"Battery {swap_data.new_battery_id} is not available (status: {new_battery.status})")
+
+        now = datetime.now(timezone.utc)
+
+        # Return the old battery
+        current_item.returned_at = now
+        old_battery = db.query(BEPPPBattery).filter(
+            BEPPPBattery.battery_id == old_battery_id
+        ).first()
+        if old_battery:
+            old_battery.status = 'available'
+
+        # Create new rental item for the new battery
+        new_item = BatteryRentalItem(
+            rental_id=rental_id,
+            battery_id=swap_data.new_battery_id
+        )
+        db.add(new_item)
+
+        # Mark new battery as rented
+        new_battery.status = 'rented'
+
+        # Increment recharges_used
+        rental.recharges_used = (rental.recharges_used or 0) + 1
+
+        # Calculate recharge fee from cost structure
+        recharge_fee = 0
+        if rental.cost_structure_id:
+            components = db.query(CostComponent).filter(
+                CostComponent.structure_id == rental.cost_structure_id,
+                CostComponent.component_name == 'per_recharge'
+            ).first()
+            if components:
+                recharge_fee = float(components.rate)
+
+        # Record payment if applicable
+        payment_collected = 0
+        payment_transactions = []
+        if recharge_fee > 0 or (swap_data.payment_amount and swap_data.payment_amount > 0):
+            user_account = db.query(UserAccount).filter(
+                UserAccount.user_id == rental.user_id
+            ).first()
+            if user_account:
+                payment_collected, payment_transactions = record_rental_payment(
+                    rental=rental,
+                    user_account=user_account,
+                    payment_amount=swap_data.payment_amount,
+                    credit_applied=swap_data.credit_applied,
+                    payment_type=swap_data.payment_type,
+                    payment_notes=swap_data.payment_notes or f"Battery swap: {old_battery_id} -> {swap_data.new_battery_id}",
+                    db=db
+                )
+
+        # Calculate remaining days
+        remaining_days = None
+        if rental.end_date:
+            remaining_td = rental.end_date - now
+            remaining_days = max(0, remaining_td.total_seconds() / 86400)
+
+        # Add note about the swap
+        note = Note(content=f"Battery swap: {old_battery_id} -> {swap_data.new_battery_id} (recharge #{rental.recharges_used})")
+        db.add(note)
+        db.flush()
+        rental.notes.append(note)
+
+        db.commit()
+
+        return {
+            "message": "Battery swapped successfully",
+            "rental_id": rental_id,
+            "old_battery_id": old_battery_id,
+            "new_battery_id": swap_data.new_battery_id,
+            "recharges_used": rental.recharges_used,
+            "max_recharges": rental.max_recharges,
+            "recharge_fee": recharge_fee,
+            "remaining_days": round(remaining_days, 1) if remaining_days is not None else None,
+            "payment_collected": payment_collected,
+            "payment_transactions": payment_transactions
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Error swapping battery: {str(e)}")
 
 @app.get("/battery-rentals/{rental_id}/calculate-return-cost",
     tags=["Battery Rentals"],
@@ -7011,9 +7175,9 @@ async def calculate_battery_rental_return_cost(
     user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
     account_balance = user_account.balance if user_account else 0
 
-    # Calculate amounts
-    deposit_paid = rental.deposit_amount or 0
-    amount_still_owed = max(0, total - deposit_paid)
+    # Calculate amounts — use amount_paid (actual rental payments) not deposit_amount (held deposit)
+    amount_already_paid = rental.amount_paid or 0
+    amount_still_owed = max(0, total - amount_already_paid)
     amount_after_credit = max(0, amount_still_owed - account_balance)
 
     # Ensure end_date is timezone-aware for comparison
@@ -7051,7 +7215,7 @@ async def calculate_battery_rental_return_cost(
         "original_estimate": 0,  # Not tracked for battery rentals
         "cost_difference": round(total, 2),  # Difference from estimate (0)
         "payment_status": {
-            "amount_paid_so_far": round(deposit_paid, 2),
+            "amount_paid_so_far": round(amount_already_paid, 2),
             "amount_still_owed": round(amount_still_owed, 2),
             "user_account_balance": round(account_balance, 2),
             "amount_after_credit": round(amount_after_credit, 2),
@@ -7843,9 +8007,9 @@ async def calculate_pue_rental_return_cost(
     user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
     account_balance = user_account.balance if user_account else 0
 
-    # Calculate amounts
-    deposit_paid = rental.deposit_amount or 0
-    amount_still_owed = max(0, total - deposit_paid)
+    # Calculate amounts — use amount_paid (actual rental payments) not deposit_amount (held deposit)
+    amount_already_paid = getattr(rental, 'amount_paid', 0) or 0
+    amount_still_owed = max(0, total - amount_already_paid)
 
     return {
         "rental_id": rental_id,
@@ -7869,7 +8033,7 @@ async def calculate_pue_rental_return_cost(
         "total": round(total, 2),
         "original_estimate": 0,
         "payment_status": {
-            "amount_paid_so_far": round(deposit_paid, 2),
+            "amount_paid_so_far": round(amount_already_paid, 2),
             "amount_still_owed": round(amount_still_owed, 2),
             "user_account_balance": round(account_balance, 2),
             "can_pay_with_credit": account_balance >= amount_still_owed
@@ -10657,6 +10821,7 @@ async def get_cost_structures(
             "item_reference": structure.item_reference,
             "is_active": structure.is_active,
             "count_initial_checkout_as_recharge": structure.count_initial_checkout_as_recharge,
+            "max_recharges": structure.max_recharges,
             "is_pay_to_own": structure.is_pay_to_own,
             "item_total_cost": float(structure.item_total_cost) if structure.item_total_cost is not None else None,
             "allow_multiple_items": structure.allow_multiple_items,
@@ -10706,6 +10871,7 @@ async def create_cost_structure(
     components: str = Query(...),  # JSON string of components array
     duration_options: Optional[str] = Query(None),  # JSON string of duration options array
     count_initial_checkout_as_recharge: bool = Query(False),
+    max_recharges: Optional[int] = Query(None),
     is_pay_to_own: bool = Query(False),
     item_total_cost: Optional[float] = Query(None),
     allow_multiple_items: bool = Query(True),
@@ -10778,6 +10944,7 @@ async def create_cost_structure(
         item_reference=item_reference,
         deposit_amount=deposit_amount or 0,
         count_initial_checkout_as_recharge=count_initial_checkout_as_recharge,
+        max_recharges=max_recharges,
         is_pay_to_own=is_pay_to_own,
         item_total_cost=item_total_cost,
         allow_multiple_items=allow_multiple_items,
@@ -10854,6 +11021,7 @@ async def create_cost_structure(
         "item_reference": structure.item_reference,
         "is_active": structure.is_active,
         "count_initial_checkout_as_recharge": structure.count_initial_checkout_as_recharge,
+        "max_recharges": structure.max_recharges,
         "deposit_amount": float(structure.deposit_amount) if structure.deposit_amount else 0,
         "pue_item_ids": [m.pue_id for m in pue_mappings],
         "created_at": structure.created_at,
@@ -10891,6 +11059,7 @@ async def update_cost_structure(
     components: Optional[str] = Query(None),  # JSON string of components array
     duration_options: Optional[str] = Query(None),  # JSON string of duration options array
     count_initial_checkout_as_recharge: Optional[bool] = Query(None),
+    max_recharges: Optional[int] = Query(None),
     is_pay_to_own: Optional[bool] = Query(None),
     item_total_cost: Optional[float] = Query(None),
     allow_multiple_items: Optional[bool] = Query(None),
@@ -10917,6 +11086,8 @@ async def update_cost_structure(
         structure.is_active = is_active
     if count_initial_checkout_as_recharge is not None:
         structure.count_initial_checkout_as_recharge = count_initial_checkout_as_recharge
+    if max_recharges is not None:
+        structure.max_recharges = max_recharges if max_recharges > 0 else None
     if is_pay_to_own is not None:
         structure.is_pay_to_own = is_pay_to_own
     if item_total_cost is not None:
@@ -11032,6 +11203,7 @@ async def update_cost_structure(
         "item_reference": structure.item_reference,
         "is_active": structure.is_active,
         "count_initial_checkout_as_recharge": structure.count_initial_checkout_as_recharge,
+        "max_recharges": structure.max_recharges,
         "deposit_amount": float(structure.deposit_amount) if structure.deposit_amount else 0,
         "pue_item_ids": [m.pue_id for m in pue_mappings],
         "created_at": structure.created_at,
@@ -11254,7 +11426,8 @@ async def estimate_rental_cost(
             "rate": float(comp.rate),
             "quantity": float(quantity),
             "amount": float(amount),
-            "is_calculated_on_return": comp.is_calculated_on_return
+            "is_calculated_on_return": comp.is_calculated_on_return,
+            "is_recurring_payment": comp.is_recurring_payment
         })
 
         subtotal += amount
@@ -11275,6 +11448,7 @@ async def estimate_rental_cost(
         "vat_amount": float(vat_amount),
         "total": float(total),
         "deposit_amount": float(structure.deposit_amount or 0),
+        "max_recharges": structure.max_recharges,
         "has_estimated_component": has_estimated_component
     }
 

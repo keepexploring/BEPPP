@@ -476,6 +476,7 @@ class CostStructure(Base):
     item_reference = Column(String(100), nullable=False)  # e.g., "1000" for 1000Wh, or pue_id
     deposit_amount = Column(Float, server_default='0', nullable=False)  # Required deposit for this cost structure
     count_initial_checkout_as_recharge = Column(Boolean, server_default='false', nullable=False)  # If true, initial checkout counts as first recharge
+    max_recharges = Column(Integer, nullable=True)  # NULL = unlimited swaps
     is_active = Column(Boolean, server_default='true', nullable=False)
 
     # Pay-to-own fields

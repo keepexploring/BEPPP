@@ -185,7 +185,7 @@
 </template>
 
 <script setup>
-import { ref, inject, onMounted, computed } from 'vue'
+import { ref, inject, onMounted, onUnmounted, computed } from 'vue'
 import { batteriesAPI, hubsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
@@ -415,8 +415,40 @@ const resetForm = () => {
   editingBattery.value = null
 }
 
+// Listen for SWR background revalidation to swap in fresh battery data
+const onCacheUpdated = (event) => {
+  const { url, data } = event.detail || {}
+  if (!url || !data) return
+
+  // Check if this is a batteries endpoint update
+  if (url.includes('/batteries') && Array.isArray(data)) {
+    // If a specific hub is selected, only use data matching that hub
+    if (selectedHub.value) {
+      const hubBatteries = data.filter(b => b.hub_id === selectedHub.value)
+      if (hubBatteries.length > 0) {
+        batteries.value = hubBatteries
+      }
+    } else {
+      // Merge fresh data by battery_id
+      const freshMap = new Map(data.map(b => [b.battery_id, b]))
+      batteries.value = batteries.value.map(b => freshMap.get(b.battery_id) || b)
+      // Add any new batteries not in current list
+      for (const b of data) {
+        if (!batteries.value.find(existing => existing.battery_id === b.battery_id)) {
+          batteries.value.push(b)
+        }
+      }
+    }
+  }
+}
+
 onMounted(async () => {
   loadBatteries()
   loadHubs()
+  window.addEventListener('cache-updated', onCacheUpdated)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
 })
 </script>

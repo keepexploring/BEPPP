@@ -181,7 +181,9 @@ export const batteryRentalsAPI = {
   calculateReturnCost: (rentalId, params) =>
     api.get(`/battery-rentals/${rentalId}/calculate-return-cost`, { params }),
   recordPayment: (rentalId, data) =>
-    api.post(`/battery-rentals/${rentalId}/payment`, data)
+    api.post(`/battery-rentals/${rentalId}/payment`, data),
+  swapBattery: (rentalId, data) =>
+    api.post(`/battery-rentals/${rentalId}/swap`, data)
 }
 
 // PUE Rentals

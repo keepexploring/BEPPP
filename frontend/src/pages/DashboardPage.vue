@@ -511,7 +511,7 @@
 </template>
 
 <script setup>
-import { ref, inject, onMounted, computed } from 'vue'
+import { ref, inject, onMounted, onUnmounted, computed } from 'vue'
 import { hubsAPI, rentalsAPI } from 'src/services/api'
 import { useQuasar } from 'quasar'
 import HubFilter from 'src/components/HubFilter.vue'
@@ -736,12 +736,32 @@ const onHubChange = (hubId) => {
   loadDashboardData()
 }
 
+// Listen for SWR background revalidation to refresh dashboard data
+const onCacheUpdated = (event) => {
+  const { url, data } = event.detail || {}
+  if (!url || !data) return
+
+  if (url.includes('/batteries') && Array.isArray(data)) {
+    batteryList.value = data
+    // Recalculate stats
+    stats.value.total = data.length
+    stats.value.available = data.filter(b => b.status === 'available').length
+    stats.value.rented = data.filter(b => b.status === 'rented').length
+    stats.value.maintenance = data.filter(b => b.status === 'maintenance').length
+  }
+}
+
 onMounted(() => {
   // For non-superadmins, set selectedHub to their hub_id automatically
   if (!authStore.isSuperAdmin && authStore.user?.hub_id) {
     selectedHub.value = authStore.user.hub_id
   }
   loadDashboardData()
+  window.addEventListener('cache-updated', onCacheUpdated)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
 })
 </script>
 

@@ -578,7 +578,7 @@
 </template>
 
 <script setup>
-import { ref, inject, onMounted, computed } from 'vue'
+import { ref, inject, onMounted, onUnmounted, computed } from 'vue'
 import { pueAPI, hubsAPI, pueInspectionsAPI, settingsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
@@ -1184,9 +1184,28 @@ const resetForm = () => {
   }
 }
 
+// Listen for SWR background revalidation to refresh PUE data
+const onCacheUpdated = (event) => {
+  const { url, data } = event.detail || {}
+  if (!url || !data) return
+
+  if (url.includes('/pue') && !url.includes('/pue-rentals') && !url.includes('/pue-types') && Array.isArray(data)) {
+    if (selectedHub.value) {
+      pueItems.value = data.filter(p => p.hub_id === selectedHub.value)
+    } else {
+      pueItems.value = data
+    }
+  }
+}
+
 onMounted(() => {
   loadPUE()
   loadHubs()
   // PUE types will be loaded when a hub is selected
+  window.addEventListener('cache-updated', onCacheUpdated)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
 })
 </script>

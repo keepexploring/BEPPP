@@ -323,7 +323,7 @@
                   <div class="col-auto">{{ costEstimate.total.toFixed(2) }} {{ currencySymbol }}</div>
                 </div>
                 <div v-if="costEstimate.deposit_amount > 0" class="row justify-between text-body2 text-grey-7 q-mt-xs">
-                  <div class="col">Suggested Deposit:</div>
+                  <div class="col">{{ formData.costStructure?.deposit_amount > 0 ? 'Required Deposit:' : 'Suggested Deposit:' }}</div>
                   <div class="col-auto">{{ costEstimate.deposit_amount.toFixed(2) }} {{ currencySymbol }}</div>
                 </div>
               </div>
@@ -366,31 +366,31 @@
         </div>
 
         <!-- Deposit Amount -->
-        <div class="col-12 col-md-6">
+        <div v-if="effectiveDepositAmount > 0" class="col-12 col-md-6">
           <q-input
             v-model.number="formData.depositAmount"
-            label="Deposit Amount (Optional)"
+            :label="`Deposit Amount: ${currencySymbol}${effectiveDepositAmount.toFixed(2)}`"
             outlined
             type="number"
             step="0.01"
             min="0"
+            :prefix="currencySymbol"
+            readonly
+            bg-color="grey-2"
           >
             <template v-slot:prepend>
-              <q-icon name="account_balance_wallet" />
-            </template>
-            <template v-slot:append>
-              <span>{{ currencySymbol }}</span>
+              <q-icon name="account_balance_wallet" color="warning" />
             </template>
           </q-input>
         </div>
 
         <!-- Credit check warning for deposit -->
-        <div v-if="costEstimate && costEstimate.deposit_amount > 0 && userCreditSummary" class="col-12">
-          <q-banner v-if="userCreditSummary.available_credit < costEstimate.deposit_amount" class="bg-orange-1" rounded dense>
+        <div v-if="effectiveDepositAmount > 0 && userCreditSummary" class="col-12">
+          <q-banner v-if="userCreditSummary.available_credit < effectiveDepositAmount" class="bg-orange-1" rounded dense>
             <template v-slot:avatar>
               <q-icon name="warning" color="orange" size="sm" />
             </template>
-            Deposit required: {{ currencySymbol }}{{ costEstimate.deposit_amount.toFixed(2) }}.
+            Deposit required: {{ currencySymbol }}{{ effectiveDepositAmount.toFixed(2) }}.
             Available credit: {{ currencySymbol }}{{ (userCreditSummary.available_credit || 0).toFixed(2) }}.
             <strong>Insufficient credit - add credit before renting.</strong>
           </q-banner>
@@ -398,7 +398,7 @@
             <template v-slot:avatar>
               <q-icon name="check_circle" color="positive" size="sm" />
             </template>
-            Deposit: {{ currencySymbol }}{{ costEstimate.deposit_amount.toFixed(2) }} | Available credit: {{ currencySymbol }}{{ (userCreditSummary.available_credit || 0).toFixed(2) }}
+            Deposit: {{ currencySymbol }}{{ effectiveDepositAmount.toFixed(2) }} | Available credit: {{ currencySymbol }}{{ (userCreditSummary.available_credit || 0).toFixed(2) }}
           </q-banner>
         </div>
 
@@ -407,18 +407,25 @@
           <div class="col-12">
             <q-separator class="q-my-sm" />
             <div class="text-subtitle2 q-mb-sm">Upfront Payment Collection</div>
-            <q-banner class="bg-blue-1 q-mb-sm" rounded dense>
-              <template v-slot:avatar>
-                <q-icon name="payment" color="primary" size="sm" />
-              </template>
-              Amount due at checkout: <strong>{{ currencySymbol }}{{ upfrontAmountDue.toFixed(2) }}</strong>
-            </q-banner>
+
+            <!-- Amount Summary -->
+            <q-card flat bordered class="q-mb-md">
+              <q-card-section>
+                <div class="row q-gutter-sm">
+                  <div class="col">
+                    <div class="text-caption text-grey-7">Total Amount Due at Checkout</div>
+                    <div class="text-h6 text-negative">{{ currencySymbol }}{{ upfrontAmountDue.toFixed(2) }}</div>
+                  </div>
+                </div>
+              </q-card-section>
+            </q-card>
           </div>
+
           <div class="col-12 col-md-6">
             <q-select
               v-model="formData.paymentMethod"
-              :options="paymentMethodOptions"
-              label="Payment Method"
+              :options="paymentTypeOptions.length > 0 ? paymentTypeOptions : paymentMethodOptions"
+              label="Payment Type"
               outlined
               emit-value
               map-options
@@ -436,14 +443,48 @@
               type="number"
               step="0.01"
               min="0"
+              :prefix="currencySymbol"
             >
               <template v-slot:prepend>
                 <q-icon name="payments" />
               </template>
-              <template v-slot:append>
-                <span>{{ currencySymbol }}</span>
-              </template>
             </q-input>
+          </div>
+
+          <!-- Payment Confirmation -->
+          <div v-if="formData.paymentAmount > 0 && formData.paymentMethod" class="col-12">
+            <div class="bg-positive-1 q-pa-md rounded-borders q-mb-sm">
+              <div class="text-weight-medium q-mb-sm">
+                <q-icon name="check_circle" color="positive" class="q-mr-sm" />
+                Payment Confirmation
+              </div>
+              <q-checkbox
+                v-model="confirmUpfrontPayment"
+                color="positive"
+                :disable="upfrontPaymentConfirmed"
+              >
+                <template v-slot:default>
+                  <div class="text-body2">
+                    I confirm that <strong>{{ formData.paymentMethod }}</strong> payment of
+                    <strong>{{ currencySymbol }}{{ (formData.paymentAmount || 0).toFixed(2) }}</strong> has been received
+                  </div>
+                </template>
+              </q-checkbox>
+            </div>
+
+            <q-btn
+              :label="upfrontPaymentConfirmed ? 'Payment Recorded' : 'Confirm Payment Taken'"
+              :color="upfrontPaymentConfirmed ? 'grey' : 'positive'"
+              :icon="upfrontPaymentConfirmed ? 'check' : 'payment'"
+              :disable="upfrontPaymentConfirmed || !confirmUpfrontPayment"
+              @click="recordUpfrontPayment"
+              class="full-width"
+            />
+
+            <div v-if="upfrontPaymentConfirmed" class="q-mt-sm bg-positive text-white q-pa-md rounded-borders">
+              <q-icon name="check_circle" size="sm" class="q-mr-sm" />
+              Payment recorded successfully! You can now create the rental.
+            </div>
           </div>
         </template>
 
@@ -477,7 +518,7 @@
         icon="add"
         @click="handleSubmit"
         :loading="submitting"
-        :disable="!isFormValid"
+        :disable="!isFormValid || (upfrontAmountDue > 0 && !upfrontPaymentConfirmed)"
       />
     </q-card-actions>
   </q-card>
@@ -524,20 +565,77 @@ const paymentMethodOptions = [
   { label: 'Card', value: 'card' }
 ]
 
-// Computed: upfront amount due (deposit + any one-time/upfront charges)
+// Computed: effective deposit amount from cost estimate OR cost structure
+const effectiveDepositAmount = computed(() => {
+  if (costEstimate.value?.deposit_amount > 0) return costEstimate.value.deposit_amount
+  if (formData.value.costStructure?.deposit_amount > 0) return formData.value.costStructure.deposit_amount
+  return 0
+})
+
+// Computed: upfront amount due (deposit + any upfront-charged components)
 const upfrontAmountDue = computed(() => {
   const cs = formData.value.costStructure
   if (!cs) return 0
   let total = formData.value.depositAmount || 0
-  if (cs.components) {
+
+  // Use cost estimate breakdown if available (has calculated amounts for duration)
+  if (costEstimate.value?.breakdown) {
+    for (const item of costEstimate.value.breakdown) {
+      // Upfront = not calculated on return AND not recurring
+      if (!item.is_calculated_on_return && !item.is_recurring_payment) {
+        total += item.amount || 0
+      }
+    }
+  } else if (cs.components) {
+    // Fallback: use cost structure components directly
     for (const comp of cs.components) {
-      if (comp.unit_type === 'one_time' || comp.unit_type === 'fixed') {
-        total += comp.rate || 0
+      if (!comp.is_calculated_on_return && !comp.is_recurring_payment) {
+        // For one_time/fixed we know the amount; for duration-based we use rate as estimate
+        if (comp.unit_type === 'one_time' || comp.unit_type === 'fixed') {
+          total += comp.rate || 0
+        }
       }
     }
   }
   return total
 })
+
+// Upfront payment confirmation state
+const upfrontPaymentConfirmed = ref(false)
+const confirmUpfrontPayment = ref(false)
+const paymentTypeOptions = ref([])
+
+// Load payment types from hub settings
+const loadPaymentTypes = async () => {
+  const hubId = formData.value.hub_id || authStore.currentHubId
+  if (!hubId) return
+  try {
+    const response = await settingsAPI.getPaymentTypes({ hub_id: hubId, is_active: true })
+    paymentTypeOptions.value = (response.data.payment_types || []).map(pt => ({
+      label: pt.type_name,
+      value: pt.type_name
+    }))
+    if (paymentTypeOptions.value.length > 0 && !formData.value.paymentMethod) {
+      formData.value.paymentMethod = paymentTypeOptions.value[0].value
+    }
+  } catch (e) {
+    paymentTypeOptions.value = paymentMethodOptions
+  }
+}
+
+const recordUpfrontPayment = () => {
+  if (formData.value.paymentAmount <= 0) return
+  if (!confirmUpfrontPayment.value) {
+    $q.notify({ type: 'warning', message: 'Please confirm payment has been received', position: 'top' })
+    return
+  }
+  upfrontPaymentConfirmed.value = true
+  $q.notify({
+    type: 'positive',
+    message: `Payment of ${currencySymbol.value}${formData.value.paymentAmount.toFixed(2)} confirmed`,
+    position: 'top'
+  })
+}
 
 // Loading States
 const usersLoading = ref(false)
@@ -880,6 +978,10 @@ const calculateCostEstimate = async () => {
     }
   } finally {
     costEstimateLoading.value = false
+    // Auto-fill deposit amount from cost estimate if not manually set
+    if (costEstimate.value?.deposit_amount > 0 && !formData.value.depositAmount) {
+      formData.value.depositAmount = costEstimate.value.deposit_amount
+    }
   }
 }
 
@@ -940,7 +1042,7 @@ const calculateCostLocally = (costStructure, durationValue, durationUnit) => {
     vat,
     vat_percentage: vatPercentage,
     total,
-    deposit_amount: costStructure.default_deposit || 0,
+    deposit_amount: costStructure.deposit_amount || 0,
     has_estimated_component: true,
     _offlineEstimate: true
   }
@@ -959,7 +1061,17 @@ const isFormValid = computed(() => {
 watch(() => formData.value.hub_id, async (newHubId, oldHubId) => {
   if (newHubId && newHubId !== oldHubId) {
     await onHubChange()
+    loadPaymentTypes()
   }
+})
+
+// Auto-fill payment amount when upfront amount changes and reset confirmation
+watch(upfrontAmountDue, (newVal) => {
+  if (newVal > 0) {
+    formData.value.paymentAmount = newVal
+  }
+  upfrontPaymentConfirmed.value = false
+  confirmUpfrontPayment.value = false
 })
 
 // Watch for user selection to load credit summary
@@ -980,6 +1092,13 @@ watch(() => formData.value.user, async (newUser) => {
 watch([() => formData.value.costStructure, () => formData.value.duration], () => {
   if (formData.value.costStructure && formData.value.duration) {
     updateDueDate()
+  }
+})
+
+// Auto-fill deposit amount when cost structure is selected
+watch(() => formData.value.costStructure, (cs) => {
+  if (cs?.deposit_amount > 0 && !formData.value.depositAmount) {
+    formData.value.depositAmount = cs.deposit_amount
   }
 })
 

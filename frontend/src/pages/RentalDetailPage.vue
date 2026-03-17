@@ -315,6 +315,13 @@
       v-model="showReturnDialog"
       :rental="rentalData"
       @returned="onRentalReturned"
+      @swap-instead="onSwapInstead"
+    />
+
+    <SwapBatteryDialog
+      v-model="showSwapDialog"
+      :rental="rentalData"
+      @swapped="onBatterySwapped"
     />
 
     <!-- Return PUE Item Dialog -->
@@ -502,7 +509,8 @@
             color="positive"
             icon="check"
             @click="collectPayment"
-            :disable="!paymentAmount || paymentAmount <= 0 || !paymentType || !confirmPaymentReceived"
+            :loading="paymentSubmitting"
+            :disable="paymentSubmitting || !paymentAmount || paymentAmount <= 0 || !paymentType || !confirmPaymentReceived"
           />
         </q-card-actions>
       </q-card>
@@ -516,6 +524,7 @@ import { useRoute, useRouter } from 'vue-router'
 import api, { rentalsAPI, batteryRentalsAPI, pueRentalsAPI } from 'src/services/api'
 import { useQuasar, date } from 'quasar'
 import RentalReturnDialog from 'components/RentalReturnDialog.vue'
+import SwapBatteryDialog from 'components/SwapBatteryDialog.vue'
 import { useHubSettingsStore } from 'stores/hubSettings'
 
 const $q = useQuasar()
@@ -654,11 +663,13 @@ const canCollectPayment = computed(() => {
 })
 
 const showReturnDialog = ref(false)
+const showSwapDialog = ref(false)
 const showPaymentDialog = ref(false)
 const paymentAmount = ref(0)
 const paymentType = ref('cash')
 const paymentNotes = ref('')
 const confirmPaymentReceived = ref(false)
+const paymentSubmitting = ref(false)
 const creditApplied = ref(0)
 const userAccountBalance = ref(0)
 const paymentTypeOptions = [
@@ -921,6 +932,14 @@ const onRentalReturned = async () => {
   await loadRentalDetails()
 }
 
+const onSwapInstead = () => {
+  showSwapDialog.value = true
+}
+
+const onBatterySwapped = async () => {
+  await loadRentalDetails()
+}
+
 const recalculateCost = async () => {
   const rentalId = route.params.id
   if (!rentalId) return
@@ -951,6 +970,8 @@ const recalculateCost = async () => {
 }
 
 const collectPayment = async () => {
+  if (paymentSubmitting.value) return
+
   if (!paymentAmount.value || paymentAmount.value <= 0) {
     $q.notify({
       type: 'warning',
@@ -978,6 +999,7 @@ const collectPayment = async () => {
     return
   }
 
+  paymentSubmitting.value = true
   try {
     $q.loading.show({ message: 'Recording payment...' })
 
@@ -1018,6 +1040,7 @@ const collectPayment = async () => {
       position: 'top'
     })
   } finally {
+    paymentSubmitting.value = false
     $q.loading.hide()
   }
 }

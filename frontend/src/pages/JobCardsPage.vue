@@ -211,7 +211,7 @@
 </template>
 
 <script setup>
-import { ref, inject, computed, onMounted } from 'vue'
+import { ref, inject, computed, onMounted, onUnmounted } from 'vue'
 import { useQuasar } from 'quasar'
 import { jobCardsAPI } from 'src/services/api'
 import JobCard from 'src/components/JobCard.vue'
@@ -233,8 +233,23 @@ const filterAssignedTo = ref(null)
 const filterPriority = ref(null)
 const userOptions = ref([])
 
+// Listen for SWR background revalidation to refresh job cards
+const onCacheUpdated = (event) => {
+  const { url, data } = event.detail || {}
+  if (!url || !data) return
+
+  if (url.includes('/job-cards') && Array.isArray(data)) {
+    cards.value = data
+  }
+}
+
 onMounted(() => {
   loadCards()
+  window.addEventListener('cache-updated', onCacheUpdated)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
 })
 
 const loadCards = async () => {

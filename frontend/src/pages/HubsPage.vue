@@ -163,7 +163,7 @@
 </template>
 
 <script setup>
-import { ref, inject, onMounted, computed } from 'vue'
+import { ref, inject, onMounted, onUnmounted, computed } from 'vue'
 import { hubsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useQuasar } from 'quasar'
@@ -294,7 +294,22 @@ const resetForm = () => {
   editingHub.value = null
 }
 
+// Listen for SWR background revalidation to refresh hub data
+const onCacheUpdated = (event) => {
+  const { url, data } = event.detail || {}
+  if (!url || !data) return
+
+  if (url.includes('/hubs') && Array.isArray(data)) {
+    hubs.value = data
+  }
+}
+
 onMounted(() => {
   loadHubs()
+  window.addEventListener('cache-updated', onCacheUpdated)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
 })
 </script>

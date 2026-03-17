@@ -8,6 +8,22 @@
         </div>
       </q-card-section>
 
+      <!-- Swap Early Option (battery rentals only, if rental period still active) -->
+      <q-card-section v-if="canSwapEarly" class="q-pt-none">
+        <q-banner class="bg-blue-1" rounded>
+          <template v-slot:avatar>
+            <q-icon name="swap_horiz" color="primary" />
+          </template>
+          <div>
+            <strong>Swap battery instead?</strong>
+            <div class="text-caption">This rental still has {{ remainingDaysForSwap }} days remaining. Swap for a fresh battery and keep the rental going.</div>
+          </div>
+          <template v-slot:action>
+            <q-btn flat color="primary" label="Swap Battery" @click="onSwapInstead" />
+          </template>
+        </q-banner>
+      </q-card-section>
+
       <!-- Loading State -->
       <q-card-section v-if="loadingCost && !costCalculation && !costUnavailable" class="q-pt-none">
         <q-card flat bordered>
@@ -458,10 +474,10 @@
               <!-- Make Payment Button -->
               <div class="q-mt-md">
                 <q-btn
-                  :label="formData.payment_amount > 0 ? 'Record Payment' : 'Apply Credit Payment'"
-                  color="positive"
-                  icon="payment"
-                  :disable="((formData.payment_amount || 0) + (formData.credit_applied || 0)) <= 0 || !formData.payment_type || (formData.payment_amount > 0 && !confirmPaymentReceived)"
+                  :label="paymentReceived ? 'Payment Recorded' : (formData.payment_amount > 0 ? 'Record Payment' : 'Apply Credit Payment')"
+                  :color="paymentReceived ? 'grey' : 'positive'"
+                  :icon="paymentReceived ? 'check' : 'payment'"
+                  :disable="paymentReceived || ((formData.payment_amount || 0) + (formData.credit_applied || 0)) <= 0 || !formData.payment_type || (formData.payment_amount > 0 && !confirmPaymentReceived)"
                   @click="recordPayment"
                   class="full-width"
                 />
@@ -543,7 +559,28 @@ const rentalAPI = computed(() => {
   return rentalType.value === 'pue' ? pueRentalsAPI : batteryRentalsAPI
 })
 
-const emit = defineEmits(['update:modelValue', 'returned'])
+// Swap early: check if this is a battery rental with remaining rental period
+const canSwapEarly = computed(() => {
+  if (!props.rental || rentalType.value !== 'battery') return false
+  if (props.rental.status !== 'active') return false
+  if (!props.rental.rental_end_date && !props.rental.end_date) return false
+  const endDate = new Date(props.rental.rental_end_date || props.rental.end_date)
+  return endDate > new Date()
+})
+
+const remainingDaysForSwap = computed(() => {
+  if (!props.rental) return 0
+  const endDate = new Date(props.rental.rental_end_date || props.rental.end_date)
+  const diff = (endDate - new Date()) / (1000 * 60 * 60 * 24)
+  return Math.max(0, diff).toFixed(1)
+})
+
+const onSwapInstead = () => {
+  showDialog.value = false
+  emit('swap-instead', props.rental)
+}
+
+const emit = defineEmits(['update:modelValue', 'returned', 'swap-instead'])
 
 const showDialog = computed({
   get: () => props.modelValue,

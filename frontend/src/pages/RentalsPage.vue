@@ -256,6 +256,17 @@
                 <q-tooltip>Return Rental</q-tooltip>
               </q-btn>
               <q-btn
+                v-if="props.row.status === 'active' && props.row.rental_type === 'battery'"
+                flat
+                round
+                dense
+                icon="swap_horiz"
+                color="secondary"
+                @click.stop="openSwapDialog(props.row)"
+              >
+                <q-tooltip>Swap Battery</q-tooltip>
+              </q-btn>
+              <q-btn
                 v-if="authStore.isAdmin"
                 flat
                 round
@@ -413,6 +424,14 @@
       v-model="showReturnDialog"
       :rental="returningRental"
       @returned="onRentalReturned"
+      @swap-instead="onSwapInstead"
+    />
+
+    <!-- Swap Battery Dialog -->
+    <SwapBatteryDialog
+      v-model="showSwapDialog"
+      :rental="swappingRental"
+      @swapped="onBatterySwapped"
     />
 
     <!-- Quick Returns Dialog -->
@@ -859,14 +878,16 @@
 </template>
 
 <script setup>
-import { ref, inject, onMounted, computed } from 'vue'
+import { ref, inject, onMounted, onUnmounted, computed } from 'vue'
 import api, { rentalsAPI, batteryRentalsAPI, pueRentalsAPI, hubsAPI, usersAPI, batteriesAPI, pueAPI, settingsAPI, accountsAPI, subscriptionsAPI } from 'src/services/api'
+import { updateItemInCache } from 'src/services/offlineDb.js'
 import { calculateReturnCostLocally } from 'src/services/offlineCostCalculator'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
 import { useQuasar, date } from 'quasar'
 import { useRoute, useRouter } from 'vue-router'
 import RentalReturnDialog from 'components/RentalReturnDialog.vue'
+import SwapBatteryDialog from 'src/components/SwapBatteryDialog.vue'
 import HubFilter from 'src/components/HubFilter.vue'
 import BatteryRentalForm from 'src/components/BatteryRentalForm.vue'
 import PUERentalForm from 'src/components/PUERentalForm.vue'
@@ -897,6 +918,8 @@ const selectedHub = ref(null)
 const showCreateDialog = ref(false)
 const showPUERentalDialog = ref(false)
 const showReturnDialog = ref(false)
+const showSwapDialog = ref(false)
+const swappingRental = ref(null)
 const showQuickReturnsDialog = ref(false)
 const quickReturnsUserSearch = ref('')
 const quickReturnsTypeFilter = ref('all')
@@ -2592,6 +2615,7 @@ const editRental = (rental) => {
 
 // Deposit dialog handlers
 const confirmDeposit = () => {
+  if (!showDepositDialog.value) return
   formData.value.deposit_amount = depositAmount.value
   formData.value.payment_type = depositPaymentType.value
   showDepositDialog.value = false
@@ -2611,6 +2635,7 @@ const resetDepositDialog = () => {
 
 // Payment dialog handlers
 const confirmPayment = () => {
+  if (!showPaymentCollectionDialog.value) return
   formData.value.amount_paid = paymentAmount.value
   formData.value.payment_type = upfrontPaymentType.value
   showPaymentCollectionDialog.value = false
@@ -2655,6 +2680,7 @@ const resetPaymentDialog = () => {
 
 // PUE Payment Collection Functions
 const confirmPUEPayment = () => {
+  if (!showPUEPaymentCollectionDialog.value) return
   pueFormData.value.amount_paid = puePaymentAmount.value
   pueFormData.value.payment_type = pueUpfrontPaymentType.value
   showPUEPaymentCollectionDialog.value = false
@@ -2674,6 +2700,7 @@ const resetPUEPaymentDialog = () => {
 
 // PUE Deposit Collection Functions
 const confirmPUEDeposit = () => {
+  if (!showPUEDepositDialog.value) return
   pueFormData.value.deposit_amount = pueDepositAmount.value
   pueFormData.value.payment_type = pueDepositPaymentType.value
   showPUEDepositDialog.value = false
@@ -2882,9 +2909,51 @@ const quickReturn = async (rental) => {
   await returnRental(rental)
 }
 
-const onRentalReturned = async () => {
-  // Reload rentals list after successful return
-  await loadRentals()
+const onRentalReturned = () => {
+  // Optimistically update the returned rental in the local list
+  if (returningRental.value) {
+    const rid = returningRental.value.rental_id || returningRental.value.rentral_id
+    const idx = rentals.value.findIndex(r =>
+      (r.rental_id || r.rentral_id || r.pue_rental_id) === rid ||
+      (r.pue_rental_id && r.pue_rental_id === returningRental.value.pue_rental_id)
+    )
+    if (idx >= 0) {
+      rentals.value[idx] = { ...rentals.value[idx], status: 'returned', rental_status: 'returned', actual_return_date: new Date().toISOString() }
+    }
+    // Mark battery as available in cache
+    const batteryId = returningRental.value.battery_id
+    if (batteryId) {
+      updateItemInCache('GET:/batteries', 'battery_id', batteryId, { status: 'available' }).catch(() => {})
+    }
+  }
+}
+
+const onSwapInstead = (rental) => {
+  openSwapDialog(rental)
+}
+
+const openSwapDialog = async (rental) => {
+  try {
+    const response = await batteryRentalsAPI.get(rental.rentral_id || rental.rental_id)
+    swappingRental.value = { ...rental, ...response.data }
+    showSwapDialog.value = true
+  } catch (error) {
+    $q.notify({ type: 'negative', message: 'Failed to load rental details', position: 'top' })
+  }
+}
+
+const onBatterySwapped = () => {
+  // Update the swapped rental in the local list
+  if (swappingRental.value) {
+    const rid = swappingRental.value.rental_id || swappingRental.value.rentral_id
+    const idx = rentals.value.findIndex(r => (r.rental_id || r.rentral_id) === rid)
+    if (idx >= 0) {
+      rentals.value[idx] = {
+        ...rentals.value[idx],
+        recharges_used: (rentals.value[idx].recharges_used || 0) + 1
+      }
+    }
+  }
 }
 
 const confirmReturn = async () => {
@@ -2959,9 +3028,38 @@ const openPUERentalDialog = () => {
 }
 
 // Battery Rental Form Component Handlers
-const onBatteryRentalSuccess = () => {
+const onBatteryRentalSuccess = (responseData) => {
   showCreateDialog.value = false
-  loadRentals()
+  // Optimistically add the new rental to the local list so it appears immediately
+  if (responseData) {
+    const newRental = {
+      rental_id: responseData.rental_id,
+      rentral_id: responseData.rental_id,
+      user_id: responseData.user_id,
+      hub_id: responseData.hub_id,
+      cost_structure_id: responseData.cost_structure_id,
+      rental_start_date: responseData.rental_start_date,
+      rental_end_date: responseData.rental_end_date,
+      timestamp_taken: responseData.rental_start_date,
+      due_back: responseData.rental_end_date,
+      actual_return_date: null,
+      deposit_paid: responseData.deposit_paid || 0,
+      total_cost: 0,
+      amount_paid: 0,
+      rental_status: responseData.status || 'active',
+      status: responseData.status || 'active',
+      battery_id: responseData.battery_ids?.[0] || null,
+      battery_count: responseData.battery_ids?.length || 1,
+      recharges_used: 0,
+      max_recharges: null,
+      rental_type: 'battery'
+    }
+    rentals.value = [newRental, ...rentals.value]
+    // Mark battery as rented in the SWR cache so next form open is correct
+    for (const bid of (responseData.battery_ids || [])) {
+      updateItemInCache('GET:/batteries', 'battery_id', bid, { status: 'rented' }).catch(() => {})
+    }
+  }
   $q.notify({
     type: 'positive',
     message: 'Battery rental created successfully'
@@ -2973,9 +3071,26 @@ const closeBatteryRentalDialog = () => {
 }
 
 // PUE Rental Form Component Handlers
-const onPUERentalSuccess = () => {
+const onPUERentalSuccess = (responseData) => {
   showPUERentalDialog.value = false
-  loadRentals()
+  // Optimistically add the new PUE rental to the local list
+  if (responseData) {
+    const newRental = {
+      pue_rental_id: responseData.pue_rental_id || responseData.rental_id,
+      rental_id: responseData.pue_rental_id || responseData.rental_id,
+      user_id: responseData.user_id,
+      hub_id: responseData.hub_id,
+      rental_start_date: responseData.rental_start_date,
+      rental_end_date: responseData.rental_end_date,
+      timestamp_taken: responseData.rental_start_date,
+      due_back: responseData.rental_end_date,
+      actual_return_date: null,
+      status: responseData.status || 'active',
+      rental_status: responseData.status || 'active',
+      rental_type: 'pue'
+    }
+    rentals.value = [newRental, ...rentals.value]
+  }
   $q.notify({
     type: 'positive',
     message: 'PUE rental created successfully'
@@ -3463,6 +3578,25 @@ const resetForm = () => {
   editingRental.value = null
 }
 
+// Listen for SWR background revalidation completing — swap in fresh data
+const onCacheUpdated = (event) => {
+  const { url, data } = event.detail || {}
+  if (!url || !data) return
+
+  if (url.includes('/battery-rentals') && !url.includes('/calculate-return-cost') && !url.includes('/swap') && !url.includes('/recharge')) {
+    // Fresh battery rental list arrived — merge into local state
+    const freshRentals = (Array.isArray(data) ? data : []).map(r => ({ ...r, rental_type: 'battery' }))
+    // Replace only the battery rentals in the local array, keep PUE rentals intact
+    const pueRentals = rentals.value.filter(r => r.rental_type === 'pue')
+    rentals.value = [...freshRentals, ...pueRentals]
+  } else if (url.includes('/pue-rentals') && !url.includes('/return')) {
+    // Fresh PUE rental list arrived
+    const freshRentals = (Array.isArray(data) ? data : []).map(r => ({ ...r, rental_type: 'pue' }))
+    const batteryRentals = rentals.value.filter(r => r.rental_type === 'battery')
+    rentals.value = [...batteryRentals, ...freshRentals]
+  }
+}
+
 onMounted(() => {
   // Auto-select hub for hub_admin users
   if (authStore.role === 'hub_admin' && authStore.currentHubId) {
@@ -3472,9 +3606,15 @@ onMounted(() => {
   loadRentals()
   loadHubs()
 
+  window.addEventListener('cache-updated', onCacheUpdated)
+
   // Check if we should open the quick returns dialog
   if (route.query.action === 'returns') {
     showQuickReturnsDialog.value = true
   }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
 })
 </script>

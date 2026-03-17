@@ -1250,6 +1250,44 @@
 
           <q-separator />
 
+          <!-- Deposit Section -->
+          <div class="text-subtitle2 q-mt-md">Deposit Requirement</div>
+          <div class="text-caption text-grey-7 q-mb-sm">
+            Require a refundable deposit when renting with this cost structure
+          </div>
+
+          <q-checkbox
+            v-model="requiresDeposit"
+            label="Requires Deposit"
+            dense
+            @update:model-value="val => { if (!val) newStructure.deposit_amount = 0 }"
+          />
+
+          <q-input
+            v-if="requiresDeposit"
+            v-model.number="newStructure.deposit_amount"
+            type="number"
+            label="Deposit Amount"
+            :prefix="currentCurrencySymbol"
+            step="0.01"
+            outlined
+            class="q-mt-sm"
+            hint="Amount held from account credit or collected as payment"
+            :rules="[val => val > 0 || 'Deposit amount must be greater than 0']"
+          />
+
+          <q-banner v-if="requiresDeposit" class="bg-blue-1 q-mt-sm" rounded dense>
+            <template v-slot:avatar>
+              <q-icon name="info" color="blue" size="sm" />
+            </template>
+            <div class="text-caption">
+              The deposit is held against the customer's account credit when a rental is created and released when the item is returned.
+              If the customer has insufficient credit, the deposit becomes a debt on their account.
+            </div>
+          </q-banner>
+
+          <q-separator class="q-mt-md" />
+
           <!-- Cost Components Section -->
           <div class="text-subtitle2 q-mt-md">Cost Components</div>
           <div class="text-caption text-grey-7 q-mb-sm">
@@ -1426,6 +1464,17 @@
                 When enabled, rentals start with recharges_used=1. Useful when you want to charge for the initial battery checkout as the first recharge.
               </q-tooltip>
             </q-checkbox>
+
+            <q-input
+              v-model.number="newStructure.max_recharges"
+              type="number"
+              label="Max number of swaps"
+              outlined dense
+              :min="0"
+              class="q-mt-sm"
+              hint="Leave blank or 0 for unlimited swaps"
+              clearable
+            />
           </template>
 
           <!-- Duration Options Section (hidden for pay-to-own) -->
@@ -2028,7 +2077,7 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, onMounted, watch } from 'vue'
+import { ref, computed, inject, onMounted, onUnmounted, watch } from 'vue'
 import { settingsAPI, hubsAPI, pueAPI, surveyAPI } from 'src/services/api'
 import { useQuasar } from 'quasar'
 import { useAuthStore } from 'stores/auth'
@@ -2235,11 +2284,15 @@ const newStructure = ref({
   components: [],
   duration_options: [],
   count_initial_checkout_as_recharge: false,
+  max_recharges: null,
   is_pay_to_own: false,
   item_total_cost: null,
   allow_multiple_items: true,
-  allow_custom_duration: true
+  allow_custom_duration: true,
+  deposit_amount: 0
 })
+
+const requiresDeposit = ref(false)
 
 const structureColumns = [
   { name: 'name', label: 'Structure Name', field: 'name', align: 'left', style: 'width: 200px' },
@@ -3686,6 +3739,7 @@ const saveStructure = async () => {
       }))),
       duration_options: processedDurationOptions.length > 0 ? JSON.stringify(processedDurationOptions) : undefined,
       count_initial_checkout_as_recharge: newStructure.value.count_initial_checkout_as_recharge,
+      max_recharges: newStructure.value.max_recharges || undefined,
       is_pay_to_own: newStructure.value.is_pay_to_own,
       item_total_cost: newStructure.value.item_total_cost,
       allow_multiple_items: newStructure.value.allow_multiple_items,
@@ -3757,11 +3811,14 @@ const editStructure = (structure) => {
     components: components,
     duration_options: durationOptions,
     count_initial_checkout_as_recharge: structure.count_initial_checkout_as_recharge !== undefined ? structure.count_initial_checkout_as_recharge : false,
+    max_recharges: structure.max_recharges || null,
     is_pay_to_own: structure.is_pay_to_own !== undefined ? structure.is_pay_to_own : false,
     item_total_cost: structure.item_total_cost || null,
     allow_multiple_items: structure.allow_multiple_items !== undefined ? structure.allow_multiple_items : true,
-    allow_custom_duration: structure.allow_custom_duration !== undefined ? structure.allow_custom_duration : true
+    allow_custom_duration: structure.allow_custom_duration !== undefined ? structure.allow_custom_duration : true,
+    deposit_amount: structure.deposit_amount || 0
   }
+  requiresDeposit.value = (structure.deposit_amount || 0) > 0
   showAddStructureDialog.value = true
 }
 
@@ -3801,6 +3858,7 @@ const cancelStructureEdit = () => {
 
 const resetStructureForm = () => {
   structureTab.value = 'basic'  // Reset to basic tab
+  requiresDeposit.value = false
   newStructure.value = {
     name: '',
     description: '',
@@ -3810,10 +3868,12 @@ const resetStructureForm = () => {
     components: [],
     duration_options: [],
     count_initial_checkout_as_recharge: false,
+    max_recharges: null,
     is_pay_to_own: false,
     item_total_cost: null,
     allow_multiple_items: true,
-    allow_custom_duration: true
+    allow_custom_duration: true,
+    deposit_amount: 0
   }
 }
 
@@ -3856,5 +3916,21 @@ onMounted(async () => {
   if (activeHubId.value) {
     onPricingHubChange(activeHubId.value)
   }
+
+  window.addEventListener('cache-updated', onCacheUpdated)
+})
+
+// Listen for SWR background revalidation to refresh settings data
+const onCacheUpdated = (event) => {
+  const { url, data } = event.detail || {}
+  if (!url || !data) return
+
+  if (url.includes('/cost-structures') && Array.isArray(data)) {
+    costStructures.value = data
+  }
+}
+
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
 })
 </script>

@@ -315,7 +315,7 @@
 
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
-          <q-btn flat label="Record Payment" color="primary" @click="submitPayment" />
+          <q-btn flat label="Record Payment" color="primary" @click="submitPayment" :loading="paymentSubmitting" :disable="paymentSubmitting" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -323,7 +323,7 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, watch, onMounted } from 'vue'
+import { ref, computed, inject, watch, onMounted, onUnmounted } from 'vue'
 import { accountsAPI, hubsAPI, settingsAPI } from 'src/services/api'
 import { useQuasar } from 'quasar'
 import { useAuthStore } from 'stores/auth'
@@ -375,6 +375,7 @@ const showPaymentDialog = ref(false)
 const selectedUser = ref(null)
 const paymentAmount = ref(0)
 const paymentDescription = ref('')
+const paymentSubmitting = ref(false)
 
 const debtColumns = [
   { name: 'user', label: 'Customer', field: 'user', align: 'left' },
@@ -434,8 +435,10 @@ const recordPayment = (user) => {
 }
 
 const submitPayment = async () => {
+  if (paymentSubmitting.value) return
   if (!selectedUser.value || paymentAmount.value <= 0) return
 
+  paymentSubmitting.value = true
   try {
     await accountsAPI.createTransaction(selectedUser.value.user_id, {
       transaction_type: 'payment',
@@ -452,6 +455,8 @@ const submitPayment = async () => {
     if (!isOffline.value) {
       $q.notify({ type: 'negative', message: 'Failed to record payment', position: 'top' })
     }
+  } finally {
+    paymentSubmitting.value = false
   }
 }
 
@@ -667,6 +672,18 @@ const loadHubSettings = async () => {
   }
 }
 
+// Listen for SWR background revalidation to refresh account data
+const onCacheUpdated = (event) => {
+  const { url, data } = event.detail || {}
+  if (!url || !data) return
+
+  if (url.includes('/accounts') && url.includes('/summary') && typeof data === 'object') {
+    summary.value = data
+  } else if (url.includes('/accounts') && url.includes('/debt') && Array.isArray(data)) {
+    usersInDebt.value = data
+  }
+}
+
 onMounted(() => {
   loadHubSettings()
   loadSummary()
@@ -674,5 +691,10 @@ onMounted(() => {
   if (activeTab.value === 'financial') {
     loadAllTransactions()
   }
+  window.addEventListener('cache-updated', onCacheUpdated)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
 })
 </script>

@@ -173,7 +173,7 @@ export function installOfflineInterceptors (axiosInstance) {
               if (freshResponse.status >= 200 && freshResponse.status < 300) {
                 setCachedResponse(cacheKey, fullUrl, freshResponse.data, freshResponse.status)
                   .then(() => {
-                    window.dispatchEvent(new CustomEvent('cache-updated', { detail: { url: fullUrl } }))
+                    window.dispatchEvent(new CustomEvent('cache-updated', { detail: { url: fullUrl, data: freshResponse.data } }))
                   })
                   .catch(() => {})
               }

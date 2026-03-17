@@ -239,7 +239,7 @@
       </q-card>
 
       <!-- Credit & Deposits Card -->
-      <q-card v-if="creditSummary.holds.length > 0 || creditSummary.held_deposits > 0" class="q-mb-md">
+      <q-card class="q-mb-md">
         <q-card-section>
           <div class="text-h6 q-mb-md">Credit & Deposits</div>
 
@@ -288,6 +288,9 @@
             title="Active Deposit Holds"
             hide-bottom
           />
+          <div v-else class="text-caption text-grey-6 q-mt-sm">
+            No deposits currently held. Deposits are created automatically when a rental uses a cost structure with a deposit requirement.
+          </div>
         </q-card-section>
       </q-card>
 
@@ -894,7 +897,7 @@
             <template v-slot:body-cell-transaction_type="props">
               <q-td :props="props">
                 <q-chip
-                  :color="props.row.transaction_type === 'charge' ? 'negative' : 'positive'"
+                  :color="props.row.amount < 0 ? 'negative' : 'positive'"
                   text-color="white"
                   dense
                   size="sm"
@@ -915,8 +918,8 @@
 
             <template v-slot:body-cell-amount="props">
               <q-td :props="props">
-                <span :class="props.row.transaction_type === 'charge' ? 'text-negative' : 'text-positive'">
-                  {{ props.row.transaction_type === 'charge' ? '-' : '+' }}{{ currencySymbol }}{{ Math.abs(props.row.amount)?.toFixed(2) }}
+                <span :class="props.row.amount < 0 ? 'text-negative' : 'text-positive'">
+                  {{ props.row.amount < 0 ? '-' : '+' }}{{ currencySymbol }}{{ Math.abs(props.row.amount)?.toFixed(2) }}
                 </span>
               </q-td>
             </template>
@@ -1097,7 +1100,8 @@
             :label="paymentOverage > 0 ? 'Settle Debt & Add Credit' : 'Record Payment'"
             color="orange"
             @click="submitPayment"
-            :disable="totalPayment <= 0 || (paymentAmount > 0 && (!settlementPaymentType || !confirmPaymentReceived))"
+            :loading="paymentSubmitting"
+            :disable="paymentSubmitting || totalPayment <= 0 || (paymentAmount > 0 && (!settlementPaymentType || !confirmPaymentReceived))"
           />
         </q-card-actions>
       </q-card>
@@ -1307,7 +1311,8 @@
             color="positive"
             icon="check"
             @click="submitTakePayment"
-            :disable="((takePaymentAmount || 0) + (takePaymentCreditApplied || 0)) <= 0 || !takePaymentType || (takePaymentAmount > 0 && !confirmTakePaymentReceived)"
+            :loading="takePaymentSubmitting"
+            :disable="takePaymentSubmitting || ((takePaymentAmount || 0) + (takePaymentCreditApplied || 0)) <= 0 || !takePaymentType || (takePaymentAmount > 0 && !confirmTakePaymentReceived)"
           />
         </q-card-actions>
       </q-card>
@@ -1497,7 +1502,8 @@
             label="Add Credit"
             color="primary"
             @click="submitAddCredit"
-            :disable="!confirmCashPayment || !creditAmount || creditAmount <= 0"
+            :loading="addCreditSubmitting"
+            :disable="addCreditSubmitting || !confirmCashPayment || !creditAmount || creditAmount <= 0"
           />
         </q-card-actions>
       </q-card>
@@ -1772,7 +1778,8 @@
             color="orange"
             icon="schedule"
             @click="submitExtendRental"
-            :disable="!extendNewDate || (extendPaymentAmount > 0 && (!extendPaymentType || !confirmExtendPayment))"
+            :loading="extendSubmitting"
+            :disable="extendSubmitting || !extendNewDate || (extendPaymentAmount > 0 && (!extendPaymentType || !confirmExtendPayment))"
           />
         </q-card-actions>
       </q-card>
@@ -1877,6 +1884,7 @@ const paymentDescription = ref('')
 const useAvailableCredit = ref(false)
 const settlementPaymentType = ref(null)
 const confirmPaymentReceived = ref(false)
+const paymentSubmitting = ref(false)
 
 // Payment computed properties (rounded to 2 decimal places)
 const availableCredit = computed(() => Math.round(Math.max(0, account.value.balance || 0) * 100) / 100)
@@ -1906,6 +1914,7 @@ const takePaymentAmount = ref(0)
 const takePaymentType = ref(null)
 const takePaymentDescription = ref('')
 const confirmTakePaymentReceived = ref(false)
+const takePaymentSubmitting = ref(false)
 const takePaymentCreditApplied = ref(0)
 const selectedRentalForPayment = ref(null) // null = general payment, or rental_id
 const userRentals = ref([])
@@ -1987,6 +1996,7 @@ const openTakePaymentDialog = async () => {
 }
 
 const submitTakePayment = async () => {
+  if (takePaymentSubmitting.value) return
   const totalPayment = (takePaymentAmount.value || 0) + (takePaymentCreditApplied.value || 0)
   if (totalPayment <= 0) {
     $q.notify({
@@ -2016,6 +2026,7 @@ const submitTakePayment = async () => {
     return
   }
 
+  takePaymentSubmitting.value = true
   try {
     let response
 
@@ -2080,6 +2091,8 @@ const submitTakePayment = async () => {
         position: 'top'
       })
     }
+  } finally {
+    takePaymentSubmitting.value = false
   }
 }
 
@@ -2142,6 +2155,7 @@ const creditAmount = ref(0)
 const creditDescription = ref('')
 const creditPaymentType = ref(null)
 const confirmCashPayment = ref(false)
+const addCreditSubmitting = ref(false)
 
 // Edit User dialog
 const showEditUserDialog = ref(false)
@@ -2207,6 +2221,7 @@ const extendNewDate = ref(null)
 const extendPaymentAmount = ref(0)
 const extendPaymentType = ref(null)
 const confirmExtendPayment = ref(false)
+const extendSubmitting = ref(false)
 
 // Payment types
 const paymentTypeOptions = ref([])
@@ -2300,6 +2315,7 @@ const loadTransactions = async () => {
 }
 
 const submitPayment = async () => {
+  if (paymentSubmitting.value) return
   if (totalPayment.value <= 0) {
     $q.notify({
       type: 'warning',
@@ -2328,6 +2344,7 @@ const submitPayment = async () => {
     return
   }
 
+  paymentSubmitting.value = true
   try {
     let paymentSummary = []
 
@@ -2396,10 +2413,13 @@ const submitPayment = async () => {
         position: 'top'
       })
     }
+  } finally {
+    paymentSubmitting.value = false
   }
 }
 
 const submitAddCredit = async () => {
+  if (addCreditSubmitting.value) return
   if (!creditPaymentType.value) {
     $q.notify({
       type: 'warning',
@@ -2427,6 +2447,7 @@ const submitAddCredit = async () => {
     return
   }
 
+  addCreditSubmitting.value = true
   try {
     await accountsAPI.createTransaction(userId.value, {
       transaction_type: 'credit',
@@ -2460,6 +2481,8 @@ const submitAddCredit = async () => {
         position: 'top'
       })
     }
+  } finally {
+    addCreditSubmitting.value = false
   }
 }
 
@@ -2879,6 +2902,7 @@ const submitReturnRental = async () => {
 }
 
 const submitExtendRental = async () => {
+  if (extendSubmitting.value) return
   if (!selectedRental.value || !extendNewDate.value) return
 
   if (extendPaymentAmount.value > 0 && !extendPaymentType.value) {
@@ -2899,6 +2923,7 @@ const submitExtendRental = async () => {
     return
   }
 
+  extendSubmitting.value = true
   try {
     await rentalsAPI.update(selectedRental.value.rentral_id, { due_back: extendNewDate.value })
 
@@ -2933,6 +2958,8 @@ const submitExtendRental = async () => {
         position: 'top'
       })
     }
+  } finally {
+    extendSubmitting.value = false
   }
 }
 

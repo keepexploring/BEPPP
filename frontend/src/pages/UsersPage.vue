@@ -405,7 +405,7 @@
 </template>
 
 <script setup>
-import { ref, inject, onMounted, computed, watch } from 'vue'
+import { ref, inject, onMounted, onUnmounted, computed, watch } from 'vue'
 import { usersAPI, hubsAPI, settingsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
@@ -916,6 +916,16 @@ const loadCustomerFieldOptions = async () => {
   }
 }
 
+// Listen for SWR background revalidation to refresh user data
+const onCacheUpdated = (event) => {
+  const { url, data } = event.detail || {}
+  if (!url || !data) return
+
+  if (url.includes('/users') && Array.isArray(data)) {
+    allUsers.value = data
+  }
+}
+
 onMounted(() => {
   loadUsers()
   loadHubs()
@@ -925,5 +935,10 @@ onMounted(() => {
   if (route.query.action === 'create') {
     showCreateDialog.value = true
   }
+  window.addEventListener('cache-updated', onCacheUpdated)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
 })
 </script>
