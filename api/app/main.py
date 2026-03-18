@@ -6201,6 +6201,7 @@ async def list_battery_rentals(
     user_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
     hub_id: Optional[int] = Query(None),
+    battery_id: Optional[str] = Query(None, description="Filter by battery ID"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -6216,6 +6217,13 @@ async def list_battery_rentals(
     # User filter
     if user_id:
         query = query.filter(BatteryRental.user_id == user_id)
+
+    # Battery filter — find rentals that have a BatteryRentalItem for this battery
+    if battery_id:
+        rental_ids_with_battery = db.query(BatteryRentalItem.rental_id).filter(
+            BatteryRentalItem.battery_id == battery_id
+        ).subquery()
+        query = query.filter(BatteryRental.rental_id.in_(rental_ids_with_battery))
 
     # Status filter
     if status:
@@ -9281,7 +9289,7 @@ async def export_analytics_data(
 @app.get("/admin/webhook-logs")
 async def get_webhook_logs(
     limit: int = Query(100, description="Number of recent webhook logs to return (max: limit from config)"),
-    battery_id: Optional[int] = Query(None, description="Filter by battery ID"),
+    battery_id: Optional[str] = Query(None, description="Filter by battery ID"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):

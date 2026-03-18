@@ -228,7 +228,20 @@ const statusOptions = ['available', 'rented', 'maintenance', 'retired']
 
 const columns = computed(() => {
   const cols = [
-    { name: 'battery_id', label: 'ID', field: 'battery_id', align: 'left', sortable: true }
+    {
+      name: 'battery_id',
+      label: 'ID',
+      field: 'battery_id',
+      align: 'left',
+      sortable: true,
+      sort: (a, b) => {
+        // Extract numbers from IDs for numeric sorting (e.g., "5" before "10", "BAT-2" before "BAT-10")
+        const numA = parseInt((a || '').replace(/\D/g, '')) || 0
+        const numB = parseInt((b || '').replace(/\D/g, '')) || 0
+        if (numA !== numB) return numA - numB
+        return String(a || '').localeCompare(String(b || ''))
+      }
+    }
   ]
 
   // Add hub column for superadmins
