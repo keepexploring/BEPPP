@@ -85,6 +85,7 @@ class User(Base):
     Name = Column(String(255))  # DEPRECATED: Keep for backward compatibility, will be computed from first_names + last_name
 
     users_identification_document_number = Column(String)
+    id_document_photo_url = Column(String(500), nullable=True)
     mobile_number = Column(String(255))
 
     # Address renamed for clarity
@@ -106,6 +107,7 @@ class User(Base):
     password_hash = Column(String(255))
     short_id = Column(String(20), unique=True, index=True, nullable=True)  # QR code ID (e.g., BH-0001)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     last_login = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)
     
@@ -145,6 +147,7 @@ class BEPPPBattery(Base):
     battery_secret = Column(String(255), nullable=True)  # Secret for battery self-authentication
     short_id = Column(String(20), unique=True, index=True, nullable=True)  # QR code ID (e.g., BAT-0001)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     last_data_received = Column(DateTime, nullable=True)  # Last time we got data from this battery
 
     # Relations
@@ -343,6 +346,7 @@ class PUERental(Base):
     deposit_amount = Column(Float, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     cost_structure_id = Column(Integer, ForeignKey('cost_structures.structure_id', ondelete='SET NULL'), nullable=True)
 
     # Pay-to-own tracking fields (new design)
@@ -839,6 +843,7 @@ class Notification(Base):
     link_type = Column(String(50), nullable=True)  # 'rental', 'battery', 'user', 'account'
     link_id = Column(String(100), nullable=True)  # ID of the related entity
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     # Relationships
     hub = relationship("SolarHub", foreign_keys=[hub_id])
@@ -986,7 +991,7 @@ class BatteryRental(Base):
 
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     created_by = Column(BigInteger, ForeignKey('user.user_id', ondelete='SET NULL'), nullable=True)
 
     # Relationships

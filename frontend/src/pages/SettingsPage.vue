@@ -3926,6 +3926,7 @@ const onCacheUpdated = (event) => {
   if (!url || !data) return
 
   if (url.includes('/cost-structures') && Array.isArray(data)) {
+    if (data.length === 0 && costStructures.value.length > 0) return
     costStructures.value = data
   }
 }

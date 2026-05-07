@@ -9,9 +9,11 @@ from sqlalchemy import text, func, and_, or_, desc
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, timezone, timedelta, date
 import json
+import statistics
 import pandas as pd
 import numpy as np
 import io
+from collections import defaultdict
 from passlib.context import CryptContext
 import jwt
 from jwt.exceptions import InvalidTokenError
@@ -54,7 +56,7 @@ try:
     try:
         from config import WEBHOOK_LOG_LIMIT
     except ImportError:
-        WEBHOOK_LOG_LIMIT = 100
+        WEBHOOK_LOG_LIMIT = 1000
 
 except ImportError as e:
     raise ImportError(
@@ -305,6 +307,17 @@ def log_webhook_event(
 
             db.add(webhook_log)
             db.commit()
+
+            # Prune to keep only the most recent WEBHOOK_LOG_LIMIT entries
+            try:
+                count = db.query(WebhookLog).count()
+                if count > WEBHOOK_LOG_LIMIT:
+                    cutoff_id = db.query(WebhookLog.log_id).order_by(WebhookLog.log_id.desc()).offset(WEBHOOK_LOG_LIMIT).limit(1).scalar()
+                    if cutoff_id:
+                        db.query(WebhookLog).filter(WebhookLog.log_id <= cutoff_id).delete()
+                        db.commit()
+            except Exception:
+                pass
         except Exception as e:
             # Don't fail the main operation if logging fails
             webhook_logger.error(f"Failed to save webhook event to database: {str(e)}")
@@ -332,7 +345,7 @@ def log_webhook_to_db(
     try:
         # Create webhook log entry
         webhook_log = WebhookLog(
-            battery_id=battery_id,
+            battery_id=str(battery_id) if battery_id is not None else None,
             endpoint=endpoint,
             method=method,
             request_headers=json.dumps(request_headers) if request_headers else None,
@@ -345,8 +358,16 @@ def log_webhook_to_db(
         db.add(webhook_log)
         db.commit()
 
-        # NOTE: All logs are now preserved. No automatic cleanup.
-        # If database grows too large, implement manual cleanup or archival strategy.
+        # Prune to keep only the most recent WEBHOOK_LOG_LIMIT entries
+        try:
+            count = db.query(WebhookLog).count()
+            if count > WEBHOOK_LOG_LIMIT:
+                cutoff_id = db.query(WebhookLog.log_id).order_by(WebhookLog.log_id.desc()).offset(WEBHOOK_LOG_LIMIT).limit(1).scalar()
+                if cutoff_id:
+                    db.query(WebhookLog).filter(WebhookLog.log_id <= cutoff_id).delete()
+                    db.commit()
+        except Exception:
+            pass
 
     except Exception as e:
         # Don't let logging failures break the webhook
@@ -590,6 +611,20 @@ class RentalAnalyticsRequest(BaseModel):
     time_period: Optional[str] = Field(default=None, description="Time period: last_24_hours, last_week, etc.")
     group_by: Optional[str] = "pue_id"
 
+class PowerByPUETypeRequest(BaseModel):
+    hub_id: Optional[int] = None
+    pue_type_ids: Optional[List[int]] = None  # None = all types
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    aggregation_period: str = "day"  # hour, day, week, month
+    aggregation_function: str = "mean"  # mean, sum
+
+class UserReportRequest(BaseModel):
+    user_id: Optional[int] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    hub_id: Optional[int] = None
+
 class RentalReturnRequest(BaseModel):
     """Request model for returning battery and/or PUE items"""
     return_battery: bool = Field(True, description="Whether to return the battery")
@@ -701,6 +736,7 @@ class BatteryRentalSwap(BaseModel):
     payment_type: str = Field('cash', description="Payment type: cash, mobile_money, bank_transfer, card")
     payment_notes: Optional[str] = Field(None, description="Payment notes")
     credit_applied: Optional[float] = Field(None, description="Account credit applied to payment", ge=0)
+    payment_skipped: bool = Field(False, description="Skip payment collection and record fee as debt on account")
 
 class PUERentalCreateNew(BaseModel):
     """Create a new PUE rental with pay-to-own support"""
@@ -989,6 +1025,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    expose_headers=["Date"],
     max_age=600,  # Cache preflight requests for 10 minutes
 )
 app.add_middleware(GZipMiddleware, minimum_size=500)
@@ -1603,6 +1640,43 @@ async def handle_direct_format(battery_data: dict, db: Session, current_user: di
         # Update battery's last_data_received timestamp
         battery.last_data_received = datetime.now(timezone.utc)
         db.commit()
+
+        # Auto-return: if telemetry shows charging (positive current), mark any active rental as returned
+        is_charging = (
+            (parsed_data.get('current_amps') or 0) > 0
+            or (parsed_data.get('charger_current') or 0) > 0
+        )
+        if is_charging:
+            active_items = (
+                db.query(BatteryRentalItem)
+                .join(BatteryRental, BatteryRentalItem.rental_id == BatteryRental.rental_id)
+                .filter(
+                    BatteryRentalItem.battery_id == battery_id,
+                    BatteryRentalItem.returned_at.is_(None),
+                    BatteryRental.status == 'active',
+                    BatteryRental.actual_return_date.is_(None),
+                )
+                .all()
+            )
+            for item in active_items:
+                rental = db.query(BatteryRental).filter_by(rental_id=item.rental_id).first()
+                if rental:
+                    # Skip recharge-type rentals: charging may be a mid-rental recharge,
+                    # not a final return. Operator must explicitly record recharge or return.
+                    if rental.max_recharges and rental.max_recharges > 0:
+                        continue
+                    rental.actual_return_date = live_data.timestamp
+                    rental.status = 'returned'
+                    item.returned_at = live_data.timestamp
+                    log_webhook_event(
+                        event_type="auto_return_on_charge",
+                        user_info=current_user,
+                        battery_id=battery_id,
+                        status="info",
+                        summary={"rental_id": rental.rental_id, "return_time": live_data.timestamp.isoformat()}
+                    )
+            if active_items:
+                db.commit()
 
         if DEBUG:
             log_webhook_event(
@@ -3527,6 +3601,7 @@ async def delete_user(
 @app.get("/hubs/{hub_id}/users")
 async def list_hub_users(
     hub_id: int,
+    modified_after: Optional[str] = Query(None, description="ISO datetime - only return records updated after this time"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -3538,7 +3613,14 @@ async def list_hub_users(
         if current_user.get('hub_id') != hub_id:
             raise HTTPException(status_code=403, detail="Access denied")
 
-    users = db.query(User).filter(User.hub_id == hub_id).all()
+    query = db.query(User).filter(User.hub_id == hub_id)
+    if modified_after:
+        try:
+            cutoff = datetime.fromisoformat(modified_after)
+            query = query.filter(User.updated_at > cutoff)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid modified_after format")
+    users = query.all()
     return [serialize_user(u) for u in users]
 
 @app.get("/users/by-short-id/{short_id}")
@@ -3683,6 +3765,7 @@ async def list_batteries(
     status: Optional[str] = Query(None, description="Filter by battery status (available, rented, maintenance, retired)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
+    modified_after: Optional[str] = Query(None, description="ISO datetime - only return records updated after this time"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -3700,6 +3783,14 @@ async def list_batteries(
     # Apply status filter
     if status is not None:
         query = query.filter(BEPPPBattery.status == status)
+
+    # Delta sync filter
+    if modified_after:
+        try:
+            cutoff = datetime.fromisoformat(modified_after)
+            query = query.filter(BEPPPBattery.updated_at > cutoff)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid modified_after format")
 
     batteries = query.offset(skip).limit(limit).all()
     return batteries
@@ -4389,11 +4480,12 @@ async def list_rentals(
                 if end_date < now:
                     rental_status = "overdue"
 
-            # Get battery info for display
+            # Get battery info for display — prefer the current (unreturned) item after any swaps
+            active_item = next((i for i in battery_items if i.returned_at is None), None) or (battery_items[0] if battery_items else None)
             battery_info = None
-            if battery_items:
+            if active_item:
                 first_battery = db.query(BEPPPBattery).filter(
-                    BEPPPBattery.battery_id == battery_items[0].battery_id
+                    BEPPPBattery.battery_id == active_item.battery_id
                 ).first()
                 if first_battery:
                     battery_info = {
@@ -4404,18 +4496,22 @@ async def list_rentals(
                     }
 
             result.append({
+                "rental_id": rental.rental_id,
                 "rentral_id": rental.rental_id,
                 "rental_type": "battery",
-                "battery_id": battery_items[0].battery_id if battery_items else None,
+                "battery_id": active_item.battery_id if active_item else None,
                 "item_name": f"{len(battery_items)} Battery(ies)" if len(battery_items) > 1 else (battery_items[0].battery_id if battery_items else "Battery"),
                 "user_id": rental.user_id,
                 "timestamp_taken": rental.start_date.isoformat() if rental.start_date else None,
                 "due_back": rental.end_date.isoformat() if rental.end_date else None,
+                "rental_end_date": rental.end_date.isoformat() if rental.end_date else None,
                 "battery_returned_date": rental.actual_return_date.isoformat() if rental.actual_return_date else None,
                 "total_cost": float(rental.final_cost_total or rental.estimated_cost_total or 0.0),
                 "deposit_amount": float(rental.deposit_amount or 0.0),
                 "status": rental_status,
                 "rental_status": rental_status,
+                "max_recharges": rental.max_recharges,
+                "recharges_used": rental.recharges_used or 0,
                 "user": {
                     "user_id": user.user_id,
                     "username": user.username if hasattr(user, 'username') else None,
@@ -6184,6 +6280,8 @@ async def create_battery_rental(
             "status": new_rental.status,
             "deposit_paid": float(new_rental.deposit_amount),
             "cost_structure_id": new_rental.cost_structure_id,
+            "max_recharges": new_rental.max_recharges,
+            "recharges_used": new_rental.recharges_used or 0,
             "upfront_charges": upfront_charges if upfront_charges else None,
             "deposit_hold": deposit_hold_info
         }
@@ -6202,6 +6300,7 @@ async def list_battery_rentals(
     status: Optional[str] = Query(None),
     hub_id: Optional[int] = Query(None),
     battery_id: Optional[str] = Query(None, description="Filter by battery ID"),
+    modified_after: Optional[str] = Query(None, description="ISO datetime - only return records updated after this time"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -6228,6 +6327,14 @@ async def list_battery_rentals(
     # Status filter
     if status:
         query = query.filter(BatteryRental.status == status)
+
+    # Delta sync filter
+    if modified_after:
+        try:
+            cutoff = datetime.fromisoformat(modified_after)
+            query = query.filter(BatteryRental.updated_at > cutoff)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid modified_after format")
 
     rentals = query.order_by(BatteryRental.start_date.desc()).all()
 
@@ -6277,7 +6384,8 @@ async def list_battery_rentals(
             "battery_count": len(items),
             "recharges_used": rental.recharges_used or 0,
             "max_recharges": rental.max_recharges,
-            "rental_type": "battery"  # Add type for frontend routing
+            "rental_type": "battery",  # Add type for frontend routing
+            "updated_at": rental.updated_at.isoformat() if rental.updated_at else None
         })
 
     return result
@@ -6295,10 +6403,12 @@ async def get_battery_rental(
     if not rental:
         raise HTTPException(status_code=404, detail="Rental not found")
 
+    # Fetch user (needed for both auth check and response)
+    rental_user = db.query(User).filter(User.user_id == rental.user_id).first()
+
     # Authorization check
     if current_user.get('role') == UserRole.USER:
-        user = db.query(User).filter(User.user_id == rental.user_id).first()
-        if user.hub_id != current_user.get('hub_id'):
+        if not rental_user or rental_user.hub_id != current_user.get('hub_id'):
             raise HTTPException(status_code=403, detail="Access denied")
 
     # Get rental items (batteries)
@@ -6365,7 +6475,13 @@ async def get_battery_rental(
         "rental_type": "battery",
         "recharges_used": rental.recharges_used or 0,
         "max_recharges": rental.max_recharges,
-        "batteries": batteries
+        "batteries": batteries,
+        "user": {
+            "user_id": rental_user.user_id,
+            "Name": rental_user.Name if hasattr(rental_user, 'Name') else None,
+            "username": rental_user.username if hasattr(rental_user, 'username') else None,
+            "mobile_number": rental_user.mobile_number if hasattr(rental_user, 'mobile_number') else None
+        } if rental_user else None
     }
 
 @app.post("/battery-rentals/{rental_id}/return",
@@ -6961,7 +7077,25 @@ async def swap_battery(
         # Record payment if applicable
         payment_collected = 0
         payment_transactions = []
-        if recharge_fee > 0 or (swap_data.payment_amount and swap_data.payment_amount > 0):
+        if swap_data.payment_skipped and recharge_fee > 0:
+            # Record the fee as a debt on the account without collecting payment
+            user_account = db.query(UserAccount).filter(
+                UserAccount.user_id == rental.user_id
+            ).first()
+            if user_account:
+                rental.amount_owed = (rental.amount_owed or 0) + recharge_fee
+                if hasattr(user_account, 'total_owed'):
+                    user_account.total_owed = (user_account.total_owed or 0) + recharge_fee
+                charge_transaction = AccountTransaction(
+                    account_id=user_account.account_id,
+                    rental_id=rental.rental_id,
+                    transaction_type='charge',
+                    amount=recharge_fee,
+                    balance_after=user_account.balance,
+                    description=f"Swap fee (payment skipped) — Battery swap: {old_battery_id} -> {swap_data.new_battery_id}"
+                )
+                db.add(charge_transaction)
+        elif recharge_fee > 0 or (swap_data.payment_amount and swap_data.payment_amount > 0):
             user_account = db.query(UserAccount).filter(
                 UserAccount.user_id == rental.user_id
             ).first()
@@ -7574,6 +7708,7 @@ async def list_pue_rentals(
     user_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
     hub_id: Optional[int] = Query(None),
+    modified_after: Optional[str] = Query(None, description="ISO datetime - only return records updated after this time"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -7604,6 +7739,14 @@ async def list_pue_rentals(
                 PUERental.due_back != None,
                 PUERental.due_back < datetime.now(timezone.utc)
             )
+
+    # Delta sync filter
+    if modified_after:
+        try:
+            cutoff = datetime.fromisoformat(modified_after)
+            query = query.filter(PUERental.updated_at > cutoff)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid modified_after format")
 
     rentals = query.order_by(PUERental.timestamp_taken.desc()).all()
 
@@ -7666,7 +7809,8 @@ async def list_pue_rentals(
             "deposit_amount": float(rental.deposit_amount) if rental.deposit_amount else 0.0,
             "is_active": rental.is_active,
             "status": rental_status,
-            "pay_to_own_progress": pay_to_own_progress
+            "pay_to_own_progress": pay_to_own_progress,
+            "updated_at": rental.updated_at.isoformat() if rental.updated_at else None
         })
 
     return result
@@ -8770,6 +8914,55 @@ async def get_power_usage_analytics(
         elif request.aggregation_period == "month":
             df['time_group'] = df['timestamp'].dt.to_period('M').dt.start_time
         
+        if request.aggregation_function == "stats":
+            # Return mean, median, std, count per time_group for non-zero readings
+            if request.metric not in df.columns:
+                raise HTTPException(status_code=400, detail=f"Metric '{request.metric}' not available")
+            active = df[df[request.metric].abs() > 1].copy()  # filter near-zero idle readings
+            if active.empty:
+                return {'data': [], 'summary': {'total_data_points': 0}, 'request_parameters': {'aggregation_function': 'stats'}}
+            grp = active.groupby('time_group')[request.metric].agg(['mean', 'median', 'std', 'count', 'sum']).reset_index()
+            grp['time_group'] = grp['time_group'].astype(str)
+            grp['std'] = grp['std'].fillna(0)
+            result_dict = grp.rename(columns={'mean': 'mean', 'median': 'median', 'std': 'std', 'count': 'count', 'sum': 'sum'}).to_dict('records')
+            return {
+                'data': result_dict,
+                'summary': {'total_data_points': len(active), 'battery_count': active['battery_id'].nunique()},
+                'request_parameters': {'metric': request.metric, 'aggregation_function': 'stats', 'aggregation_period': request.aggregation_period}
+            }
+
+        if request.aggregation_function == "split_stats":
+            # Separate stats for power in (charging, >1W) vs power out (discharging, <-1W)
+            if request.metric not in df.columns:
+                raise HTTPException(status_code=400, detail=f"Metric '{request.metric}' not available")
+            in_df = df[df[request.metric] > 1].copy()
+            out_df = df[df[request.metric] < -1].copy()
+            def _agg_dir(d):
+                if d.empty:
+                    return {}
+                g = d.groupby('time_group')[request.metric].agg(['mean', 'median', 'std', 'count']).reset_index()
+                g['time_group'] = g['time_group'].astype(str)
+                g['std'] = g['std'].fillna(0)
+                return {row['time_group']: row for _, row in g.iterrows()}
+            in_idx = _agg_dir(in_df)
+            out_idx = _agg_dir(out_df)
+            all_tg = sorted(set(list(in_idx.keys()) + list(out_idx.keys())))
+            result_dict = []
+            for tg in all_tg:
+                row = {'time_group': tg}
+                if tg in in_idx:
+                    r = in_idx[tg]
+                    row.update({'in_mean': round(float(r['mean']), 2), 'in_median': round(float(r['median']), 2), 'in_std': round(float(r['std']), 2), 'in_count': int(r['count'])})
+                if tg in out_idx:
+                    r = out_idx[tg]
+                    row.update({'out_mean': round(float(r['mean']), 2), 'out_median': round(float(r['median']), 2), 'out_std': round(float(r['std']), 2), 'out_count': int(r['count'])})
+                result_dict.append(row)
+            return {
+                'data': result_dict,
+                'summary': {'in_points': len(in_df), 'out_points': len(out_df)},
+                'request_parameters': {'metric': request.metric, 'aggregation_function': 'split_stats', 'aggregation_period': request.aggregation_period}
+            }
+
         if request.aggregation_function == "sum":
             agg_func = 'sum'
         elif request.aggregation_function == "mean":
@@ -8780,10 +8973,12 @@ async def get_power_usage_analytics(
             agg_func = 'min'
         elif request.aggregation_function == "max":
             agg_func = 'max'
-        
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown aggregation_function: {request.aggregation_function}")
+
         if request.metric in df.columns:
             result = df.groupby(['time_group', 'battery_id'])[request.metric].agg(agg_func).reset_index()
-            
+
             result['time_group'] = result['time_group'].astype(str)
             result_dict = result.to_dict('records')
             
@@ -8822,6 +9017,462 @@ async def get_power_usage_analytics(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analytics error: {str(e)}")
+
+@app.post("/analytics/power-by-pue-type",
+    tags=["Data & Analytics"],
+    summary="Power Usage grouped by Productive Use Type",
+    description="Aggregate battery power data by the PUE type rented concurrently by the same user")
+async def get_power_by_pue_type(
+    request: PowerByPUETypeRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Aggregate battery LiveData grouped by the PUE type the renter was concurrently using."""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.DATA_ADMIN]:
+        raise HTTPException(status_code=403, detail="Data access required")
+
+    try:
+        def to_naive(dt):
+            """Strip timezone to naive UTC for consistent comparisons."""
+            if dt is None:
+                return None
+            if dt.tzinfo is not None:
+                return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
+
+        hub_id = request.hub_id or current_user.get('hub_id')
+        _end = request.end_time or datetime.now(timezone.utc)
+        _start = request.start_time or (_end - timedelta(days=30))
+        end_time = to_naive(_end)
+        start_time = to_naive(_start)
+
+        # Load battery rentals in range
+        bat_rentals = db.query(BatteryRental).filter(
+            BatteryRental.hub_id == hub_id,
+            BatteryRental.start_date <= end_time,
+        ).filter(
+            (BatteryRental.actual_return_date >= start_time) |
+            (BatteryRental.actual_return_date.is_(None) & (BatteryRental.end_date >= start_time))
+        ).all()
+
+        if not bat_rentals:
+            return {"data": [], "pue_types": [], "summary": {"message": "No rentals found in range"}}
+
+        # Map rental_id -> (user_id, rental_start, rental_end, [battery_ids])
+        rental_info = {}
+        all_battery_ids = set()
+        for r in bat_rentals:
+            r_end = to_naive(r.actual_return_date or r.end_date) or end_time
+            bat_ids = [item.battery_id for item in r.battery_items]
+            rental_info[r.rental_id] = {
+                "user_id": r.user_id,
+                "start": to_naive(r.start_date),
+                "end": r_end,
+                "battery_ids": bat_ids,
+            }
+            all_battery_ids.update(bat_ids)
+
+        # Load PUE rentals for those users in range (with PUE item + type)
+        user_ids = list({v["user_id"] for v in rental_info.values()})
+        pue_rentals = db.query(PUERental).filter(
+            PUERental.user_id.in_(user_ids),
+            PUERental.timestamp_taken <= end_time,
+        ).filter(
+            (PUERental.date_returned >= start_time) |
+            (PUERental.date_returned.is_(None))
+        ).all()
+
+        # Build: user_id -> [(pue_type_id, pue_type_name, pue_start, pue_end)]
+        pue_type_by_user = {}
+        for pr in pue_rentals:
+            pue_item = db.query(ProductiveUseEquipment).filter_by(pue_id=pr.pue_id).first()
+            if not pue_item or not pue_item.pue_type_id:
+                continue
+            if request.pue_type_ids and pue_item.pue_type_id not in request.pue_type_ids:
+                continue
+            pue_type = db.query(PUEType).filter_by(type_id=pue_item.pue_type_id).first()
+            if not pue_type:
+                continue
+            uid = pr.user_id
+            if uid not in pue_type_by_user:
+                pue_type_by_user[uid] = []
+            pue_type_by_user[uid].append({
+                "type_name": pue_type.type_name,
+                "start": to_naive(pr.timestamp_taken),
+                "end": to_naive(pr.date_returned) or end_time,
+            })
+
+        # Load LiveData for all relevant batteries
+        live_rows = db.query(LiveData).filter(
+            LiveData.battery_id.in_(list(all_battery_ids)),
+            LiveData.timestamp >= start_time,
+            LiveData.timestamp <= end_time,
+        ).all()
+
+        if not live_rows:
+            return {"data": [], "pue_types": [], "summary": {"message": "No telemetry found for rentals in range"}}
+
+        # Build battery_id -> [(rental_id, ...)] lookup sorted by start
+        bat_to_rentals = {}
+        for rid, info in rental_info.items():
+            for bid in info["battery_ids"]:
+                if bid not in bat_to_rentals:
+                    bat_to_rentals[bid] = []
+                bat_to_rentals[bid].append(rid)
+
+        def find_pue_type(battery_id, ts):
+            """Return PUE type name for a LiveData point, or 'No PUE'."""
+            for rid in bat_to_rentals.get(battery_id, []):
+                info = rental_info[rid]
+                if info["start"] <= ts <= info["end"]:
+                    uid = info["user_id"]
+                    for pt in pue_type_by_user.get(uid, []):
+                        if pt["start"] <= ts <= pt["end"]:
+                            return pt["type_name"]
+                    return "No PUE"
+            return None  # outside any rental, skip
+
+        def floor_ts(ts, period):
+            if period == "hour":
+                return ts.replace(minute=0, second=0, microsecond=0)
+            if period == "day":
+                return ts.replace(hour=0, minute=0, second=0, microsecond=0)
+            if period == "week":
+                return (ts - timedelta(days=ts.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+            # month
+            return ts.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # Aggregate: {(time_group_str, pue_type_name): [power_watts values]}
+        buckets = {}
+        for row in live_rows:
+            if row.power_watts is None:
+                continue
+            pue_name = find_pue_type(row.battery_id, row.timestamp)
+            if pue_name is None:
+                continue
+            tg = floor_ts(row.timestamp, request.aggregation_period).isoformat()
+            key = (tg, pue_name)
+            if key not in buckets:
+                buckets[key] = []
+            buckets[key].append(row.power_watts)
+
+        def agg(vals, fn):
+            if not vals:
+                return 0.0
+            if fn == "sum":
+                return sum(vals)
+            if fn == "min":
+                return min(vals)
+            if fn == "max":
+                return max(vals)
+            return sum(vals) / len(vals)  # mean / default
+
+        import statistics as _statistics
+        result_data = []
+        all_pue_types = set()
+        for (tg, pue_name), vals in sorted(buckets.items()):
+            all_pue_types.add(pue_name)
+            if request.aggregation_function == 'split_stats':
+                in_v = [v for v in vals if v > 1]
+                out_v = [v for v in vals if v < -1]
+                row = {'time_group': tg, 'pue_type_name': pue_name}
+                if in_v:
+                    row.update({'in_mean': round(sum(in_v) / len(in_v), 2), 'in_median': round(_statistics.median(in_v), 2), 'in_std': round(_statistics.stdev(in_v) if len(in_v) > 1 else 0, 2), 'in_count': len(in_v)})
+                if out_v:
+                    row.update({'out_mean': round(sum(out_v) / len(out_v), 2), 'out_median': round(_statistics.median(out_v), 2), 'out_std': round(_statistics.stdev(out_v) if len(out_v) > 1 else 0, 2), 'out_count': len(out_v)})
+                result_data.append(row)
+            else:
+                result_data.append({
+                    "time_group": tg,
+                    "pue_type_name": pue_name,
+                    "power_watts": round(agg(vals, request.aggregation_function), 2),
+                    "count": len(vals),
+                })
+
+        return {
+            "data": result_data,
+            "pue_types": sorted(all_pue_types),
+            "summary": {
+                "rentals_analyzed": len(bat_rentals),
+                "data_points": len(live_rows),
+                "aggregation_period": request.aggregation_period,
+                "aggregation_function": request.aggregation_function,
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PUE power analytics error: {str(e)}")
+
+
+@app.post("/analytics/user-report",
+    tags=["Data & Analytics"],
+    summary="User Report",
+    description="Generate a detailed usage report for a specific user over a date range")
+async def get_user_report(
+    request: UserReportRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Generate detailed battery usage report for a user with power statistics."""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.DATA_ADMIN]:
+        raise HTTPException(status_code=403, detail="Data access required")
+
+    try:
+        def to_naive(dt):
+            if dt is None:
+                return None
+            if dt.tzinfo is not None:
+                return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
+
+        def safe_mean(lst):
+            return round(statistics.mean(lst), 2) if lst else None
+
+        def safe_median(lst):
+            return round(statistics.median(lst), 2) if lst else None
+
+        def safe_sd(lst):
+            return round(statistics.stdev(lst), 2) if len(lst) > 1 else None
+
+        # Parse date range
+        now = datetime.now(timezone.utc)
+        if request.end_date:
+            end_dt = datetime.strptime(request.end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+        else:
+            end_dt = now.replace(tzinfo=None)
+        if request.start_date:
+            start_dt = datetime.strptime(request.start_date, "%Y-%m-%d")
+        else:
+            start_dt = to_naive(now - timedelta(days=30))
+
+        end_naive = to_naive(end_dt) if end_dt.tzinfo else end_dt
+        start_naive = to_naive(start_dt) if start_dt.tzinfo else start_dt
+
+        # Determine hub_id for filtering
+        hub_id = request.hub_id or current_user.get('hub_id')
+
+        # Query BatteryRentals
+        q = db.query(BatteryRental).filter(
+            BatteryRental.start_date >= start_naive,
+            BatteryRental.start_date <= end_naive,
+        )
+        if request.user_id:
+            q = q.filter(BatteryRental.user_id == request.user_id)
+        if hub_id:
+            q = q.filter(BatteryRental.hub_id == hub_id)
+        rentals = q.all()
+
+        if not rentals:
+            period_days = (end_naive - start_naive).days or 1
+            return {
+                "summary": {
+                    "total_rentals": 0,
+                    "days_used": 0,
+                    "period_days": period_days,
+                    "uses_per_active_day_mean": None,
+                    "uses_per_active_day_median": None,
+                    "uses_per_active_day_sd": None,
+                    "duration_mean_h": None,
+                    "duration_median_h": None,
+                    "duration_sd_h": None,
+                    "power_mean_w": None,
+                    "power_median_w": None,
+                    "wh_per_day_mean": None,
+                    "wh_per_day_median": None,
+                },
+                "daily": [],
+                "rentals": [],
+                "power_timeline": [],
+            }
+
+        rental_ids = [r.rental_id for r in rentals]
+
+        # Build rental_batteries: rental_id -> list of battery_ids
+        items = db.query(BatteryRentalItem).filter(
+            BatteryRentalItem.rental_id.in_(rental_ids)
+        ).all()
+        rental_batteries = defaultdict(list)
+        for item in items:
+            rental_batteries[item.rental_id].append(item.battery_id)
+
+        all_battery_ids = list({item.battery_id for item in items})
+
+        # Fetch LiveData for those batteries in date range
+        live_rows = []
+        if all_battery_ids:
+            live_rows = db.query(LiveData).filter(
+                LiveData.battery_id.in_(all_battery_ids),
+                LiveData.timestamp >= start_naive,
+                LiveData.timestamp <= end_naive,
+            ).order_by(LiveData.timestamp).all()
+
+        # Build battery_intervals: battery_id -> [(start_naive, end_naive, rental_id)]
+        battery_intervals = defaultdict(list)
+        rental_map = {r.rental_id: r for r in rentals}
+        for r in rentals:
+            r_start = to_naive(r.start_date)
+            r_end = to_naive(r.actual_return_date or r.end_date) or end_naive
+            for bid in rental_batteries.get(r.rental_id, []):
+                battery_intervals[bid].append((r_start, r_end, r.rental_id))
+
+        def find_rental_for_point(battery_id, ts):
+            for (iv_start, iv_end, rid) in battery_intervals.get(battery_id, []):
+                if iv_start and iv_end and iv_start <= ts <= iv_end:
+                    return rid
+                elif iv_start and ts >= iv_start and iv_end is None:
+                    return rid
+            return None
+
+        # Assign live data points to rentals
+        rental_live = defaultdict(list)
+        power_timeline = []
+        for row in live_rows:
+            ts = to_naive(row.timestamp)
+            rid = find_rental_for_point(row.battery_id, ts)
+            if rid is not None:
+                rental_live[rid].append(row)
+                power_timeline.append({
+                    "timestamp": ts.isoformat() if ts else None,
+                    "power_watts": row.power_watts,
+                    "rental_id": rid,
+                    "battery_id": row.battery_id,
+                })
+
+        # Build per-rental stats
+        rental_stats = {}
+        for r in rentals:
+            rid = r.rental_id
+            r_start = to_naive(r.start_date)
+            r_end = to_naive(r.actual_return_date or r.end_date)
+            duration_h = None
+            if r_start and r_end:
+                duration_h = round((r_end - r_start).total_seconds() / 3600, 2)
+
+            live_pts = rental_live.get(rid, [])
+            # Usage = discharge = negative power_watts. Convert to positive for stats.
+            pw_usage = [abs(p.power_watts) for p in live_pts if p.power_watts is not None and p.power_watts < 0]
+
+            # Wh consumed during discharge only (trapezoidal integration of negative segments)
+            total_wh = None
+            pts_sorted = sorted(live_pts, key=lambda p: p.timestamp)
+            if len(pts_sorted) >= 2:
+                wh = 0.0
+                for i in range(1, len(pts_sorted)):
+                    dt_h = (to_naive(pts_sorted[i].timestamp) - to_naive(pts_sorted[i-1].timestamp)).total_seconds() / 3600
+                    w0 = pts_sorted[i-1].power_watts or 0
+                    w1 = pts_sorted[i].power_watts or 0
+                    avg_w = (w0 + w1) / 2
+                    if avg_w < 0:  # only count discharge
+                        wh += abs(avg_w) * dt_h
+                total_wh = round(wh, 2)
+
+            bat_ids = rental_batteries.get(rid, [])
+            battery_label = bat_ids[0] if bat_ids else None
+            amount_paid = float(r.amount_paid) if r.amount_paid is not None else None
+
+            rental_stats[rid] = {
+                "rental_id": rid,
+                "battery_id": battery_label,
+                "start": r_start.isoformat() if r_start else None,
+                "end": r_end.isoformat() if r_end else None,
+                "duration_h": duration_h,
+                "status": r.status,
+                "amount_paid": amount_paid,
+                "power_mean_w": safe_mean(pw_usage),
+                "power_median_w": safe_median(pw_usage),
+                "power_max_w": round(max(pw_usage), 2) if pw_usage else None,
+                "power_min_w": round(min(pw_usage), 2) if pw_usage else None,
+                "power_sd_w": safe_sd(pw_usage),
+                "total_wh": total_wh,
+            }
+
+        # Group by date (rental start date)
+        daily_map = defaultdict(list)
+        for r in rentals:
+            r_start = to_naive(r.start_date)
+            if r_start:
+                day_key = r_start.date().isoformat()
+                daily_map[day_key].append(r.rental_id)
+
+        daily_list = []
+        for day_key in sorted(daily_map.keys()):
+            day_rental_ids = daily_map[day_key]
+            day_stats = [rental_stats[rid] for rid in day_rental_ids if rid in rental_stats]
+            all_pw = []
+            total_dur = 0.0
+            total_wh_day = 0.0
+            has_wh = False
+            for rs in day_stats:
+                if rs["duration_h"] is not None:
+                    total_dur += rs["duration_h"]
+                if rs["total_wh"] is not None:
+                    total_wh_day += rs["total_wh"]
+                    has_wh = True
+                live_pts = rental_live.get(rs["rental_id"], [])
+                all_pw.extend([abs(p.power_watts) for p in live_pts if p.power_watts is not None and p.power_watts < 0])
+
+            daily_list.append({
+                "date": day_key,
+                "uses": len(day_rental_ids),
+                "total_duration_h": round(total_dur, 2),
+                "total_wh": round(total_wh_day, 2) if has_wh else None,
+                "power_max_w": round(max(all_pw), 2) if all_pw else None,
+                "power_min_w": round(min(all_pw), 2) if all_pw else None,
+                "power_mean_w": safe_mean(all_pw),
+                "power_median_w": safe_median(all_pw),
+                "power_sd_w": safe_sd(all_pw),
+                "rentals": [
+                    {
+                        "rental_id": rs["rental_id"],
+                        "battery_id": rs["battery_id"],
+                        "start": rs["start"],
+                        "end": rs["end"],
+                        "duration_h": rs["duration_h"],
+                        "status": rs["status"],
+                    }
+                    for rs in day_stats
+                ],
+            })
+
+        # Summary
+        period_days = max((end_naive - start_naive).days, 1)
+        days_used = len(daily_map)
+        uses_per_day = [len(v) for v in daily_map.values()]
+
+        all_durations = [rs["duration_h"] for rs in rental_stats.values() if rs["duration_h"] is not None]
+        all_pw_global = [abs(p.power_watts) for pts in rental_live.values() for p in pts if p.power_watts is not None and p.power_watts < 0]
+        day_wh_list = [d["total_wh"] for d in daily_list if d["total_wh"] is not None]
+
+        summary = {
+            "total_rentals": len(rentals),
+            "days_used": days_used,
+            "period_days": period_days,
+            "uses_per_active_day_mean": safe_mean(uses_per_day),
+            "uses_per_active_day_median": safe_median(uses_per_day),
+            "uses_per_active_day_sd": safe_sd(uses_per_day),
+            "duration_mean_h": safe_mean(all_durations),
+            "duration_median_h": safe_median(all_durations),
+            "duration_sd_h": safe_sd(all_durations),
+            "power_mean_w": safe_mean(all_pw_global),
+            "power_median_w": safe_median(all_pw_global),
+            "wh_per_day_mean": safe_mean(day_wh_list),
+            "wh_per_day_median": safe_median(day_wh_list),
+        }
+
+        return {
+            "summary": summary,
+            "daily": daily_list,
+            "rentals": list(rental_stats.values()),
+            "power_timeline": power_timeline,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"User report error: {str(e)}")
+
 
 @app.get("/analytics/battery-performance",
     tags=["Data & Analytics"],
@@ -9288,7 +9939,7 @@ async def export_analytics_data(
 
 @app.get("/admin/webhook-logs")
 async def get_webhook_logs(
-    limit: int = Query(100, description="Number of recent webhook logs to return (max: limit from config)"),
+    limit: int = Query(1000, description="Number of recent webhook logs to return (max: limit from config)"),
     battery_id: Optional[str] = Query(None, description="Filter by battery ID"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
@@ -12727,6 +13378,7 @@ async def get_notifications(
     hub_id: Optional[int] = Query(None),
     unread_only: bool = Query(False),
     limit: int = Query(50),
+    modified_after: Optional[str] = Query(None, description="ISO datetime - only return records updated after this time"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -12742,6 +13394,14 @@ async def get_notifications(
     if unread_only:
         query = query.filter(Notification.is_read == False)
 
+    # Delta sync filter
+    if modified_after:
+        try:
+            cutoff = datetime.fromisoformat(modified_after)
+            query = query.filter(Notification.updated_at > cutoff)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid modified_after format")
+
     notifications = query.order_by(Notification.created_at.desc()).limit(limit).all()
 
     return {
@@ -12755,7 +13415,8 @@ async def get_notifications(
                 "read": n.is_read,
                 "link_type": n.link_type,
                 "link_id": n.link_id,
-                "timestamp": n.created_at.isoformat()
+                "timestamp": n.created_at.isoformat(),
+                "updated_at": n.updated_at.isoformat() if n.updated_at else None
             }
             for n in notifications
         ]
@@ -12982,6 +13643,7 @@ async def list_job_cards(
     assigned_to: Optional[int] = Query(None, description="Filter by assigned user"),
     linked_entity_type: Optional[str] = Query(None, description="Filter by entity type"),
     linked_entity_id: Optional[str] = Query(None, description="Filter by entity ID"),
+    modified_after: Optional[str] = Query(None, description="ISO datetime - only return records updated after this time"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -13013,6 +13675,14 @@ async def list_job_cards(
                 query = query.filter(JobCard.linked_user_id == int(linked_entity_id))
             elif linked_entity_type == 'rental':
                 query = query.filter(JobCard.linked_rental_id == int(linked_entity_id))
+
+    # Delta sync filter
+    if modified_after:
+        try:
+            cutoff = datetime.fromisoformat(modified_after)
+            query = query.filter(JobCard.updated_at > cutoff)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid modified_after format")
 
     # Order by sort_order, then created_at
     query = query.order_by(JobCard.sort_order, JobCard.created_at.desc())

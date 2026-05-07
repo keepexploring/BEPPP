@@ -922,6 +922,7 @@ const onCacheUpdated = (event) => {
   if (!url || !data) return
 
   if (url.includes('/users') && Array.isArray(data)) {
+    if (data.length === 0 && allUsers.value.length > 0) return
     allUsers.value = data
   }
 }

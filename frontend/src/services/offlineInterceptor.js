@@ -2,7 +2,15 @@ import {
   buildCacheKey,
   getCachedResponse,
   setCachedResponse,
-  addToMutationQueue
+  addToMutationQueue,
+  getDeltaSyncConfig,
+  getLastSyncTime,
+  setLastSyncTime,
+  mergeDeltaIntoCache,
+  isConnectionFast,
+  shouldForceFullRefresh,
+  getLastFullRefreshTime,
+  setLastFullRefreshTime
 } from './offlineDb.js'
 import { processOptimisticMutation } from './offlineOptimistic.js'
 
@@ -165,17 +173,61 @@ export function installOfflineInterceptors (axiosInstance) {
       // Online + GET: stale-while-revalidate — serve cache immediately, revalidate in background
       if (isOnline() && isGetRequest(config)) {
         const cached = await getCachedResponse(cacheKey, { ignoreExpiry: true })
-        if (cached) {
-          // Fire background revalidation
+        // Don't serve an empty array as stale data when online — it may be a corrupted entry.
+        // Fall through to a full network request so the cache can self-heal.
+        const cachedIsEmptyList = Array.isArray(cached?.data) && cached.data.length === 0
+        if (cached && !cachedIsEmptyList) {
+          // Check if this endpoint supports delta sync
+          const deltaConfig = getDeltaSyncConfig(fullUrl)
+          // Strip _offlineMeta: the response interceptor uses it to write to cache, but
+          // for background requests the .then() handler owns cache writes — if we left
+          // it in, a delta response of [] would overwrite the full cache before merge.
           const bgConfig = { ...config, _bypassOffline: true }
+          delete bgConfig._offlineMeta
+
+          if (deltaConfig) {
+            // Delta-eligible endpoint: decide delta vs full refresh
+            const lastSync = await getLastSyncTime(cacheKey)
+            const lastFullRefresh = await getLastFullRefreshTime(cacheKey)
+            const doFullRefresh = !lastSync || (isConnectionFast() && shouldForceFullRefresh(lastFullRefresh))
+
+            if (!doFullRefresh && lastSync) {
+              // Delta fetch: add modified_after param
+              bgConfig.params = { ...(bgConfig.params || {}), modified_after: lastSync }
+              bgConfig._deltaSync = deltaConfig
+            }
+          }
+
+          // Fire background revalidation (delta or full)
           axiosInstance(bgConfig)
-            .then((freshResponse) => {
+            .then(async (freshResponse) => {
               if (freshResponse.status >= 200 && freshResponse.status < 300) {
-                setCachedResponse(cacheKey, fullUrl, freshResponse.data, freshResponse.status)
-                  .then(() => {
-                    window.dispatchEvent(new CustomEvent('cache-updated', { detail: { url: fullUrl, data: freshResponse.data } }))
-                  })
-                  .catch(() => {})
+                // Extract server date for clock-aligned sync timestamps
+                const serverDate = freshResponse.headers?.date
+                  ? new Date(freshResponse.headers.date).toISOString()
+                  : new Date().toISOString()
+
+                if (bgConfig._deltaSync) {
+                  // Delta response: merge into existing cache
+                  const { idField, dataPath } = bgConfig._deltaSync
+                  const deltaItems = dataPath ? (freshResponse.data?.[dataPath] || []) : freshResponse.data
+                  const mergedData = await mergeDeltaIntoCache(cacheKey, Array.isArray(deltaItems) ? deltaItems : [], idField, dataPath)
+                  if (mergedData !== null) {
+                    window.dispatchEvent(new CustomEvent('cache-updated', { detail: { url: fullUrl, data: mergedData } }))
+                  }
+                } else {
+                  // Full fetch: replace cache entirely
+                  await setCachedResponse(cacheKey, fullUrl, freshResponse.data, freshResponse.status)
+                  if (deltaConfig) {
+                    await setLastFullRefreshTime(cacheKey)
+                  }
+                  window.dispatchEvent(new CustomEvent('cache-updated', { detail: { url: fullUrl, data: freshResponse.data } }))
+                }
+
+                // Update sync time for delta-eligible endpoints
+                if (deltaConfig) {
+                  await setLastSyncTime(cacheKey, serverDate)
+                }
               }
             })
             .catch(() => {}) // Silently ignore background fetch failures
@@ -202,6 +254,15 @@ export function installOfflineInterceptors (axiosInstance) {
       if (meta && isGetRequest(response.config) && response.status >= 200 && response.status < 300) {
         setCachedResponse(meta.cacheKey, meta.fullUrl, response.data, response.status)
           .catch(() => {})
+        // Seed sync timestamp for delta-eligible endpoints on foreground GETs
+        const deltaConfig = getDeltaSyncConfig(meta.fullUrl)
+        if (deltaConfig) {
+          const serverDate = response.headers?.date
+            ? new Date(response.headers.date).toISOString()
+            : new Date().toISOString()
+          setLastSyncTime(meta.cacheKey, serverDate).catch(() => {})
+          setLastFullRefreshTime(meta.cacheKey).catch(() => {})
+        }
       }
       return response
     },

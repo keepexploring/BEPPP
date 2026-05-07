@@ -232,7 +232,11 @@ export const analyticsAPI = {
   deviceUtilization: (hubId, params) =>
     api.get(`/analytics/device-utilization/${hubId}`, { params }),
   exportData: (hubId, params) =>
-    api.get(`/analytics/export/${hubId}`, { params })
+    api.get(`/analytics/export/${hubId}`, { params }),
+  powerByPUEType: (data) =>
+    api.post('/analytics/power-by-pue-type', data),
+  userReport: (data) =>
+    api.post('/analytics/user-report', data),
 }
 
 // Admin

@@ -221,6 +221,7 @@
 
 <script setup>
 import { ref, inject, computed, onMounted, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { adminAPI, batteriesAPI } from 'src/services/api'
 import { useQuasar } from 'quasar'
 import { useHubSettingsStore } from 'stores/hubSettings'
@@ -228,6 +229,7 @@ import { formatDateWithTimezone } from 'src/utils/dateFormat'
 
 const $q = useQuasar()
 const hubSettingsStore = useHubSettingsStore()
+const route = useRoute()
 const networkState = inject('networkState', { online: ref(true) })
 const isOffline = computed(() => !networkState.online.value)
 
@@ -255,7 +257,7 @@ const filters = ref({
   event_type: null,
   battery_id: null,
   search: '',
-  limit: 100
+  limit: 1000
 })
 
 // Event type filter options
@@ -444,6 +446,9 @@ const stopAutoRefresh = () => {
 
 onMounted(() => {
   loadBatteries()
+  if (route.query.battery_id) {
+    filters.value.battery_id = route.query.battery_id
+  }
   loadLogs()
 })
 

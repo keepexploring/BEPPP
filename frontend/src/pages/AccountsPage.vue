@@ -680,6 +680,7 @@ const onCacheUpdated = (event) => {
   if (url.includes('/accounts') && url.includes('/summary') && typeof data === 'object') {
     summary.value = data
   } else if (url.includes('/accounts') && url.includes('/debt') && Array.isArray(data)) {
+    if (data.length === 0 && usersInDebt.value.length > 0) return
     usersInDebt.value = data
   }
 }

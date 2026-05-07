@@ -63,7 +63,7 @@ Collected ideas for improving app performance on weak/intermittent networks (2G,
 - Service worker can use these for smarter caching decisions
 - Helps browser and proxy caches along the way
 
-### 8. Delta/Incremental Sync
+###. 8. Delta/Incremental Sync
 - **Impact**: Very High - dramatically reduces data transfer
 - **Effort**: High
 - Instead of fetching full lists, fetch only changes since last sync

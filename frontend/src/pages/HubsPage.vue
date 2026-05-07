@@ -300,6 +300,7 @@ const onCacheUpdated = (event) => {
   if (!url || !data) return
 
   if (url.includes('/hubs') && Array.isArray(data)) {
+    if (data.length === 0 && hubs.value.length > 0) return
     hubs.value = data
   }
 }

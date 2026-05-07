@@ -116,11 +116,34 @@
           </div>
         </div>
 
-        <q-checkbox
-          v-model="paymentConfirmed"
-          label="Confirm payment taken"
-          class="q-mt-sm"
-        />
+        <div class="row items-center q-gutter-sm q-mt-sm">
+          <q-checkbox
+            v-model="paymentConfirmed"
+            label="Confirm payment taken"
+            :disable="paymentSkipped"
+          />
+          <q-btn
+            v-if="!paymentConfirmed && !paymentSkipped"
+            label="Skip (record as debt)"
+            color="orange"
+            outline
+            icon="skip_next"
+            size="sm"
+            @click="paymentSkipped = true"
+          />
+          <q-btn
+            v-if="paymentSkipped"
+            label="Undo skip"
+            flat
+            color="grey"
+            size="sm"
+            @click="paymentSkipped = false"
+          />
+        </div>
+        <div v-if="paymentSkipped" class="bg-orange text-white q-pa-sm rounded-borders q-mt-sm">
+          <q-icon name="warning" size="sm" class="q-mr-xs" />
+          Payment skipped — {{ currencySymbol }}{{ rechargeFee.toFixed(2) }} will be recorded as outstanding on the user's account.
+        </div>
       </q-card-section>
 
       <!-- Actions -->
@@ -141,7 +164,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useQuasar } from 'quasar'
-import { batteryRentalsAPI, batteriesAPI } from 'src/services/api'
+import api, { batteryRentalsAPI, batteriesAPI } from 'src/services/api.js'
 import { useHubSettingsStore } from 'stores/hubSettings'
 
 const $q = useQuasar()
@@ -174,6 +197,7 @@ const saving = ref(false)
 const paymentType = ref('cash')
 const paymentAmount = ref(0)
 const paymentConfirmed = ref(false)
+const paymentSkipped = ref(false)
 
 const paymentTypeOptions = [
   { label: 'Cash', value: 'cash' },
@@ -221,7 +245,7 @@ const filteredBatteries = computed(() => {
 const canComplete = computed(() => {
   if (!selectedBatteryId.value) return false
   if (swapLimitReached.value) return false
-  if (rechargeFee.value > 0 && !paymentConfirmed.value) return false
+  if (rechargeFee.value > 0 && !paymentConfirmed.value && !paymentSkipped.value) return false
   return true
 })
 
@@ -229,9 +253,9 @@ const loadAvailableBatteries = async () => {
   if (!props.rental) return
   loadingBatteries.value = true
   try {
-    const response = await batteriesAPI.list({
-      hub_id: props.rental.hub_id,
-      status: 'available'
+    const response = await api.get('/batteries/', {
+      params: { hub_id: props.rental.hub_id, status: 'available' },
+      _bypassOffline: true
     })
     availableBatteries.value = Array.isArray(response.data) ? response.data : (response.data.batteries || [])
   } catch (error) {
@@ -247,9 +271,10 @@ const completeSwap = async () => {
   try {
     const payload = {
       new_battery_id: selectedBatteryId.value,
-      payment_type: paymentType.value
+      payment_type: paymentType.value,
+      payment_skipped: paymentSkipped.value
     }
-    if (rechargeFee.value > 0) {
+    if (rechargeFee.value > 0 && !paymentSkipped.value) {
       payload.payment_amount = paymentAmount.value || 0
     }
     await batteryRentalsAPI.swapBattery(props.rental.rental_id, payload)
@@ -269,6 +294,7 @@ const onHide = () => {
   batterySearch.value = ''
   paymentAmount.value = 0
   paymentConfirmed.value = false
+  paymentSkipped.value = false
 }
 
 watch(() => props.modelValue, (val) => {

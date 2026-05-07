@@ -15,6 +15,11 @@ const routes = [
         component: () => import('pages/AnalyticsPage.vue')
       },
       {
+        path: 'data',
+        name: 'data',
+        component: () => import('pages/DataPage.vue')
+      },
+      {
         path: 'hubs',
         name: 'hubs',
         component: () => import('pages/HubsPage.vue')

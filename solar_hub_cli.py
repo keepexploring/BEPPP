@@ -78,7 +78,7 @@ def user():
 @click.option('--password', prompt=True, hide_input=True, confirmation_prompt=True, help='Password for the superadmin user')
 @click.option('--name', prompt=True, default='Super Admin User', help='Full name')
 @click.option('--hub-id', type=int, help='Hub ID (creates default hub if not specified)')
-def create_superadmin(username, password, name, hub_id):
+def (create_superadminusername, password, name, hub_id):
     """Create a superadmin user with full system access"""
     db = SessionLocal()
     

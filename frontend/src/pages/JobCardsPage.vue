@@ -239,6 +239,7 @@ const onCacheUpdated = (event) => {
   if (!url || !data) return
 
   if (url.includes('/job-cards') && Array.isArray(data)) {
+    if (data.length === 0 && cards.value.length > 0) return
     cards.value = data
   }
 }

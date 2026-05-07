@@ -742,8 +742,8 @@ const onCacheUpdated = (event) => {
   if (!url || !data) return
 
   if (url.includes('/batteries') && Array.isArray(data)) {
+    if (data.length === 0 && batteryList.value.length > 0) return
     batteryList.value = data
-    // Recalculate stats
     stats.value.total = data.length
     stats.value.available = data.filter(b => b.status === 'available').length
     stats.value.rented = data.filter(b => b.status === 'rented').length

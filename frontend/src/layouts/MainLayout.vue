@@ -159,6 +159,19 @@
           </q-item-section>
         </q-item>
 
+        <q-item
+          clickable
+          :to="{ name: 'data' }"
+          v-ripple
+        >
+          <q-item-section avatar>
+            <q-icon name="bar_chart" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Data</q-item-label>
+          </q-item-section>
+        </q-item>
+
         <q-separator />
 
         <q-item-label header>Management</q-item-label>

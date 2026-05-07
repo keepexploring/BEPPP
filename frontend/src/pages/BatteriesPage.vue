@@ -22,6 +22,34 @@
           size="sm"
           class="col-12 col-sm-auto"
         />
+        <q-space />
+        <q-toggle
+          v-model="autoRefresh"
+          label="Auto-refresh"
+          color="primary"
+          @update:model-value="toggleAutoRefresh"
+          dense
+        />
+        <q-select
+          v-if="autoRefresh"
+          v-model="refreshInterval"
+          :options="refreshIntervalOptions"
+          label="Interval"
+          outlined
+          dense
+          emit-value
+          map-options
+          style="min-width: 110px"
+        />
+        <q-chip
+          v-if="autoRefresh && timeUntilRefresh > 0"
+          color="primary"
+          text-color="white"
+          icon="schedule"
+          size="sm"
+        >
+          {{ timeUntilRefresh }}s
+        </q-chip>
       </div>
     </div>
 
@@ -66,6 +94,18 @@
                   }}
                 </q-tooltip>
               </q-icon>
+            </q-td>
+          </template>
+
+          <template v-slot:body-cell-last_data_received="props">
+            <q-td :props="props">
+              <span v-if="props.row.last_data_received">
+                {{ formatRelativeTime(props.row.last_data_received) }}
+                <q-tooltip>
+                  {{ new Date(props.row.last_data_received).toLocaleString() }} {{ currentTimezone }}
+                </q-tooltip>
+              </span>
+              <span v-else class="text-grey">Never</span>
             </q-td>
           </template>
 
@@ -185,7 +225,7 @@
 </template>
 
 <script setup>
-import { ref, inject, onMounted, onUnmounted, computed } from 'vue'
+import { ref, inject, onMounted, onUnmounted, computed, watch } from 'vue'
 import { batteriesAPI, hubsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
@@ -226,6 +266,75 @@ const formData = ref({
 
 const statusOptions = ['available', 'rented', 'maintenance', 'retired']
 
+// Auto-refresh state
+const autoRefresh = ref(false)
+const refreshInterval = ref(30)
+const refreshIntervalOptions = [
+  { label: '10 seconds', value: 10 },
+  { label: '30 seconds', value: 30 },
+  { label: '60 seconds', value: 60 },
+  { label: '5 minutes', value: 300 }
+]
+const timeUntilRefresh = ref(0)
+let refreshTimer = null
+let countdownTimer = null
+
+const toggleAutoRefresh = (enabled) => {
+  if (enabled) {
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+const startAutoRefresh = () => {
+  stopAutoRefresh()
+  const intervalValue = typeof refreshInterval.value === 'object' && refreshInterval.value
+    ? refreshInterval.value.value
+    : refreshInterval.value || 30
+  const intervalMs = intervalValue * 1000
+  timeUntilRefresh.value = intervalValue
+
+  countdownTimer = setInterval(() => {
+    timeUntilRefresh.value -= 1
+    if (timeUntilRefresh.value <= 0) {
+      timeUntilRefresh.value = intervalValue
+    }
+  }, 1000)
+
+  refreshTimer = setInterval(() => {
+    loadBatteries()
+  }, intervalMs)
+}
+
+const stopAutoRefresh = () => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+  timeUntilRefresh.value = 0
+}
+
+const formatRelativeTime = (dateStr) => {
+  if (!dateStr) return 'Never'
+  const now = new Date()
+  const date = new Date(dateStr)
+  const diffMs = now - date
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+
+  if (diffMins < 1) return 'Just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  if (diffHours < 24) return `${diffHours}h ago`
+  if (diffDays < 7) return `${diffDays}d ago`
+  return date.toLocaleDateString()
+}
+
 const columns = computed(() => {
   const cols = [
     {
@@ -260,6 +369,14 @@ const columns = computed(() => {
 
   cols.push(
     { name: 'data_status', label: 'Data', field: 'last_data_received', align: 'center', sortable: true },
+    {
+      name: 'last_data_received',
+      label: 'Last Data Sent',
+      field: 'last_data_received',
+      align: 'left',
+      sortable: true,
+      format: val => val ? formatRelativeTime(val) : 'Never'
+    },
     { name: 'battery_capacity_wh', label: 'Capacity (Wh)', field: 'battery_capacity_wh', align: 'left', sortable: true },
     { name: 'status', label: 'Status', field: 'status', align: 'center', sortable: true },
     { name: 'actions', label: 'Actions', align: 'center' }
@@ -433,19 +550,14 @@ const onCacheUpdated = (event) => {
   const { url, data } = event.detail || {}
   if (!url || !data) return
 
-  // Check if this is a batteries endpoint update
   if (url.includes('/batteries') && Array.isArray(data)) {
-    // If a specific hub is selected, only use data matching that hub
+    if (data.length === 0 && batteries.value.length > 0) return
     if (selectedHub.value) {
       const hubBatteries = data.filter(b => b.hub_id === selectedHub.value)
-      if (hubBatteries.length > 0) {
-        batteries.value = hubBatteries
-      }
+      if (hubBatteries.length > 0) batteries.value = hubBatteries
     } else {
-      // Merge fresh data by battery_id
       const freshMap = new Map(data.map(b => [b.battery_id, b]))
       batteries.value = batteries.value.map(b => freshMap.get(b.battery_id) || b)
-      // Add any new batteries not in current list
       for (const b of data) {
         if (!batteries.value.find(existing => existing.battery_id === b.battery_id)) {
           batteries.value.push(b)
@@ -461,7 +573,15 @@ onMounted(async () => {
   window.addEventListener('cache-updated', onCacheUpdated)
 })
 
+// Restart auto-refresh when interval changes
+watch(refreshInterval, () => {
+  if (autoRefresh.value) {
+    startAutoRefresh()
+  }
+})
+
 onUnmounted(() => {
+  stopAutoRefresh()
   window.removeEventListener('cache-updated', onCacheUpdated)
 })
 </script>

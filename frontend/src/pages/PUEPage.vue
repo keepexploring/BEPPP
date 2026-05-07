@@ -1190,11 +1190,8 @@ const onCacheUpdated = (event) => {
   if (!url || !data) return
 
   if (url.includes('/pue') && !url.includes('/pue-rentals') && !url.includes('/pue-types') && Array.isArray(data)) {
-    if (selectedHub.value) {
-      pueItems.value = data.filter(p => p.hub_id === selectedHub.value)
-    } else {
-      pueItems.value = data
-    }
+    if (data.length === 0 && pueItems.value.length > 0) return
+    pueItems.value = selectedHub.value ? data.filter(p => p.hub_id === selectedHub.value) : data
   }
 }
 

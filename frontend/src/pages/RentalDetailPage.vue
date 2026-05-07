@@ -5,14 +5,21 @@
         <q-btn flat round dense icon="arrow_back" @click="$router.back()" />
         <span class="text-h4 q-ml-md">Rental #{{ $route.params.id }}</span>
       </div>
-      <div class="col-auto">
+      <div class="col-auto q-gutter-sm">
+        <q-btn
+          v-if="canSwap"
+          label="Swap Battery"
+          icon="swap_horiz"
+          color="secondary"
+          outline
+          @click="showSwapDialog = true"
+        />
         <q-btn
           v-if="canReturn"
           label="Return Rental"
           icon="assignment_return"
           color="positive"
           @click="showReturnDialog = true"
-          class="q-mr-sm"
         />
         <q-btn
           v-if="canCollectPayment"
@@ -522,6 +529,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api, { rentalsAPI, batteryRentalsAPI, pueRentalsAPI } from 'src/services/api'
+import { invalidateCacheByPrefix } from 'src/services/offlineDb.js'
 import { useQuasar, date } from 'quasar'
 import RentalReturnDialog from 'components/RentalReturnDialog.vue'
 import SwapBatteryDialog from 'components/SwapBatteryDialog.vue'
@@ -546,14 +554,22 @@ const rentalData = computed(() => {
   if (route.name === 'battery-rental-detail') {
     return {
       id: rental.value.rental_id || rental.value.rentral_id,
+      rental_id: rental.value.rental_id,
+      rentral_id: rental.value.rental_id,
       user_id: rental.value.user_id,
+      hub_id: rental.value.hub_id,
       battery_id: rental.value.batteries?.[0]?.battery_id,
+      batteries: rental.value.batteries,
+      rental_type: 'battery',
       status: rental.value.rental_status || rental.value.status,
       rental_date: rental.value.rental_start_date,
+      rental_end_date: rental.value.rental_end_date,
       expected_return_date: rental.value.rental_end_date,
       actual_return_date: rental.value.actual_return_date,
       deposit_amount: rental.value.deposit_amount || rental.value.deposit_paid,
-      total_cost: rental.value.total_cost_calculated || rental.value.final_cost_total || rental.value.estimated_cost_total
+      total_cost: rental.value.total_cost_calculated || rental.value.final_cost_total || rental.value.estimated_cost_total,
+      max_recharges: rental.value.max_recharges,
+      recharges_used: rental.value.recharges_used || 0
     }
   }
 
@@ -579,8 +595,7 @@ const rentalData = computed(() => {
 const userData = computed(() => {
   if (!rental.value) return null
   if (route.name === 'battery-rental-detail' || route.name === 'pue-rental-detail') {
-    // New system - user data is at root level or needs to be fetched
-    return { user_id: rental.value.user_id }
+    return rental.value.user || { user_id: rental.value.user_id }
   }
   return rental.value.user
 })
@@ -660,6 +675,17 @@ const canCollectPayment = computed(() => {
   const hasCost = totalCost.value > 0
 
   return isReturned && hasBalance && hasCost
+})
+
+const canSwap = computed(() => {
+  if (!rental.value || route.name !== 'battery-rental-detail') return false
+  const status = rental.value.rental_status || rental.value.status
+  if (status !== 'active') return false
+  const endDate = rental.value.rental_end_date
+  if (!endDate || new Date(endDate) <= new Date()) return false
+  const max = rental.value.max_recharges
+  if (max != null && (rental.value.recharges_used || 0) >= max) return false
+  return true
 })
 
 const showReturnDialog = ref(false)
@@ -928,7 +954,11 @@ const confirmFullReturn = async () => {
 }
 
 const onRentalReturned = async () => {
-  // Reload rental details after successful return
+  // Invalidate list caches so navigating back to the rentals page shows fresh data
+  await Promise.all([
+    invalidateCacheByPrefix('GET:/battery-rentals').catch(() => {}),
+    invalidateCacheByPrefix('GET:/pue-rentals').catch(() => {})
+  ])
   await loadRentalDetails()
 }
 

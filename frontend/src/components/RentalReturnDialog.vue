@@ -1,6 +1,6 @@
 <template>
-  <q-dialog v-model="showDialog" @hide="onHide">
-    <q-card style="min-width: 700px; max-width: 900px">
+  <q-dialog v-model="showDialog" @hide="onHide" scrollable>
+    <q-card style="width: 750px; max-width: 95vw">
       <q-card-section>
         <div class="text-h6">Return Rental</div>
         <div class="text-caption" v-if="rental">
@@ -23,6 +23,7 @@
           </template>
         </q-banner>
       </q-card-section>
+
 
       <!-- Loading State -->
       <q-card-section v-if="loadingCost && !costCalculation && !costUnavailable" class="q-pt-none">
@@ -272,11 +273,26 @@
               </q-card-section>
             </q-card>
 
-            <q-checkbox
-              v-model="formData.collectPayment"
-              label="Collect payment now"
-              class="q-mb-md"
-            />
+            <div class="row items-center q-gutter-sm q-mb-md">
+              <q-checkbox
+                v-model="formData.collectPayment"
+                label="Collect payment now"
+                @update:model-value="onCollectPaymentToggle"
+              />
+              <q-btn
+                v-if="formData.collectPayment && !paymentReceived"
+                label="Skip (record as debt)"
+                color="orange"
+                outline
+                icon="skip_next"
+                size="sm"
+                @click="skipReturnPayment"
+              />
+            </div>
+            <div v-if="paymentSkipped" class="bg-orange text-white q-pa-sm rounded-borders q-mb-md">
+              <q-icon name="warning" size="sm" class="q-mr-sm" />
+              Payment skipped — outstanding amount will be recorded on the user's account.
+            </div>
 
             <div v-if="formData.collectPayment" class="q-gutter-md">
               <!-- Apply Credit Amount (always show, disabled if no credit) -->
@@ -496,6 +512,17 @@
           <div class="row justify-end q-gutter-sm q-mt-md">
             <q-btn label="Cancel" flat @click="onCancel" />
             <q-btn
+              v-if="showRechargeButton"
+              icon="swap_horiz"
+              label="Swap Battery"
+              color="green-7"
+              outline
+              :disable="!canRecharge"
+              @click="onSwapInstead"
+            >
+              <q-tooltip v-if="!canRecharge">{{ rechargeDisabledReason }}</q-tooltip>
+            </q-btn>
+            <q-btn
               label="Confirm Return"
               color="primary"
               :loading="saving"
@@ -522,7 +549,7 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { useQuasar, date } from 'quasar'
-import { batteryRentalsAPI, pueRentalsAPI, settingsAPI } from 'src/services/api'
+import { batteryRentalsAPI, pueRentalsAPI, settingsAPI } from 'src/services/api.js'
 import { useHubSettingsStore } from 'stores/hubSettings'
 import { useAuthStore } from 'stores/auth'
 import { calculateReturnCostLocally } from 'src/services/offlineCostCalculator'
@@ -559,6 +586,77 @@ const rentalAPI = computed(() => {
   return rentalType.value === 'pue' ? pueRentalsAPI : batteryRentalsAPI
 })
 
+// Recharge option: battery rental with max_recharges set and recharges still available
+const rechargingSaving = ref(false)
+
+// Full rental detail fetched on dialog open — list endpoint may omit max_recharges
+const rentalDetail = ref(null)
+
+const rechargesUsed = computed(() => rentalDetail.value?.recharges_used ?? props.rental?.recharges_used ?? 0)
+
+// Show the recharge button whenever this is a battery rental with a per-recharge cost structure
+const showRechargeButton = computed(() => {
+  if (!props.rental || rentalType.value !== 'battery') return false
+  const max = rentalDetail.value?.max_recharges ?? props.rental.max_recharges
+  return max != null && max > 0
+})
+
+const canRecharge = computed(() => {
+  if (!showRechargeButton.value) return false
+  const status = rentalDetail.value?.rental_status ?? rentalDetail.value?.status ?? props.rental.status
+  if (status !== 'active') return false
+  const max = rentalDetail.value?.max_recharges ?? props.rental.max_recharges
+  if (rechargesUsed.value >= max) return false
+  const endDateStr = rentalDetail.value?.rental_end_date || props.rental.rental_end_date || props.rental.end_date || props.rental.due_back
+  if (!endDateStr) return false
+  return new Date(endDateStr) > new Date()
+})
+
+const rechargeDisabledReason = computed(() => {
+  if (!props.rental) return ''
+  const max = rentalDetail.value?.max_recharges ?? props.rental.max_recharges
+  if (max != null && rechargesUsed.value >= max) return `All ${max} recharges used`
+  const endDateStr = rentalDetail.value?.rental_end_date || props.rental.rental_end_date || props.rental.end_date || props.rental.due_back
+  if (endDateStr && new Date(endDateStr) <= new Date()) return 'Rental period has expired'
+  return ''
+})
+
+const onRecharge = async () => {
+  if (!props.rental) return
+  // Support both list-endpoint shape (battery_id) and detail-endpoint shape (batteries[])
+  const detail = rentalDetail.value
+  const batteries = detail?.batteries || props.rental.batteries || []
+  const batteryId = detail?.batteries?.[0]?.battery_id
+    || props.rental.battery_id
+    || (typeof batteries[0] === 'string' ? batteries[0] : batteries[0]?.battery_id)
+  if (!batteryId) {
+    $q.notify({ type: 'negative', message: 'Could not determine battery ID for recharge', position: 'top' })
+    return
+  }
+  rechargingSaving.value = true
+  try {
+    const rentalIdForRecharge = rentalDetail.value?.rental_id || props.rental.rental_id || props.rental.rentral_id
+    const maxRecharges = rentalDetail.value?.max_recharges ?? props.rental.max_recharges
+    await batteryRentalsAPI.recordRecharge(rentalIdForRecharge, { battery_id: batteryId })
+    $q.notify({
+      type: 'positive',
+      message: `Recharge ${rechargesUsed.value + 1} of ${maxRecharges} recorded. Rental remains active.`,
+      position: 'top',
+      timeout: 4000
+    })
+    showDialog.value = false
+    emit('returned', { recharge: true, rental: props.rental })
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err.response?.data?.detail || 'Failed to record recharge',
+      position: 'top'
+    })
+  } finally {
+    rechargingSaving.value = false
+  }
+}
+
 // Swap early: check if this is a battery rental with remaining rental period
 const canSwapEarly = computed(() => {
   if (!props.rental || rentalType.value !== 'battery') return false
@@ -592,6 +690,7 @@ const costUnavailable = ref(false)
 const loadingCost = ref(false)
 const saving = ref(false)
 const paymentReceived = ref(false)
+const paymentSkipped = ref(false)
 const confirmPaymentReceived = ref(false)
 
 // Survey dialog state
@@ -611,29 +710,41 @@ const formData = ref({
   useAccountCredit: false
 })
 
-// Watch for dialog opening
-watch(() => props.rental, async (newRental) => {
-  console.log('Rental prop changed:', newRental)
-  if (newRental) {
-    // Reset form
-    formData.value = {
-      kwhEndReading: newRental.kwh_usage_end || null,
-      actual_return_date: date.formatDate(new Date(), 'YYYY-MM-DDTHH:mm'),
-      return_notes: '',
-      collectPayment: false,
-      payment_type: 'cash',
-      payment_amount: 0,
-      credit_applied: 0,
-      payment_notes: '',
-      useAccountCredit: false
-    }
-    paymentReceived.value = false
-    confirmPaymentReceived.value = false
-
-    console.log('Fetching cost calculation for rental...')
-    // Fetch cost calculation
-    await fetchCostCalculation()
+// Watch for dialog opening — triggers when BOTH modelValue (visible) AND rental are set.
+// Using modelValue as the primary trigger ensures we (re)fetch every time the dialog opens,
+// even if the rental prop didn't change (e.g. user closes and reopens the same rental).
+watch([() => props.modelValue, () => props.rental], async ([isOpen, newRental]) => {
+  if (!isOpen || !newRental) return
+  rentalDetail.value = null
+  // Reset form
+  formData.value = {
+    kwhEndReading: newRental.kwh_usage_end || null,
+    actual_return_date: date.formatDate(new Date(), 'YYYY-MM-DDTHH:mm'),
+    return_notes: '',
+    collectPayment: false,
+    payment_type: 'cash',
+    payment_amount: 0,
+    credit_applied: 0,
+    payment_notes: '',
+    useAccountCredit: false
   }
+  paymentReceived.value = false
+  confirmPaymentReceived.value = false
+  paymentSkipped.value = false
+
+  // Fetch full rental detail so we get max_recharges/recharges_used even when
+  // the list endpoint's cached data is missing those fields.
+  if (rentalType.value === 'battery') {
+    const rentalId = newRental.rental_id || newRental.rentral_id || newRental.id
+    if (rentalId && rentalId > 0) {
+      batteryRentalsAPI.get(rentalId).then(r => {
+        rentalDetail.value = r.data
+      }).catch(() => {})
+    }
+  }
+
+  // Fetch cost calculation
+  await fetchCostCalculation()
 }, { immediate: true })
 
 // Watch collectPayment checkbox - reset payment received when unchecked
@@ -859,6 +970,15 @@ const onConfirm = async () => {
   }
 }
 
+const skipReturnPayment = () => {
+  formData.value.collectPayment = false
+  paymentSkipped.value = true
+}
+
+const onCollectPaymentToggle = (val) => {
+  if (val) paymentSkipped.value = false
+}
+
 const onCancel = () => {
   showDialog.value = false
 }
@@ -866,6 +986,8 @@ const onCancel = () => {
 const onHide = () => {
   costCalculation.value = null
   costUnavailable.value = false
+  rentalDetail.value = null
+  paymentSkipped.value = false
 }
 
 const onSurveySubmitted = () => {

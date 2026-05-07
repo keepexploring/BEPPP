@@ -584,18 +584,33 @@
               </q-checkbox>
             </div>
 
-            <q-btn
-              :label="upfrontPaymentConfirmed ? 'Payment Recorded' : 'Confirm Payment Taken'"
-              :color="upfrontPaymentConfirmed ? 'grey' : 'positive'"
-              :icon="upfrontPaymentConfirmed ? 'check' : 'payment'"
-              :disable="upfrontPaymentConfirmed || !confirmUpfrontPayment"
-              @click="recordUpfrontPayment"
-              class="full-width"
-            />
+            <div class="row q-gutter-sm">
+              <q-btn
+                :label="upfrontPaymentConfirmed ? 'Payment Recorded' : 'Confirm Payment Taken'"
+                :color="upfrontPaymentConfirmed ? 'grey' : 'positive'"
+                :icon="upfrontPaymentConfirmed ? 'check' : 'payment'"
+                :disable="upfrontPaymentConfirmed || paymentSkipped || !confirmUpfrontPayment"
+                @click="recordUpfrontPayment"
+                class="col"
+              />
+              <q-btn
+                v-if="!upfrontPaymentConfirmed && !paymentSkipped"
+                label="Skip (record as debt)"
+                color="orange"
+                outline
+                icon="skip_next"
+                @click="skipPayment"
+                class="col"
+              />
+            </div>
 
             <div v-if="upfrontPaymentConfirmed" class="q-mt-sm bg-positive text-white q-pa-md rounded-borders">
               <q-icon name="check_circle" size="sm" class="q-mr-sm" />
               Payment recorded successfully! You can now create the rental.
+            </div>
+            <div v-if="paymentSkipped" class="q-mt-sm bg-orange text-white q-pa-md rounded-borders">
+              <q-icon name="warning" size="sm" class="q-mr-sm" />
+              Payment skipped — {{ currencySymbol }}{{ formData.paymentAmount.toFixed(2) }} will be recorded as outstanding on the user's account.
             </div>
           </div>
         </template>
@@ -630,7 +645,7 @@
         icon="add"
         @click="handleSubmit"
         :loading="submitting"
-        :disable="!isFormValid || (upfrontAmountDue > 0 && !isPayToOwn && !upfrontPaymentConfirmed)"
+        :disable="!isFormValid || (upfrontAmountDue > 0 && !isPayToOwn && !upfrontPaymentConfirmed && !paymentSkipped)"
       />
     </q-card-actions>
   </q-card>
@@ -639,7 +654,7 @@
 <script setup>
 import { ref, computed, inject, onMounted, watch } from 'vue'
 import { useQuasar, date } from 'quasar'
-import { hubsAPI, pueAPI, settingsAPI, pueRentalsAPI, accountsAPI } from 'src/services/api'
+import api, { hubsAPI, pueAPI, settingsAPI, pueRentalsAPI, accountsAPI } from 'src/services/api.js'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
 
@@ -705,6 +720,7 @@ const upfrontAmountDue = computed(() => {
 // Upfront payment confirmation state
 const upfrontPaymentConfirmed = ref(false)
 const confirmUpfrontPayment = ref(false)
+const paymentSkipped = ref(false)
 const paymentTypeOptions = ref([])
 
 const loadPaymentTypes = async () => {
@@ -736,6 +752,10 @@ const recordUpfrontPayment = () => {
     message: `Payment of ${currencySymbol.value}${formData.value.paymentAmount.toFixed(2)} confirmed`,
     position: 'top'
   })
+}
+
+const skipPayment = () => {
+  paymentSkipped.value = true
 }
 
 // Loading States
@@ -815,7 +835,7 @@ const loadUsers = async () => {
 
   usersLoading.value = true
   try {
-    const response = await hubsAPI.getUsers(formData.value.hub_id)
+    const response = await api.get(`/hubs/${formData.value.hub_id}/users`, { _bypassOffline: true })
     allUsers.value = response.data || []
     userOptions.value = allUsers.value
   } catch (error) {
@@ -1267,6 +1287,7 @@ watch(upfrontAmountDue, (newVal) => {
   }
   upfrontPaymentConfirmed.value = false
   confirmUpfrontPayment.value = false
+  paymentSkipped.value = false
 })
 
 // Watch for user selection to load credit summary
@@ -1316,7 +1337,7 @@ const handleSubmit = async () => {
       initial_payment: isPayToOwn.value && formData.value.initialPayment > 0 ? formData.value.initialPayment : undefined,
       has_recurring_payment: isPayToOwn.value || formData.value.enableRecurring,
       notes: formData.value.notes ? [formData.value.notes] : undefined,
-      upfront_payment: formData.value.paymentAmount > 0 ? {
+      upfront_payment: formData.value.paymentAmount > 0 && !paymentSkipped.value ? {
         amount: formData.value.paymentAmount,
         payment_method: formData.value.paymentMethod
       } : undefined

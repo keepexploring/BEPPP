@@ -880,7 +880,7 @@
 <script setup>
 import { ref, inject, onMounted, onUnmounted, computed } from 'vue'
 import api, { rentalsAPI, batteryRentalsAPI, pueRentalsAPI, hubsAPI, usersAPI, batteriesAPI, pueAPI, settingsAPI, accountsAPI, subscriptionsAPI } from 'src/services/api'
-import { updateItemInCache } from 'src/services/offlineDb.js'
+import { updateItemInCache, invalidateCacheByPrefix } from 'src/services/offlineDb.js'
 import { calculateReturnCostLocally } from 'src/services/offlineCostCalculator'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
@@ -919,6 +919,8 @@ const showCreateDialog = ref(false)
 const showPUERentalDialog = ref(false)
 const showReturnDialog = ref(false)
 const showSwapDialog = ref(false)
+// IDs of rentals returned this session — prevents stale background fetches from adding them back
+const recentlyReturnedIds = new Set()
 const swappingRental = ref(null)
 const showQuickReturnsDialog = ref(false)
 const quickReturnsUserSearch = ref('')
@@ -2909,23 +2911,39 @@ const quickReturn = async (rental) => {
   await returnRental(rental)
 }
 
-const onRentalReturned = () => {
-  // Optimistically update the returned rental in the local list
+const onRentalReturned = async () => {
   if (returningRental.value) {
     const rid = returningRental.value.rental_id || returningRental.value.rentral_id
+    const pueId = returningRental.value.pue_rental_id
+    // Track this ID so cache-updated events from in-flight background requests
+    // can't add the returned rental back to the list.
+    if (rid) {
+      recentlyReturnedIds.add(rid)
+      setTimeout(() => recentlyReturnedIds.delete(rid), 15000)
+    }
+    if (pueId) {
+      recentlyReturnedIds.add(`pue_${pueId}`)
+      setTimeout(() => recentlyReturnedIds.delete(`pue_${pueId}`), 15000)
+    }
     const idx = rentals.value.findIndex(r =>
       (r.rental_id || r.rentral_id || r.pue_rental_id) === rid ||
-      (r.pue_rental_id && r.pue_rental_id === returningRental.value.pue_rental_id)
+      (r.pue_rental_id && r.pue_rental_id === pueId)
     )
     if (idx >= 0) {
-      rentals.value[idx] = { ...rentals.value[idx], status: 'returned', rental_status: 'returned', actual_return_date: new Date().toISOString() }
+      rentals.value.splice(idx, 1)
     }
-    // Mark battery as available in cache
     const batteryId = returningRental.value.battery_id
     if (batteryId) {
       updateItemInCache('GET:/batteries', 'battery_id', batteryId, { status: 'available' }).catch(() => {})
     }
+    // Await cache invalidation so loadRentals() sees a cache miss and fetches fresh data
+    await Promise.all([
+      invalidateCacheByPrefix('GET:/battery-rentals').catch(() => {}),
+      invalidateCacheByPrefix('GET:/pue-rentals').catch(() => {}),
+      invalidateCacheByPrefix('GET:/batteries/').catch(() => {})
+    ])
   }
+  loadRentals()
 }
 
 const onSwapInstead = (rental) => {
@@ -2942,18 +2960,12 @@ const openSwapDialog = async (rental) => {
   }
 }
 
-const onBatterySwapped = () => {
-  // Update the swapped rental in the local list
-  if (swappingRental.value) {
-    const rid = swappingRental.value.rental_id || swappingRental.value.rentral_id
-    const idx = rentals.value.findIndex(r => (r.rental_id || r.rentral_id) === rid)
-    if (idx >= 0) {
-      rentals.value[idx] = {
-        ...rentals.value[idx],
-        recharges_used: (rentals.value[idx].recharges_used || 0) + 1
-      }
-    }
-  }
+const onBatterySwapped = async () => {
+  await Promise.all([
+    invalidateCacheByPrefix('GET:/battery-rentals').catch(() => {}),
+    invalidateCacheByPrefix('GET:/batteries/').catch(() => {})
+  ])
+  loadRentals()
 }
 
 const confirmReturn = async () => {
@@ -3030,7 +3042,6 @@ const openPUERentalDialog = () => {
 // Battery Rental Form Component Handlers
 const onBatteryRentalSuccess = (responseData) => {
   showCreateDialog.value = false
-  // Optimistically add the new rental to the local list so it appears immediately
   if (responseData) {
     const newRental = {
       rental_id: responseData.rental_id,
@@ -3050,20 +3061,23 @@ const onBatteryRentalSuccess = (responseData) => {
       status: responseData.status || 'active',
       battery_id: responseData.battery_ids?.[0] || null,
       battery_count: responseData.battery_ids?.length || 1,
-      recharges_used: 0,
-      max_recharges: null,
+      recharges_used: responseData.recharges_used || 0,
+      max_recharges: responseData.max_recharges ?? null,
       rental_type: 'battery'
     }
     rentals.value = [newRental, ...rentals.value]
-    // Mark battery as rented in the SWR cache so next form open is correct
     for (const bid of (responseData.battery_ids || [])) {
       updateItemInCache('GET:/batteries', 'battery_id', bid, { status: 'rented' }).catch(() => {})
     }
   }
-  $q.notify({
-    type: 'positive',
-    message: 'Battery rental created successfully'
-  })
+  $q.notify({ type: 'positive', message: 'Battery rental created successfully' })
+  // Only reload from server when the create actually hit the API (not queued offline)
+  if (!responseData?._offlineQueued) {
+    Promise.all([
+      invalidateCacheByPrefix('GET:/battery-rentals').catch(() => {}),
+      invalidateCacheByPrefix('GET:/batteries/').catch(() => {})
+    ]).then(() => loadRentals())
+  }
 }
 
 const closeBatteryRentalDialog = () => {
@@ -3073,7 +3087,6 @@ const closeBatteryRentalDialog = () => {
 // PUE Rental Form Component Handlers
 const onPUERentalSuccess = (responseData) => {
   showPUERentalDialog.value = false
-  // Optimistically add the new PUE rental to the local list
   if (responseData) {
     const newRental = {
       pue_rental_id: responseData.pue_rental_id || responseData.rental_id,
@@ -3091,10 +3104,10 @@ const onPUERentalSuccess = (responseData) => {
     }
     rentals.value = [newRental, ...rentals.value]
   }
-  $q.notify({
-    type: 'positive',
-    message: 'PUE rental created successfully'
-  })
+  $q.notify({ type: 'positive', message: 'PUE rental created successfully' })
+  if (!responseData?._offlineQueued) {
+    invalidateCacheByPrefix('GET:/pue-rentals').catch(() => {}).then(() => loadRentals())
+  }
 }
 
 const closePUERentalDialog = () => {
@@ -3584,14 +3597,17 @@ const onCacheUpdated = (event) => {
   if (!url || !data) return
 
   if (url.includes('/battery-rentals') && !url.includes('/calculate-return-cost') && !url.includes('/swap') && !url.includes('/recharge')) {
-    // Fresh battery rental list arrived — merge into local state
-    const freshRentals = (Array.isArray(data) ? data : []).map(r => ({ ...r, rental_type: 'battery' }))
-    // Replace only the battery rentals in the local array, keep PUE rentals intact
+    const freshRentals = (Array.isArray(data) ? data : [])
+      .filter(r => !recentlyReturnedIds.has(r.rental_id || r.rentral_id))
+      .map(r => ({ ...r, rental_type: 'battery' }))
+    if (freshRentals.length === 0 && rentals.value.some(r => r.rental_type === 'battery')) return
     const pueRentals = rentals.value.filter(r => r.rental_type === 'pue')
     rentals.value = [...freshRentals, ...pueRentals]
   } else if (url.includes('/pue-rentals') && !url.includes('/return')) {
-    // Fresh PUE rental list arrived
-    const freshRentals = (Array.isArray(data) ? data : []).map(r => ({ ...r, rental_type: 'pue' }))
+    const freshRentals = (Array.isArray(data) ? data : [])
+      .filter(r => !recentlyReturnedIds.has(`pue_${r.pue_rental_id}`))
+      .map(r => ({ ...r, rental_type: 'pue' }))
+    if (freshRentals.length === 0 && rentals.value.some(r => r.rental_type === 'pue')) return
     const batteryRentals = rentals.value.filter(r => r.rental_type === 'battery')
     rentals.value = [...batteryRentals, ...freshRentals]
   }

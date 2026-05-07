@@ -1,5 +1,5 @@
 # Solar Hub API Test Makefile
-.PHONY: help setup test test-quick test-auth test-coverage clean backend-dev frontend-install frontend-dev frontend-build frontend-start frontend-test-offline test-batch-endpoint dev dev-full db-start db-stop db-status docker-up docker-down docker-rebuild jupyter jupyter-stop jupyter-logs panel-restart jupyter-open subscription-billing subscription-billing-dry-run reconstruct-timestamps reconstruct-timestamps-dry-run db-backup db-restore db-backup-test test-all test-user-flows test-cron-jobs
+.PHONY: help setup test test-quick test-auth test-coverage clean backend-dev frontend-install frontend-dev frontend-build frontend-start frontend-test-offline test-batch-endpoint dev dev-full db-start db-stop db-status docker-up docker-down docker-rebuild jupyter jupyter-stop jupyter-logs panel-restart jupyter-open subscription-billing subscription-billing-dry-run reconstruct-timestamps reconstruct-timestamps-dry-run db-backup db-restore db-backup-test test-all test-user-flows test-cron-jobs seed-dev-data
 
 # Default target
 help:
@@ -296,6 +296,12 @@ frontend-test-offline:
 test-batch-endpoint:
 	@echo "🧪 Running batch endpoint tests..."
 	@python scripts/test_batch_endpoint.py
+
+# Seed local dev database with batteries, telemetry, users, PUE types, and rentals
+seed-dev-data:
+	@echo "🌱 Seeding dev database with sample data..."
+	@docker-compose exec -T api python scripts/seed_dev_data.py
+	@echo "✅ Done"
 
 # Test user flows (requires running server)
 test-user-flows:

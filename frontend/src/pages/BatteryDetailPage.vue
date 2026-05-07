@@ -15,6 +15,16 @@
       <div class="col-12 col-sm-auto q-gutter-sm">
         <q-btn
           v-if="authStore.isAdmin && battery"
+          label="Webhook Logs"
+          icon="history"
+          color="info"
+          outline
+          :to="{ name: 'webhook-logs', query: { battery_id: battery.battery_id } }"
+          size="sm"
+          class="col-12 col-sm-auto"
+        />
+        <q-btn
+          v-if="authStore.isAdmin && battery"
           label="Reset Secret"
           icon="vpn_key"
           color="secondary"

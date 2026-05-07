@@ -130,7 +130,17 @@ const {
   clearTempIdMappings,
   mergeItemIntoCache,
   updateItemInCache,
-  removeItemFromCache
+  removeItemFromCache,
+  DELTA_SYNC_ENDPOINTS,
+  getDeltaSyncConfig,
+  mergeDeltaIntoCache,
+  getLastSyncTime,
+  setLastSyncTime,
+  clearLastSyncTime,
+  getLastFullRefreshTime,
+  setLastFullRefreshTime,
+  isConnectionFast,
+  shouldForceFullRefresh
 } = await import('./src/services/offlineDb.js')
 
 try {
@@ -2669,6 +2679,210 @@ try {
   )
   pass('LoginPage has password visibility toggle')
 } catch (e) { fail('LoginPage password toggle', e) }
+
+// ── Delta Sync tests ──────────────────────────────────────────────────
+
+console.log('\n=== Delta Sync tests ===\n')
+
+// getDeltaSyncConfig tests
+try {
+  const cfg1 = getDeltaSyncConfig('/batteries/?hub_id=1')
+  assert.ok(cfg1, 'batteries endpoint is delta-eligible')
+  assert.strictEqual(cfg1.idField, 'battery_id')
+  assert.strictEqual(cfg1.dataPath, null)
+
+  const cfg2 = getDeltaSyncConfig('/battery-rentals?user_id=5')
+  assert.ok(cfg2, 'battery-rentals endpoint is delta-eligible')
+  assert.strictEqual(cfg2.idField, 'rental_id')
+
+  const cfg3 = getDeltaSyncConfig('/pue-rentals?status=active')
+  assert.ok(cfg3, 'pue-rentals endpoint is delta-eligible')
+  assert.strictEqual(cfg3.idField, 'pue_rental_id')
+
+  const cfg4 = getDeltaSyncConfig('/hubs/42/users?modified_after=2025-01-01')
+  assert.ok(cfg4, 'hub users endpoint is delta-eligible')
+  assert.strictEqual(cfg4.idField, 'user_id')
+
+  const cfg5 = getDeltaSyncConfig('/notifications?hub_id=1')
+  assert.ok(cfg5, 'notifications endpoint is delta-eligible')
+  assert.strictEqual(cfg5.idField, 'id')
+  assert.strictEqual(cfg5.dataPath, 'notifications')
+
+  const cfg6 = getDeltaSyncConfig('/job-cards/?hub_id=1')
+  assert.ok(cfg6, 'job-cards endpoint is delta-eligible')
+  assert.strictEqual(cfg6.idField, 'card_id')
+  assert.strictEqual(cfg6.dataPath, 'cards')
+
+  pass('getDeltaSyncConfig matches known endpoints')
+} catch (e) { fail('getDeltaSyncConfig matches known endpoints', e) }
+
+try {
+  const cfg = getDeltaSyncConfig('/auth/token')
+  assert.strictEqual(cfg, null)
+  const cfg2 = getDeltaSyncConfig('/analytics/export/csv')
+  assert.strictEqual(cfg2, null)
+  const cfg3 = getDeltaSyncConfig('/batteries/BAT-001')
+  assert.strictEqual(cfg3, null, 'single battery detail should not match')
+  pass('getDeltaSyncConfig returns null for non-delta endpoints')
+} catch (e) { fail('getDeltaSyncConfig returns null for non-delta endpoints', e) }
+
+try {
+  const cfg = getDeltaSyncConfig('http://localhost:8000/batteries/?hub_id=1')
+  assert.ok(cfg, 'should handle full URLs')
+  assert.strictEqual(cfg.idField, 'battery_id')
+  pass('getDeltaSyncConfig handles full URLs')
+} catch (e) { fail('getDeltaSyncConfig handles full URLs', e) }
+
+// Sync timestamp helpers
+try {
+  const testKey = 'GET:/test-sync-time'
+  await setLastSyncTime(testKey, '2025-06-01T12:00:00.000Z')
+  const result = await getLastSyncTime(testKey)
+  assert.strictEqual(result, '2025-06-01T12:00:00.000Z')
+
+  await clearLastSyncTime(testKey)
+  const cleared = await getLastSyncTime(testKey)
+  assert.strictEqual(cleared, null)
+
+  pass('getLastSyncTime/setLastSyncTime/clearLastSyncTime round-trip')
+} catch (e) { fail('sync time helpers round-trip', e) }
+
+try {
+  const testKey = 'GET:/test-full-refresh'
+  const before = Date.now()
+  await setLastFullRefreshTime(testKey)
+  const result = await getLastFullRefreshTime(testKey)
+  assert.ok(result >= before, 'full refresh time should be recent')
+  assert.ok(result <= Date.now(), 'full refresh time should not be in the future')
+
+  pass('getLastFullRefreshTime/setLastFullRefreshTime round-trip')
+} catch (e) { fail('full refresh time helpers round-trip', e) }
+
+// mergeDeltaIntoCache tests
+try {
+  // Set up a cached response with existing data
+  const cacheKey = 'GET:/delta-test-batteries'
+  await setCachedResponse(cacheKey, '/delta-test-batteries', [
+    { battery_id: 'BAT-001', status: 'available' },
+    { battery_id: 'BAT-002', status: 'rented' },
+    { battery_id: 'BAT-003', status: 'available' }
+  ], 200)
+
+  // Merge: update BAT-002, add BAT-004
+  const delta = [
+    { battery_id: 'BAT-002', status: 'available' },
+    { battery_id: 'BAT-004', status: 'available' }
+  ]
+  const merged = await mergeDeltaIntoCache(cacheKey, delta, 'battery_id', null)
+
+  assert.ok(Array.isArray(merged), 'merged result should be an array')
+  assert.strictEqual(merged.length, 4, 'should have 4 items after merge')
+  assert.strictEqual(merged.find(b => b.battery_id === 'BAT-002').status, 'available', 'BAT-002 should be updated')
+  assert.strictEqual(merged.find(b => b.battery_id === 'BAT-001').status, 'available', 'BAT-001 should be unchanged')
+  assert.ok(merged.find(b => b.battery_id === 'BAT-004'), 'BAT-004 should be appended')
+
+  pass('mergeDeltaIntoCache updates existing and appends new items')
+} catch (e) { fail('mergeDeltaIntoCache updates existing and appends new', e) }
+
+try {
+  // Test with wrapped response (notifications style)
+  const cacheKey = 'GET:/delta-test-notifications'
+  await setCachedResponse(cacheKey, '/delta-test-notifications', {
+    notifications: [
+      { id: 1, title: 'Alert 1', read: false },
+      { id: 2, title: 'Alert 2', read: false }
+    ]
+  }, 200)
+
+  const delta = [
+    { id: 2, title: 'Alert 2', read: true },
+    { id: 3, title: 'Alert 3', read: false }
+  ]
+  const merged = await mergeDeltaIntoCache(cacheKey, delta, 'id', 'notifications')
+
+  assert.ok(merged && merged.notifications, 'merged result should have notifications key')
+  assert.strictEqual(merged.notifications.length, 3, 'should have 3 notifications after merge')
+  assert.strictEqual(merged.notifications.find(n => n.id === 2).read, true, 'notification 2 should be updated')
+  assert.ok(merged.notifications.find(n => n.id === 3), 'notification 3 should be appended')
+
+  pass('mergeDeltaIntoCache handles wrapped responses')
+} catch (e) { fail('mergeDeltaIntoCache handles wrapped responses', e) }
+
+try {
+  // Test cache miss returns null
+  const result = await mergeDeltaIntoCache('GET:/nonexistent', [{ id: 1 }], 'id', null)
+  assert.strictEqual(result, null, 'should return null on cache miss')
+  pass('mergeDeltaIntoCache returns null on cache miss')
+} catch (e) { fail('mergeDeltaIntoCache returns null on cache miss', e) }
+
+try {
+  // Test empty delta is a no-op (just updates cachedAt)
+  const cacheKey = 'GET:/delta-test-empty'
+  await setCachedResponse(cacheKey, '/delta-test-empty', [
+    { battery_id: 'BAT-001', status: 'available' }
+  ], 200)
+  const merged = await mergeDeltaIntoCache(cacheKey, [], 'battery_id', null)
+  assert.ok(Array.isArray(merged), 'result should be an array')
+  assert.strictEqual(merged.length, 1, 'should still have 1 item')
+  assert.strictEqual(merged[0].battery_id, 'BAT-001')
+
+  pass('mergeDeltaIntoCache empty delta is no-op')
+} catch (e) { fail('mergeDeltaIntoCache empty delta is no-op', e) }
+
+// isConnectionFast tests
+try {
+  // Without navigator.connection, should assume fast
+  const origConn = globalThis.navigator?.connection
+  // In Node there's no navigator.connection, so it should return true
+  const result = isConnectionFast()
+  assert.strictEqual(result, true, 'should return true when connection API unavailable')
+  pass('isConnectionFast returns true when API unavailable')
+} catch (e) { fail('isConnectionFast returns true when API unavailable', e) }
+
+try {
+  // Simulate connections using Object.defineProperty since navigator is read-only in Node
+  const origNavigator = globalThis.navigator
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { ...origNavigator, connection: { effectiveType: '4g' } },
+    writable: true,
+    configurable: true
+  })
+  assert.strictEqual(isConnectionFast(), true, '4g should be fast')
+
+  globalThis.navigator = { ...origNavigator, connection: { effectiveType: '3g' } }
+  assert.strictEqual(isConnectionFast(), false, '3g should not be fast')
+
+  globalThis.navigator = { ...origNavigator, connection: { effectiveType: '2g' } }
+  assert.strictEqual(isConnectionFast(), false, '2g should not be fast')
+
+  globalThis.navigator = { ...origNavigator, connection: { effectiveType: 'slow-2g' } }
+  assert.strictEqual(isConnectionFast(), false, 'slow-2g should not be fast')
+
+  // Restore original
+  Object.defineProperty(globalThis, 'navigator', {
+    value: origNavigator,
+    writable: true,
+    configurable: true
+  })
+
+  pass('isConnectionFast correctly classifies connection types')
+} catch (e) { fail('isConnectionFast classifies connection types', e) }
+
+// shouldForceFullRefresh tests
+try {
+  assert.strictEqual(shouldForceFullRefresh(null), true, 'null should force full refresh')
+  assert.strictEqual(shouldForceFullRefresh(undefined), true, 'undefined should force full refresh')
+
+  // Recent full refresh (5 minutes ago) should not force
+  const recent = Date.now() - (5 * 60 * 1000)
+  assert.strictEqual(shouldForceFullRefresh(recent), false, 'recent refresh should not force full')
+
+  // Old full refresh (31 minutes ago) should force
+  const old = Date.now() - (31 * 60 * 1000)
+  assert.strictEqual(shouldForceFullRefresh(old), true, 'old refresh should force full')
+
+  pass('shouldForceFullRefresh handles timing correctly')
+} catch (e) { fail('shouldForceFullRefresh handles timing', e) }
 
 // ── Summary ──────────────────────────────────────────────────────────
 

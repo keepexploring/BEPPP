@@ -25,6 +25,19 @@ const TTL_RULES = [
 
 const DEFAULT_TTL = 5 * 60 * 1000 // 5min default
 
+// ── Delta sync configuration ──
+// Endpoints that support incremental sync via modified_after parameter
+export const DELTA_SYNC_ENDPOINTS = [
+  { pattern: /\/batteries\/(\?|$)/, idField: 'battery_id', dataPath: null },
+  { pattern: /\/battery-rentals(\?|$)/, idField: 'rental_id', dataPath: null },
+  { pattern: /\/pue-rentals(\?|$)/, idField: 'pue_rental_id', dataPath: null },
+  { pattern: /\/hubs\/\d+\/users(\?|$)/, idField: 'user_id', dataPath: null },
+  { pattern: /\/notifications(\?|$)/, idField: 'id', dataPath: 'notifications' },
+  { pattern: /\/job-cards\/(\?|$)/, idField: 'card_id', dataPath: 'cards' },
+]
+
+const FULL_REFRESH_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes
+
 let dbPromise = null
 
 export function openDb () {
@@ -386,4 +399,120 @@ export async function removeItemFromCache (cacheKeyPrefix, idField, idValue) {
     cursor = await cursor.continue()
   }
   await tx.done
+}
+
+// ── Delta sync helpers ──
+
+/**
+ * Check if a URL matches a delta-sync-eligible endpoint.
+ * Returns the config object ({ idField, dataPath }) or null.
+ */
+export function getDeltaSyncConfig (url) {
+  let path = url
+  try {
+    const parsed = new URL(url)
+    path = parsed.pathname + parsed.search
+  } catch {
+    // url is already a relative path
+  }
+  for (const cfg of DELTA_SYNC_ENDPOINTS) {
+    if (cfg.pattern.test(path)) {
+      return cfg
+    }
+  }
+  return null
+}
+
+/**
+ * Merge delta items into an existing cached response.
+ * Updates existing items by ID, appends new ones.
+ * Returns the merged data array, or null if no cache entry found.
+ */
+export async function mergeDeltaIntoCache (cacheKey, deltaItems, idField, dataPath) {
+  const db = await openDb()
+  const entry = await db.get('apiCache', cacheKey)
+  if (!entry) return null
+
+  // Extract the array from cached data
+  let existingArray
+  if (dataPath && entry.data && typeof entry.data === 'object') {
+    existingArray = entry.data[dataPath]
+  } else {
+    existingArray = entry.data
+  }
+
+  if (!Array.isArray(existingArray)) return null
+  if (deltaItems.length === 0) {
+    // No changes, just update cachedAt
+    entry.cachedAt = Date.now()
+    await db.put('apiCache', entry)
+    return dataPath ? entry.data : existingArray
+  }
+
+  // Build ID -> index map for fast lookups
+  const idMap = new Map()
+  existingArray.forEach((item, idx) => {
+    const id = item[idField]
+    if (id !== undefined) idMap.set(id, idx)
+  })
+
+  // Clone the array to avoid mutating in place
+  const merged = [...existingArray]
+
+  for (const delta of deltaItems) {
+    const id = delta[idField]
+    if (id !== undefined && idMap.has(id)) {
+      // Update existing item
+      merged[idMap.get(id)] = delta
+    } else {
+      // Append new item
+      merged.push(delta)
+    }
+  }
+
+  // Write back
+  if (dataPath) {
+    entry.data = { ...entry.data, [dataPath]: merged }
+  } else {
+    entry.data = merged
+  }
+  entry.cachedAt = Date.now()
+  await db.put('apiCache', entry)
+
+  return dataPath ? entry.data : merged
+}
+
+// ── Sync timestamp helpers ──
+
+export async function getLastSyncTime (cacheKey) {
+  return getSyncMeta(`syncTime:${cacheKey}`)
+}
+
+export async function setLastSyncTime (cacheKey, isoTimestamp) {
+  return setSyncMeta(`syncTime:${cacheKey}`, isoTimestamp)
+}
+
+export async function clearLastSyncTime (cacheKey) {
+  return setSyncMeta(`syncTime:${cacheKey}`, null)
+}
+
+export async function getLastFullRefreshTime (cacheKey) {
+  return getSyncMeta(`fullRefresh:${cacheKey}`)
+}
+
+export async function setLastFullRefreshTime (cacheKey) {
+  return setSyncMeta(`fullRefresh:${cacheKey}`, Date.now())
+}
+
+// ── Connection quality helpers ──
+
+export function isConnectionFast () {
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection
+  if (!conn) return true // Assume fast if API unavailable
+  return conn.effectiveType === '4g'
+}
+
+export function shouldForceFullRefresh (lastFullRefreshTime) {
+  if (!lastFullRefreshTime) return true // Never done a full refresh
+  return Date.now() - lastFullRefreshTime > FULL_REFRESH_INTERVAL_MS
 }

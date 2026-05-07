@@ -472,18 +472,33 @@
               </q-checkbox>
             </div>
 
-            <q-btn
-              :label="upfrontPaymentConfirmed ? 'Payment Recorded' : 'Confirm Payment Taken'"
-              :color="upfrontPaymentConfirmed ? 'grey' : 'positive'"
-              :icon="upfrontPaymentConfirmed ? 'check' : 'payment'"
-              :disable="upfrontPaymentConfirmed || !confirmUpfrontPayment"
-              @click="recordUpfrontPayment"
-              class="full-width"
-            />
+            <div class="row q-gutter-sm">
+              <q-btn
+                :label="upfrontPaymentConfirmed ? 'Payment Recorded' : 'Confirm Payment Taken'"
+                :color="upfrontPaymentConfirmed ? 'grey' : 'positive'"
+                :icon="upfrontPaymentConfirmed ? 'check' : 'payment'"
+                :disable="upfrontPaymentConfirmed || paymentSkipped || !confirmUpfrontPayment"
+                @click="recordUpfrontPayment"
+                class="col"
+              />
+              <q-btn
+                v-if="!upfrontPaymentConfirmed && !paymentSkipped"
+                label="Skip (record as debt)"
+                color="orange"
+                outline
+                icon="skip_next"
+                @click="skipPayment"
+                class="col"
+              />
+            </div>
 
             <div v-if="upfrontPaymentConfirmed" class="q-mt-sm bg-positive text-white q-pa-md rounded-borders">
               <q-icon name="check_circle" size="sm" class="q-mr-sm" />
               Payment recorded successfully! You can now create the rental.
+            </div>
+            <div v-if="paymentSkipped" class="q-mt-sm bg-orange text-white q-pa-md rounded-borders">
+              <q-icon name="warning" size="sm" class="q-mr-sm" />
+              Payment skipped — {{ currencySymbol }}{{ formData.paymentAmount.toFixed(2) }} will be recorded as outstanding on the user's account.
             </div>
           </div>
         </template>
@@ -518,16 +533,16 @@
         icon="add"
         @click="handleSubmit"
         :loading="submitting"
-        :disable="!isFormValid || (upfrontAmountDue > 0 && !upfrontPaymentConfirmed)"
+        :disable="!isFormValid || (upfrontAmountDue > 0 && !upfrontPaymentConfirmed && !paymentSkipped)"
       />
     </q-card-actions>
   </q-card>
 </template>
 
 <script setup>
-import { ref, computed, inject, onMounted, watch } from 'vue'
+import { ref, computed, inject, onMounted, onUnmounted, watch } from 'vue'
 import { useQuasar, date } from 'quasar'
-import { hubsAPI, batteriesAPI, settingsAPI, batteryRentalsAPI, accountsAPI } from 'src/services/api'
+import api, { hubsAPI, batteriesAPI, settingsAPI, batteryRentalsAPI, accountsAPI } from 'src/services/api.js'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
 
@@ -603,6 +618,7 @@ const upfrontAmountDue = computed(() => {
 // Upfront payment confirmation state
 const upfrontPaymentConfirmed = ref(false)
 const confirmUpfrontPayment = ref(false)
+const paymentSkipped = ref(false)
 const paymentTypeOptions = ref([])
 
 // Load payment types from hub settings
@@ -635,6 +651,10 @@ const recordUpfrontPayment = () => {
     message: `Payment of ${currencySymbol.value}${formData.value.paymentAmount.toFixed(2)} confirmed`,
     position: 'top'
   })
+}
+
+const skipPayment = () => {
+  paymentSkipped.value = true
 }
 
 // Loading States
@@ -679,6 +699,17 @@ onMounted(async () => {
   }
 })
 
+// Refresh battery list when SWR background revalidation updates the cache
+const onCacheUpdated = (event) => {
+  if (event.detail?.url?.includes('/batteries/')) {
+    loadBatteries()
+  }
+}
+window.addEventListener('cache-updated', onCacheUpdated)
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
+})
+
 // Load Hubs
 const loadHubs = async () => {
   try {
@@ -717,7 +748,7 @@ const loadUsers = async () => {
 
   usersLoading.value = true
   try {
-    const response = await hubsAPI.getUsers(formData.value.hub_id)
+    const response = await api.get(`/hubs/${formData.value.hub_id}/users`, { _bypassOffline: true })
     allUsers.value = response.data || []
     userOptions.value = allUsers.value
   } catch (error) {
@@ -759,9 +790,9 @@ const loadBatteries = async () => {
 
   batteriesLoading.value = true
   try {
-    const response = await batteriesAPI.list({
-      hub_id: formData.value.hub_id,
-      status: 'available'
+    const response = await api.get('/batteries/', {
+      params: { hub_id: formData.value.hub_id, status: 'available' },
+      _bypassOffline: true
     })
     // Client-side filter as safety net: when offline, cached list may include
     // batteries whose status was optimistically changed to rented/maintenance.
@@ -851,19 +882,15 @@ const costStructuresWithAvailability = computed(() => {
   }))
 })
 
-// Filtered cost structures (only those with available batteries)
-const filteredCostStructures = computed(() => {
-  return costStructuresWithAvailability.value.filter(cs => cs._availableBatteries > 0)
-})
+// Show all active battery cost structures — filtering by battery count hides the form when
+// batteries are still loading or when cache is stale. The battery section itself shows
+// "No available batteries found" if there are none to pick.
+const filteredCostStructures = computed(() => costStructuresWithAvailability.value)
 
 // Hint for cost structure dropdown
 const costStructureHint = computed(() => {
   if (!formData.value.hub_id) return 'Select a hub first'
   if (costStructureOptions.value.length === 0) return `No cost structures available (Hub ID: ${formData.value.hub_id})`
-  const hidden = costStructuresWithAvailability.value.length - filteredCostStructures.value.length
-  if (hidden > 0) {
-    return `${filteredCostStructures.value.length} cost structure(s) available (${hidden} hidden - no batteries available)`
-  }
   return `${filteredCostStructures.value.length} cost structure(s) available`
 })
 
@@ -1072,6 +1099,7 @@ watch(upfrontAmountDue, (newVal) => {
   }
   upfrontPaymentConfirmed.value = false
   confirmUpfrontPayment.value = false
+  paymentSkipped.value = false
 })
 
 // Watch for user selection to load credit summary
@@ -1125,7 +1153,7 @@ const handleSubmit = async () => {
       due_date: formData.value.dueDate ? new Date(formData.value.dueDate).toISOString() : undefined,
       deposit_amount: formData.value.depositAmount > 0 ? formData.value.depositAmount : undefined,
       notes: formData.value.notes ? [formData.value.notes] : undefined,
-      upfront_payment: formData.value.paymentAmount > 0 ? {
+      upfront_payment: formData.value.paymentAmount > 0 && !paymentSkipped.value ? {
         payment_amount: formData.value.paymentAmount,
         payment_method: formData.value.paymentMethod
       } : undefined
