@@ -1,6 +1,18 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="text-h5 q-mb-sm">Data</div>
+    <div class="row items-center q-mb-sm q-gutter-sm">
+      <div class="text-h5">Data</div>
+      <q-space />
+      <div v-if="authStore.isSuperAdmin" class="row items-center q-gutter-sm">
+        <q-icon name="warning" color="orange" size="sm" v-if="selectedHub === null" />
+        <HubFilter
+          v-model="selectedHub"
+          @change="onHubChange"
+          style="min-width: 220px"
+          :class="selectedHub === null ? 'hub-filter-highlight' : ''"
+        />
+      </div>
+    </div>
 
     <q-tabs
       v-model="activeTab"
@@ -668,15 +680,19 @@ import {
   Legend,
   Filler
 } from 'chart.js'
-import api, { batteriesAPI, batteryRentalsAPI, hubsAPI, settingsAPI, dataAPI, analyticsAPI } from 'src/services/api.js'
+import api, { batteriesAPI, batteryRentalsAPI, hubsAPI, settingsAPI, dataAPI, analyticsAPI, usersAPI } from 'src/services/api.js'
 import { useAuthStore } from 'stores/auth'
 import { useHubSettingsStore } from 'stores/hubSettings'
+import HubFilter from 'src/components/HubFilter.vue'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Title, Tooltip, Legend, Filler)
 
 const authStore = useAuthStore()
 const hubSettingsStore = useHubSettingsStore()
 const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol || '$')
+
+// Hub selection — superadmins can switch, others locked to their hub
+const selectedHub = ref(authStore.isSuperAdmin ? null : (authStore.user?.hub_id || null))
 const canAccessAnalytics = computed(() =>
   ['ADMIN', 'SUPERADMIN', 'DATA_ADMIN'].includes((authStore.role || '').toUpperCase())
 )
@@ -813,6 +829,7 @@ async function loadRentalHistory() {
   try {
     const params = {}
     if (rh.value.batteryId) params.battery_id = rh.value.batteryId
+    if (selectedHub.value) params.hub_id = selectedHub.value
     const res = await batteryRentalsAPI.list(params)
     let data = Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : []
 
@@ -998,7 +1015,7 @@ async function loadPowerUsage() {
 async function loadPowerByBattery() {
   const batterySelection = pu.value.batteryIds.length
     ? { battery_ids: pu.value.batteryIds }
-    : { all_batteries: true }
+    : { all_batteries: true, ...(selectedHub.value ? { hub_ids: [selectedHub.value] } : {}) }
 
   const baseReq = {
     battery_selection: batterySelection,
@@ -1313,7 +1330,7 @@ async function loadReport() {
       user_id: rb.value.userId,
       start_date: rb.value.startDate,
       end_date: rb.value.endDate,
-      hub_id: authStore.currentHubId,
+      hub_id: selectedHub.value,
     })
     const body = res.data ?? res
     rb.value.stats = body.summary || null
@@ -1647,17 +1664,25 @@ function downloadCSV(rows, filename) {
 
 // ===================== INIT =====================
 
-onMounted(async () => {
-  const hubId = authStore.currentHubId
+async function loadPageData(hubId) {
   const [bRes, uRes, ptRes] = await Promise.all([
-    api.get('/batteries/', { _bypassOffline: true }).catch(() => null),
-    hubId ? api.get(`/hubs/${hubId}/users`, { _bypassOffline: true }).catch(() => null) : Promise.resolve(null),
-    hubId ? api.get('/settings/pue-types', { params: { hub_id: hubId }, _bypassOffline: true }).catch(() => null) : Promise.resolve(null),
+    api.get('/batteries/', { params: hubId ? { hub_id: hubId } : {}, _bypassOffline: true }).catch(() => null),
+    usersAPI.list(hubId ? { hub_id: hubId } : {}).catch(() => null),
+    api.get('/settings/pue-types', { params: hubId ? { hub_id: hubId } : {}, _bypassOffline: true }).catch(() => null),
   ])
   batteries.value = Array.isArray(bRes?.data) ? bRes.data : []
   users.value = Array.isArray(uRes?.data) ? uRes.data : []
   const ptBody = ptRes?.data
   pueTypes.value = Array.isArray(ptBody?.pue_types) ? ptBody.pue_types : []
+}
+
+async function onHubChange(hubId) {
+  selectedHub.value = hubId
+  await loadPageData(hubId)
+}
+
+onMounted(async () => {
+  await loadPageData(selectedHub.value)
 
   // Update lists when SWR background revalidation brings fresh data
   cacheUpdateListener = (event) => {
@@ -1668,7 +1693,7 @@ onMounted(async () => {
       const arr = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : null
       if (arr) batteries.value = arr
     }
-    if (hubId && url.includes(`/hubs/${hubId}`) && url.includes('/users')) {
+    if (url.includes('/users/') && !url.includes('/users/me')) {
       const arr = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : null
       if (arr) users.value = arr
     }
@@ -1680,3 +1705,10 @@ onMounted(async () => {
   window.addEventListener('cache-updated', cacheUpdateListener)
 })
 </script>
+
+<style scoped>
+.hub-filter-highlight :deep(.q-field__control) {
+  border-color: #f57c00 !important;
+  background: #fff8e1;
+}
+</style>

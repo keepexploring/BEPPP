@@ -12,7 +12,14 @@
         <div class="text-h5">{{ pageTitle }}</div>
       </div>
       <div class="col-12 col-sm row items-center q-gutter-sm">
-        <HubFilter v-model="selectedHub" @change="onHubChange" />
+        <div class="row items-center q-gutter-xs">
+          <q-icon name="warning" color="orange" size="sm" v-if="authStore.isSuperAdmin && selectedHub === null" />
+          <HubFilter
+            v-model="selectedHub"
+            @change="onHubChange"
+            :class="authStore.isSuperAdmin && selectedHub === null ? 'hub-filter-highlight' : ''"
+          />
+        </div>
         <q-btn
           label="Add User"
           icon="add"
@@ -606,25 +613,9 @@ const getRoleColor = (role) => {
 const loadUsers = async () => {
   loading.value = true
   try {
-    if (selectedHub.value) {
-      // Load users for selected hub only
-      const usersResponse = await hubsAPI.getUsers(selectedHub.value)
-      allUsers.value = usersResponse.data
-    } else {
-      // Note: The API doesn't have a list all users endpoint
-      // We'll need to load users from hubs
-      const hubsResponse = await hubsAPI.list()
-      const userMap = new Map()
-
-      for (const hub of hubsResponse.data) {
-        const usersResponse = await hubsAPI.getUsers(hub.hub_id)
-        usersResponse.data.forEach(user => {
-          userMap.set(user.user_id, user)
-        })
-      }
-
-      allUsers.value = Array.from(userMap.values())
-    }
+    const params = selectedHub.value ? { hub_id: selectedHub.value } : {}
+    const usersResponse = await usersAPI.list(params)
+    allUsers.value = usersResponse.data
   } catch (error) {
     if (navigator.onLine) {
       $q.notify({
@@ -943,3 +934,10 @@ onUnmounted(() => {
   window.removeEventListener('cache-updated', onCacheUpdated)
 })
 </script>
+
+<style scoped>
+.hub-filter-highlight :deep(.q-field__control) {
+  border-color: #f57c00 !important;
+  background: #fff8e1;
+}
+</style>

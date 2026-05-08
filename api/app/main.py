@@ -3231,6 +3231,31 @@ def serialize_user(user):
         data["main_reason_for_signup"] = [s.strip() for s in data["main_reason_for_signup"].split(",")]
     return data
 
+@app.get("/users/")
+async def list_users(
+    hub_id: Optional[int] = Query(None, description="Filter by hub. Superadmins see all hubs if omitted."),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """List users. Superadmins can see all hubs or filter by hub_id. Others see their hub only."""
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot access user information")
+
+    role = current_user.get('role')
+    user_hub_id = current_user.get('hub_id')
+
+    query = db.query(User)
+    if role == UserRole.SUPERADMIN:
+        if hub_id:
+            query = query.filter(User.hub_id == hub_id)
+        # else: no filter — return all users across all hubs
+    else:
+        # Non-superadmins always scoped to their hub
+        query = query.filter(User.hub_id == user_hub_id)
+
+    users = query.all()
+    return [serialize_user(u) for u in users]
+
 @app.post("/users/")
 async def create_user(
     user: UserCreate,
