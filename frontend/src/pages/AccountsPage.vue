@@ -346,20 +346,7 @@ const activeTab = ref('summary')
 // Hub settings for currency
 const hubSettings = ref({ default_currency: 'USD' })
 
-// Currency helper functions
-const getCurrencySymbol = (currency) => {
-  const symbols = {
-    'USD': '$',
-    'GBP': '£',
-    'EUR': '€',
-    'MWK': 'MK'
-  }
-  return symbols[currency] || currency
-}
-
-const currencySymbol = computed(() => {
-  return getCurrencySymbol(hubSettings.value.default_currency)
-})
+const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
 // Summary
 const summary = ref({

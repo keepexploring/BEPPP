@@ -2081,9 +2081,11 @@ import { ref, computed, inject, onMounted, onUnmounted, watch } from 'vue'
 import { settingsAPI, hubsAPI, pueAPI, surveyAPI } from 'src/services/api'
 import { useQuasar } from 'quasar'
 import { useAuthStore } from 'stores/auth'
+import { useHubSettingsStore } from 'stores/hubSettings'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
+const hubSettingsStore = useHubSettingsStore()
 const defaultHubId = authStore.user?.hub_id
 const networkState = inject('networkState', { online: ref(true) })
 const isOffline = computed(() => !networkState.online.value)
@@ -2262,7 +2264,7 @@ const pricingColumns = [
   { name: 'unit_type', label: 'Unit', field: 'unit_type', align: 'left' },
   { name: 'price', label: 'Price', field: 'price', align: 'right', format: (val, row) => {
     const currency = row.currency || hubSettings.value.default_currency || 'USD'
-    const symbol = getCurrencySymbol(currency)
+    const symbol = hubSettingsStore.getCurrencySymbol(currency)
     return `${symbol}${val}`
   }},
   { name: 'is_active', label: 'Active', field: row => row.is_active ? 'Yes' : 'No', align: 'center' },
@@ -2371,7 +2373,7 @@ const hubSettings = ref({
   battery_status_orange_hours: 8
 })
 
-const currencyOptions = ['USD', 'GBP', 'EUR', 'MWK']
+const currencyOptions = ['USD', 'GBP', 'EUR', 'MWK', 'ZAR', 'KES', 'UGX', 'TZS', 'NGN', 'GHS', 'RWF']
 
 // Common timezones
 const allTimezones = [
@@ -2412,21 +2414,8 @@ const filterTimezones = (val, update) => {
   })
 }
 
-// Currency symbol mapping
-const getCurrencySymbol = (currency) => {
-  const symbols = {
-    'USD': '$',
-    'GBP': '£',
-    'EUR': '€',
-    'MWK': 'MK'
-  }
-  return symbols[currency] || currency
-}
-
 // Computed property for current currency symbol
-const currentCurrencySymbol = computed(() => {
-  return getCurrencySymbol(hubSettings.value.default_currency || 'USD')
-})
+const currentCurrencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
 // Load data
 const loadDurations = async () => {
