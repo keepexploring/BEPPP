@@ -325,6 +325,20 @@
               <q-item-label>Webhook Logs</q-item-label>
             </q-item-section>
           </q-item>
+          <q-separator class="q-my-xs" />
+
+          <q-item
+            clickable
+            :to="{ name: 'release-info' }"
+            v-ripple
+          >
+            <q-item-section avatar>
+              <q-icon name="new_releases" />
+            </q-item-section>
+            <q-item-section>
+              <q-item-label>Release Info</q-item-label>
+            </q-item-section>
+          </q-item>
         </template>
       </q-list>
     </q-drawer>

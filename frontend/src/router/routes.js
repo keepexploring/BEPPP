@@ -108,6 +108,11 @@ const routes = [
         component: () => import('pages/SettingsPage.vue')
       },
       {
+        path: 'release-info',
+        name: 'release-info',
+        component: () => import('pages/ReleasePage.vue')
+      },
+      {
         path: 'accounts',
         name: 'accounts',
         meta: { requiresAdmin: true },
