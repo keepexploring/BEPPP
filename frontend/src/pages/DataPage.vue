@@ -213,6 +213,10 @@
             <div class="col-auto">
               <q-btn label="Apply" icon="refresh" color="primary" dense @click="loadPowerUsage" :loading="pu.loading" />
             </div>
+            <div class="col-auto">
+              <q-btn label="CSV" icon="download" outline color="primary" dense @click="downloadPowerCSV"
+                :disable="!pu.rawStatsData && !pu.rawPueData" />
+            </div>
           </div>
 
           <!-- Battery mode charts -->
@@ -873,6 +877,22 @@ function downloadRentalHistoryCSV() {
     r.actual_return_date || '', r.duration ?? '', r.rental_status
   ])
   downloadCSV([headers, ...rows], 'rental_history.csv')
+}
+
+function downloadPowerCSV() {
+  if (pu.value.groupBy === 'battery' && pu.value.rawStatsData) {
+    const headers = ['time_group', 'in_mean_w', 'in_median_w', 'in_std_w', 'in_count', 'out_mean_w', 'out_median_w', 'out_std_w', 'out_count']
+    const rows = pu.value.rawStatsData.map(r => [
+      r.time_group, r.in_mean ?? '', r.in_median ?? '', r.in_std ?? '', r.in_count ?? '',
+      r.out_mean ?? '', r.out_median ?? '', r.out_std ?? '', r.out_count ?? ''
+    ])
+    downloadCSV([headers, ...rows], 'power_usage.csv')
+  } else if (pu.value.groupBy === 'pue_type' && pu.value.rawPueData) {
+    const { rows, allTypes } = pu.value.rawPueData
+    const headers = ['time_group', ...allTypes.flatMap(t => [`${t}_out_mean_w`, `${t}_out_kwh`])]
+    const csvRows = rows.map(r => [r.time_group, ...allTypes.flatMap(t => [r[`${t}_out_mean`] ?? '', r[`${t}_out_kwh`] ?? ''])])
+    downloadCSV([headers, ...csvRows], 'pue_power_usage.csv')
+  }
 }
 
 // ===================== POWER USAGE =====================

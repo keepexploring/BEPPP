@@ -709,6 +709,10 @@
 
             <!-- Battery Rental History Tab -->
             <q-tab-panel name="battery-history">
+              <div class="row justify-end q-mb-sm" v-if="batteryHistory.length">
+                <q-btn label="CSV" icon="download" outline color="primary" dense @click="downloadBatteryHistoryCSV" />
+              </div>
+
               <div v-if="batteryHistoryLoading" class="row justify-center q-pa-md">
                 <q-spinner color="primary" size="2em" />
               </div>
@@ -771,6 +775,10 @@
 
             <!-- PUE Rental History Tab -->
             <q-tab-panel name="pue-history">
+              <div class="row justify-end q-mb-sm" v-if="pueHistory.length">
+                <q-btn label="CSV" icon="download" outline color="primary" dense @click="downloadPueHistoryCSV" />
+              </div>
+
               <div v-if="pueHistoryLoading" class="row justify-center q-pa-md">
                 <q-spinner color="primary" size="2em" />
               </div>
@@ -3143,4 +3151,32 @@ onMounted(async () => {
   // Load new rental system data
   refreshAllRentals()
 })
+
+function downloadCSV(rows, filename) {
+  const csv = rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+}
+
+function downloadBatteryHistoryCSV() {
+  const headers = ['rental_id', 'status', 'battery_count', 'recharge_count', 'cost_structure', 'start_date', 'due_date', 'return_date', 'deposit', 'total_cost']
+  const rows = batteryHistory.value.map(r => [
+    r.rental_id, r.status, r.battery_count ?? r.items?.length ?? 0, r.recharge_count ?? 0,
+    r.cost_structure_name || '', r.rental_start_date || '', r.due_date || '',
+    r.actual_return_date || '', r.deposit_amount ?? '', r.total_cost ?? ''
+  ])
+  downloadCSV([headers, ...rows], `battery_rentals_user_${userId.value}.csv`)
+}
+
+function downloadPueHistoryCSV() {
+  const headers = ['rental_id', 'status', 'pue_name', 'cost_structure', 'start_date', 'return_date', 'total_cost']
+  const rows = pueHistory.value.map(r => [
+    r.rental_id, r.status, r.pue_name || r.pue_id || '', r.cost_structure_name || '',
+    r.rental_start_date || '', r.actual_return_date || '', r.total_cost ?? ''
+  ])
+  downloadCSV([headers, ...rows], `pue_rentals_user_${userId.value}.csv`)
+}
 </script>
