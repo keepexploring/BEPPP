@@ -416,15 +416,24 @@
 
           <template v-slot:body-cell-options="props">
             <q-td :props="props">
-              <q-btn
-                flat
-                dense
-                size="sm"
-                :label="`${props.row.options?.length || 0} options`"
-                color="primary"
-                @click="viewQuestionOptions(props.row)"
-                v-if="['multiple_choice', 'multiple_select', 'rating', 'yes_no'].includes(props.row.question_type)"
-              />
+              <template v-if="['multiple_choice', 'multiple_select', 'rating', 'yes_no'].includes(props.row.question_type)">
+                <q-btn
+                  flat
+                  dense
+                  size="sm"
+                  :label="`${props.row.options?.length || 0} options`"
+                  :color="needsOptions(props.row) ? 'negative' : 'primary'"
+                  @click="viewQuestionOptions(props.row)"
+                />
+                <q-badge
+                  v-if="needsOptions(props.row)"
+                  color="negative"
+                  label="Fix needed"
+                  class="q-ml-xs"
+                >
+                  <q-tooltip>This question type requires options. Click Edit → Save to auto-generate (yes/no) or add options manually.</q-tooltip>
+                </q-badge>
+              </template>
             </q-td>
           </template>
 
@@ -3169,6 +3178,11 @@ const formatQuestionType = (type) => {
     'yes_no': 'Yes/No'
   }
   return labels[type] || type
+}
+
+const needsOptions = (question) => {
+  const requiresOptions = ['multiple_choice', 'multiple_select', 'yes_no'].includes(question.question_type)
+  return requiresOptions && (!question.options || question.options.length === 0)
 }
 
 const exportSurveyResponses = async () => {

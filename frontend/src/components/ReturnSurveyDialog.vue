@@ -118,7 +118,9 @@
             <q-option-group
               v-else-if="question.question_type === 'yes_no'"
               v-model="responses[question.question_id].response_value"
-              :options="question.options.map(opt => ({ label: opt.option_text, value: opt.option_value }))"
+              :options="(question.options && question.options.length > 0)
+                ? question.options.map(opt => ({ label: opt.option_text, value: opt.option_value }))
+                : [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }]"
               type="radio"
               inline
               :rules="question.is_required ? [val => !!val || 'Please select an option'] : []"
