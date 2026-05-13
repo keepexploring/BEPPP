@@ -372,6 +372,8 @@ export const accountsAPI = {
     api.get(`/accounts/user/${userId}/deposit-holds`, { params }),
   getCreditSummary: (userId) =>
     api.get(`/accounts/user/${userId}/credit-summary`),
+  returnDepositHold: (userId, holdId) =>
+    api.post(`/accounts/user/${userId}/deposit-holds/${holdId}/return`),
 
   // Hub Accounts
   getHubSummary: (hubId, params) =>

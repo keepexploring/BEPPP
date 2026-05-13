@@ -6248,7 +6248,7 @@ async def create_battery_rental(
                     "deposit": round(deposit_portion, 2)
                 })
 
-        # Create deposit hold if cost structure requires it
+        # Create deposit hold if cost structure requires it (first-time only per user)
         if deposit_required > 0:
             # Get or create user account
             user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
@@ -6257,30 +6257,40 @@ async def create_battery_rental(
                 db.add(user_account)
                 db.flush()
 
-            # Calculate available credit (balance minus active held deposits)
-            active_holds_total = db.query(func.coalesce(func.sum(DepositHold.amount), 0)).filter(
+            # Skip deposit if user already has an active battery deposit held
+            existing_battery_hold = db.query(DepositHold).filter(
                 DepositHold.account_id == user_account.account_id,
+                DepositHold.rental_type == 'battery',
                 DepositHold.status == 'held'
-            ).scalar()
-            available_credit = user_account.balance - float(active_holds_total)
+            ).first()
 
-            if available_credit < deposit_required:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Insufficient credit for deposit. Required: {deposit_required}, Available: {round(available_credit, 2)}. Deposit must be collected as part of the upfront payment."
+            if not existing_battery_hold:
+                # Calculate available credit (balance minus active held deposits)
+                active_holds_total = db.query(func.coalesce(func.sum(DepositHold.amount), 0)).filter(
+                    DepositHold.account_id == user_account.account_id,
+                    DepositHold.status == 'held'
+                ).scalar()
+                available_credit = user_account.balance - float(active_holds_total)
+
+                if available_credit < deposit_required:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Insufficient credit for deposit. Required: {deposit_required}, Available: {round(available_credit, 2)}. Deposit must be collected as part of the upfront payment."
+                    )
+
+                # Create deposit hold
+                hold = DepositHold(
+                    account_id=user_account.account_id,
+                    rental_id=new_rental.rental_id,
+                    rental_type='battery',
+                    amount=deposit_required,
+                    status='held'
                 )
-
-            # Create deposit hold
-            hold = DepositHold(
-                account_id=user_account.account_id,
-                rental_id=new_rental.rental_id,
-                rental_type='battery',
-                amount=deposit_required,
-                status='held'
-            )
-            db.add(hold)
-            new_rental.deposit_amount = deposit_required
-            deposit_hold_info = {"amount": deposit_required, "status": "held"}
+                db.add(hold)
+                new_rental.deposit_amount = deposit_required
+                deposit_hold_info = {"amount": deposit_required, "status": "held"}
+            else:
+                deposit_hold_info = {"amount": 0, "status": "already_held", "existing_hold_id": existing_battery_hold.hold_id}
 
             # Check remaining credit and create low-credit notification if needed
             remaining_available = available_credit - deposit_required
@@ -7662,30 +7672,40 @@ async def create_pue_rental(
                 db.add(pue_user_account)
                 db.flush()
 
-            # Calculate available credit
-            active_holds_total = db.query(func.coalesce(func.sum(DepositHold.amount), 0)).filter(
+            # Skip deposit if user already has an active PUE deposit held
+            existing_pue_hold = db.query(DepositHold).filter(
                 DepositHold.account_id == pue_user_account.account_id,
+                DepositHold.rental_type == 'pue',
                 DepositHold.status == 'held'
-            ).scalar()
-            available_credit = pue_user_account.balance - float(active_holds_total)
+            ).first()
 
-            if available_credit < pue_deposit_amount:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Insufficient credit for deposit. Required: {pue_deposit_amount}, Available: {round(available_credit, 2)}"
+            if not existing_pue_hold:
+                # Calculate available credit
+                active_holds_total = db.query(func.coalesce(func.sum(DepositHold.amount), 0)).filter(
+                    DepositHold.account_id == pue_user_account.account_id,
+                    DepositHold.status == 'held'
+                ).scalar()
+                available_credit = pue_user_account.balance - float(active_holds_total)
+
+                if available_credit < pue_deposit_amount:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Insufficient credit for deposit. Required: {pue_deposit_amount}, Available: {round(available_credit, 2)}"
+                    )
+
+                # Create deposit hold
+                hold = DepositHold(
+                    account_id=pue_user_account.account_id,
+                    pue_rental_id=new_rental.pue_rental_id,
+                    rental_type='pue',
+                    amount=pue_deposit_amount,
+                    status='held'
                 )
-
-            # Create deposit hold
-            hold = DepositHold(
-                account_id=pue_user_account.account_id,
-                pue_rental_id=new_rental.pue_rental_id,
-                rental_type='pue',
-                amount=pue_deposit_amount,
-                status='held'
-            )
-            db.add(hold)
-            new_rental.deposit_amount = pue_deposit_amount
-            deposit_hold_info = {"amount": pue_deposit_amount, "status": "held"}
+                db.add(hold)
+                new_rental.deposit_amount = pue_deposit_amount
+                deposit_hold_info = {"amount": pue_deposit_amount, "status": "held"}
+            else:
+                deposit_hold_info = {"amount": 0, "status": "already_held", "existing_hold_id": existing_pue_hold.hold_id}
 
             # Low credit notification
             remaining_available = available_credit - pue_deposit_amount
@@ -12981,6 +13001,52 @@ async def get_user_credit_summary(
             }
             for h in active_holds
         ]
+    }
+
+
+@app.post("/accounts/user/{user_id}/deposit-holds/{hold_id}/return", tags=["Accounts"])
+async def return_deposit_hold(
+    user_id: int,
+    hold_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Release a deposit hold — makes the held amount available as credit again. Admin only."""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    user_account = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
+    if not user_account:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    hold = db.query(DepositHold).filter(
+        DepositHold.hold_id == hold_id,
+        DepositHold.account_id == user_account.account_id
+    ).first()
+    if not hold:
+        raise HTTPException(status_code=404, detail="Deposit hold not found")
+    if hold.status != 'held':
+        raise HTTPException(status_code=400, detail="Deposit is not currently held")
+
+    hold.status = 'released'
+    hold.released_at = datetime.now(timezone.utc)
+
+    label = "Battery deposit" if hold.rental_type == 'battery' else "PUE deposit"
+    transaction = AccountTransaction(
+        account_id=user_account.account_id,
+        transaction_type='deposit_returned',
+        amount=float(hold.amount),
+        balance_after=float(user_account.balance),
+        description=f"{label} released (hold #{hold.hold_id})"
+    )
+    db.add(transaction)
+    db.commit()
+
+    return {
+        "hold_id": hold.hold_id,
+        "status": "released",
+        "amount": float(hold.amount),
+        "released_at": hold.released_at.isoformat()
     }
 
 

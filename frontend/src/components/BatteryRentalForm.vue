@@ -366,7 +366,7 @@
         </div>
 
         <!-- Deposit Amount -->
-        <div v-if="effectiveDepositAmount > 0" class="col-12 col-md-6">
+        <div v-if="effectiveDepositAmount > 0 && !depositAlreadyHeld" class="col-12 col-md-6">
           <q-input
             v-model.number="formData.depositAmount"
             :label="`Deposit Amount: ${currencySymbol}${effectiveDepositAmount.toFixed(2)}`"
@@ -384,8 +384,18 @@
           </q-input>
         </div>
 
+        <!-- Deposit already held — no new deposit needed -->
+        <div v-if="effectiveDepositAmount > 0 && depositAlreadyHeld" class="col-12">
+          <q-banner class="bg-blue-1" rounded dense>
+            <template v-slot:avatar>
+              <q-icon name="lock" color="info" size="sm" />
+            </template>
+            Battery deposit already held for this customer — no new deposit required for this rental.
+          </q-banner>
+        </div>
+
         <!-- Credit check warning for deposit -->
-        <div v-if="effectiveDepositAmount > 0 && userCreditSummary" class="col-12">
+        <div v-if="effectiveDepositAmount > 0 && !depositAlreadyHeld && userCreditSummary" class="col-12">
           <q-banner v-if="userCreditSummary.available_credit < effectiveDepositAmount" class="bg-orange-1" rounded dense>
             <template v-slot:avatar>
               <q-icon name="warning" color="orange" size="sm" />
@@ -585,6 +595,12 @@ const effectiveDepositAmount = computed(() => {
   if (costEstimate.value?.deposit_amount > 0) return costEstimate.value.deposit_amount
   if (formData.value.costStructure?.deposit_amount > 0) return formData.value.costStructure.deposit_amount
   return 0
+})
+
+// True when the user already has an active battery deposit held — no new deposit needed
+const depositAlreadyHeld = computed(() => {
+  if (!userCreditSummary.value?.holds) return false
+  return userCreditSummary.value.holds.some(h => h.rental_type === 'battery' && h.status === 'held')
 })
 
 // Computed: upfront amount due (deposit + any upfront-charged components)
@@ -1108,6 +1124,10 @@ watch(() => formData.value.user, async (newUser) => {
     try {
       const res = await accountsAPI.getCreditSummary(newUser.user_id)
       userCreditSummary.value = res.data
+      // Clear deposit if this user already has a battery deposit held
+      if (depositAlreadyHeld.value) {
+        formData.value.depositAmount = 0
+      }
     } catch (e) {
       userCreditSummary.value = null
     }
@@ -1123,10 +1143,13 @@ watch([() => formData.value.costStructure, () => formData.value.duration], () =>
   }
 })
 
-// Auto-fill deposit amount when cost structure is selected
+// Auto-fill deposit amount when cost structure is selected (skip if already held)
 watch(() => formData.value.costStructure, (cs) => {
-  if (cs?.deposit_amount > 0 && !formData.value.depositAmount) {
+  if (cs?.deposit_amount > 0 && !formData.value.depositAmount && !depositAlreadyHeld.value) {
     formData.value.depositAmount = cs.deposit_amount
+  }
+  if (depositAlreadyHeld.value) {
+    formData.value.depositAmount = 0
   }
 })
 

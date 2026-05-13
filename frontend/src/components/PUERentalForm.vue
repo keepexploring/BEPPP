@@ -497,8 +497,18 @@
           </q-input>
         </div>
 
+        <!-- Deposit already held — no new deposit needed -->
+        <div v-if="formData.costStructure && formData.costStructure.deposit_amount > 0 && depositAlreadyHeld" class="col-12">
+          <q-banner class="bg-blue-1 q-mb-sm" rounded dense>
+            <template v-slot:avatar>
+              <q-icon name="lock" color="info" size="sm" />
+            </template>
+            PUE deposit already held for this customer — no new deposit required for this rental.
+          </q-banner>
+        </div>
+
         <!-- Credit check warning for deposit -->
-        <div v-if="formData.costStructure && formData.costStructure.deposit_amount > 0 && userCreditSummary" class="col-12">
+        <div v-if="formData.costStructure && formData.costStructure.deposit_amount > 0 && !depositAlreadyHeld && userCreditSummary" class="col-12">
           <q-banner v-if="userCreditSummary.available_credit < formData.costStructure.deposit_amount" class="bg-orange-1 q-mb-sm" rounded dense>
             <template v-slot:avatar>
               <q-icon name="warning" color="orange" size="sm" />
@@ -775,6 +785,12 @@ const allHubPUEs = ref([])
 const costEstimate = ref(null)
 const userCreditSummary = ref(null)
 const pueSearchFilter = ref('')
+
+// True when the user already has an active PUE deposit held — no new deposit needed
+const depositAlreadyHeld = computed(() => {
+  if (!userCreditSummary.value?.holds) return false
+  return userCreditSummary.value.holds.some(h => h.rental_type === 'pue' && h.status === 'held')
+})
 const showCostStructureDialog = ref(false)
 
 // Auto-select hub for admin and hub_admin
@@ -1296,6 +1312,10 @@ watch(() => formData.value.user, async (newUser) => {
     try {
       const res = await accountsAPI.getCreditSummary(newUser.user_id)
       userCreditSummary.value = res.data
+      // Clear deposit if this user already has a PUE deposit held
+      if (depositAlreadyHeld.value) {
+        formData.value.depositAmount = 0
+      }
     } catch (e) {
       userCreditSummary.value = null
     }
