@@ -6289,23 +6289,23 @@ async def create_battery_rental(
                 db.add(hold)
                 new_rental.deposit_amount = deposit_required
                 deposit_hold_info = {"amount": deposit_required, "status": "held"}
+
+                # Low credit notification (only relevant when deposit was newly charged)
+                remaining_available = available_credit - deposit_required
+                if remaining_available < 0:
+                    notification = Notification(
+                        hub_id=new_rental.hub_id,
+                        user_id=rental.user_id,
+                        notification_type='low_credit',
+                        title='Low Credit Warning',
+                        message=f"User {user.Name or user.first_names} has insufficient credit (available: {round(remaining_available, 2)})",
+                        severity='warning',
+                        link_type='user',
+                        link_id=str(rental.user_id)
+                    )
+                    db.add(notification)
             else:
                 deposit_hold_info = {"amount": 0, "status": "already_held", "existing_hold_id": existing_battery_hold.hold_id}
-
-            # Check remaining credit and create low-credit notification if needed
-            remaining_available = available_credit - deposit_required
-            if remaining_available < 0:
-                notification = Notification(
-                    hub_id=new_rental.hub_id,
-                    user_id=rental.user_id,
-                    notification_type='low_credit',
-                    title='Low Credit Warning',
-                    message=f"User {user.Name or user.first_names} has insufficient credit (available: {round(remaining_available, 2)})",
-                    severity='warning',
-                    link_type='user',
-                    link_id=str(rental.user_id)
-                )
-                db.add(notification)
 
         db.commit()
         db.refresh(new_rental)
@@ -7704,23 +7704,23 @@ async def create_pue_rental(
                 db.add(hold)
                 new_rental.deposit_amount = pue_deposit_amount
                 deposit_hold_info = {"amount": pue_deposit_amount, "status": "held"}
+
+                # Low credit notification (only relevant when deposit was newly charged)
+                remaining_available = available_credit - pue_deposit_amount
+                if remaining_available < 0:
+                    notification = Notification(
+                        hub_id=pue.hub_id,
+                        user_id=rental.user_id,
+                        notification_type='low_credit',
+                        title='Low Credit Warning',
+                        message=f"User {user.Name or user.first_names} has insufficient credit (available: {round(remaining_available, 2)})",
+                        severity='warning',
+                        link_type='user',
+                        link_id=str(rental.user_id)
+                    )
+                    db.add(notification)
             else:
                 deposit_hold_info = {"amount": 0, "status": "already_held", "existing_hold_id": existing_pue_hold.hold_id}
-
-            # Low credit notification
-            remaining_available = available_credit - pue_deposit_amount
-            if remaining_available < 0:
-                notification = Notification(
-                    hub_id=pue.hub_id,
-                    user_id=rental.user_id,
-                    notification_type='low_credit',
-                    title='Low Credit Warning',
-                    message=f"User {user.Name or user.first_names} has insufficient credit (available: {round(remaining_available, 2)})",
-                    severity='warning',
-                    link_type='user',
-                    link_id=str(rental.user_id)
-                )
-                db.add(notification)
 
         # Add notes if provided
         if rental.notes:
