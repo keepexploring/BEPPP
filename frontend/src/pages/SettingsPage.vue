@@ -567,6 +567,42 @@
             />
           </div>
 
+          <!-- Deposit Settings -->
+          <div class="q-mt-md">
+            <div class="text-subtitle2 q-mb-xs">Deposit Rules</div>
+            <div class="text-caption text-grey-7 q-mb-sm">
+              Controls when a deposit is charged. When disabled, a customer only ever pays one deposit per rental type regardless of how many times they rent sequentially.
+            </div>
+            <div class="column q-gutter-sm">
+              <q-toggle
+                v-model="hubSettings.battery_concurrent_deposit"
+                label="Charge battery deposit for each additional concurrent battery rental"
+                color="warning"
+              />
+              <div class="text-caption text-grey-7 q-ml-xl">
+                <span v-if="hubSettings.battery_concurrent_deposit">
+                  A deposit is charged for every battery rented at the same time. If a customer has 2 batteries out simultaneously, 2 deposits are held.
+                </span>
+                <span v-else>
+                  Deposit is held once per customer and kept until admin releases it. Returning and re-renting does not create a new deposit.
+                </span>
+              </div>
+              <q-toggle
+                v-model="hubSettings.pue_concurrent_deposit"
+                label="Charge PUE deposit for each additional concurrent PUE rental"
+                color="warning"
+              />
+              <div class="text-caption text-grey-7 q-ml-xl">
+                <span v-if="hubSettings.pue_concurrent_deposit">
+                  A deposit is charged for every PUE rented at the same time. If a customer has 2 PUEs out simultaneously, 2 deposits are held.
+                </span>
+                <span v-else>
+                  Deposit is held once per customer and kept until admin releases it. Returning and re-renting does not create a new deposit.
+                </span>
+              </div>
+            </div>
+          </div>
+
           <!-- Timezone Configuration -->
           <q-select
             v-model="hubSettings.timezone"
@@ -2393,7 +2429,9 @@ const hubSettings = ref({
   timezone: 'UTC',
   default_table_rows_per_page: 50,
   battery_status_green_hours: 3,
-  battery_status_orange_hours: 8
+  battery_status_orange_hours: 8,
+  battery_concurrent_deposit: false,
+  pue_concurrent_deposit: true
 })
 
 const currencyOptions = ['USD', 'GBP', 'EUR', 'MWK', 'ZAR', 'KES', 'UGX', 'TZS', 'NGN', 'GHS', 'RWF']

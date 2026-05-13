@@ -597,8 +597,11 @@ const effectiveDepositAmount = computed(() => {
   return 0
 })
 
-// True when the user already has an active battery deposit held — no new deposit needed
+// True when no new deposit should be charged on this rental
 const depositAlreadyHeld = computed(() => {
+  // If hub charges per concurrent item, always charge — never skip
+  if (hubSettingsStore.currentHubSettings?.battery_concurrent_deposit) return false
+  // Otherwise: skip if the user already has any battery deposit held
   if (!userCreditSummary.value?.holds) return false
   return userCreditSummary.value.holds.some(h => h.rental_type === 'battery' && h.status === 'held')
 })

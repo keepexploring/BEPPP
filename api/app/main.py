@@ -6248,7 +6248,7 @@ async def create_battery_rental(
                     "deposit": round(deposit_portion, 2)
                 })
 
-        # Create deposit hold if cost structure requires it (first-time only per user)
+        # Create deposit hold if cost structure requires it
         if deposit_required > 0:
             # Get or create user account
             user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
@@ -6257,15 +6257,30 @@ async def create_battery_rental(
                 db.add(user_account)
                 db.flush()
 
-            # Skip deposit if user already has an active battery deposit held
-            existing_battery_hold = db.query(DepositHold).filter(
-                DepositHold.account_id == user_account.account_id,
-                DepositHold.rental_type == 'battery',
-                DepositHold.status == 'held'
-            ).first()
+            # Check hub setting: charge deposit for each additional concurrent item?
+            hub_settings_for_deposit = db.query(HubSettings).filter(HubSettings.hub_id == new_rental.hub_id).first()
+            battery_concurrent_deposit = (
+                bool(hub_settings_for_deposit.battery_concurrent_deposit)
+                if hub_settings_for_deposit and hub_settings_for_deposit.battery_concurrent_deposit is not None
+                else False
+            )
 
-            if not existing_battery_hold:
-                # Calculate available credit (balance minus active held deposits)
+            # Determine whether to charge a deposit
+            existing_battery_hold = None
+            if battery_concurrent_deposit:
+                # Charge for each concurrent rental — always create a new hold
+                should_charge_deposit = True
+            else:
+                # Default: skip if already holds any battery deposit (first-time only)
+                existing_battery_hold = db.query(DepositHold).filter(
+                    DepositHold.account_id == user_account.account_id,
+                    DepositHold.rental_type == 'battery',
+                    DepositHold.status == 'held'
+                ).first()
+                should_charge_deposit = existing_battery_hold is None
+
+            if should_charge_deposit:
+                # Calculate available credit (balance minus all currently held deposits)
                 active_holds_total = db.query(func.coalesce(func.sum(DepositHold.amount), 0)).filter(
                     DepositHold.account_id == user_account.account_id,
                     DepositHold.status == 'held'
@@ -6290,7 +6305,7 @@ async def create_battery_rental(
                 new_rental.deposit_amount = deposit_required
                 deposit_hold_info = {"amount": deposit_required, "status": "held"}
 
-                # Low credit notification (only relevant when deposit was newly charged)
+                # Low credit notification (only when deposit was newly charged)
                 remaining_available = available_credit - deposit_required
                 if remaining_available < 0:
                     notification = Notification(
@@ -6305,7 +6320,7 @@ async def create_battery_rental(
                     )
                     db.add(notification)
             else:
-                deposit_hold_info = {"amount": 0, "status": "already_held", "existing_hold_id": existing_battery_hold.hold_id}
+                deposit_hold_info = {"amount": 0, "status": "already_held", "existing_hold_id": existing_battery_hold.hold_id if existing_battery_hold else None}
 
         db.commit()
         db.refresh(new_rental)
@@ -7672,14 +7687,29 @@ async def create_pue_rental(
                 db.add(pue_user_account)
                 db.flush()
 
-            # Skip deposit if user already has an active PUE deposit held
-            existing_pue_hold = db.query(DepositHold).filter(
-                DepositHold.account_id == pue_user_account.account_id,
-                DepositHold.rental_type == 'pue',
-                DepositHold.status == 'held'
-            ).first()
+            # Check hub setting: charge deposit for each additional concurrent PUE item?
+            hub_settings_for_pue_deposit = db.query(HubSettings).filter(HubSettings.hub_id == pue.hub_id).first()
+            pue_concurrent_deposit = (
+                bool(hub_settings_for_pue_deposit.pue_concurrent_deposit)
+                if hub_settings_for_pue_deposit and hub_settings_for_pue_deposit.pue_concurrent_deposit is not None
+                else True  # Default True: PUE charges per concurrent item
+            )
 
-            if not existing_pue_hold:
+            # Determine whether to charge a deposit
+            existing_pue_hold = None
+            if pue_concurrent_deposit:
+                # Charge for each concurrent PUE rental — always create a new hold
+                should_charge_pue_deposit = True
+            else:
+                # Skip if already holds any PUE deposit (first-time only)
+                existing_pue_hold = db.query(DepositHold).filter(
+                    DepositHold.account_id == pue_user_account.account_id,
+                    DepositHold.rental_type == 'pue',
+                    DepositHold.status == 'held'
+                ).first()
+                should_charge_pue_deposit = existing_pue_hold is None
+
+            if should_charge_pue_deposit:
                 # Calculate available credit
                 active_holds_total = db.query(func.coalesce(func.sum(DepositHold.amount), 0)).filter(
                     DepositHold.account_id == pue_user_account.account_id,
@@ -7705,7 +7735,7 @@ async def create_pue_rental(
                 new_rental.deposit_amount = pue_deposit_amount
                 deposit_hold_info = {"amount": pue_deposit_amount, "status": "held"}
 
-                # Low credit notification (only relevant when deposit was newly charged)
+                # Low credit notification (only when deposit was newly charged)
                 remaining_available = available_credit - pue_deposit_amount
                 if remaining_available < 0:
                     notification = Notification(
@@ -7720,7 +7750,7 @@ async def create_pue_rental(
                     )
                     db.add(notification)
             else:
-                deposit_hold_info = {"amount": 0, "status": "already_held", "existing_hold_id": existing_pue_hold.hold_id}
+                deposit_hold_info = {"amount": 0, "status": "already_held", "existing_hold_id": existing_pue_hold.hold_id if existing_pue_hold else None}
 
         # Add notes if provided
         if rental.notes:
@@ -12186,7 +12216,9 @@ async def get_hub_settings(
             "overdue_notification_hours": 24,
             "default_table_rows_per_page": 50,
             "battery_status_green_hours": 3,
-            "battery_status_orange_hours": 8
+            "battery_status_orange_hours": 8,
+            "battery_concurrent_deposit": False,
+            "pue_concurrent_deposit": True
         }
 
     return {
@@ -12199,7 +12231,9 @@ async def get_hub_settings(
         "overdue_notification_hours": settings.overdue_notification_hours if settings.overdue_notification_hours else 24,
         "default_table_rows_per_page": settings.default_table_rows_per_page if settings.default_table_rows_per_page else 50,
         "battery_status_green_hours": settings.battery_status_green_hours if settings.battery_status_green_hours else 3,
-        "battery_status_orange_hours": settings.battery_status_orange_hours if settings.battery_status_orange_hours else 8
+        "battery_status_orange_hours": settings.battery_status_orange_hours if settings.battery_status_orange_hours else 8,
+        "battery_concurrent_deposit": bool(settings.battery_concurrent_deposit) if settings.battery_concurrent_deposit is not None else False,
+        "pue_concurrent_deposit": bool(settings.pue_concurrent_deposit) if settings.pue_concurrent_deposit is not None else True
     }
 
 @app.put("/settings/hub/{hub_id}", tags=["Settings"])
@@ -12213,6 +12247,8 @@ async def update_hub_settings(
     default_table_rows_per_page: Optional[int] = Query(None),
     battery_status_green_hours: Optional[int] = Query(None),
     battery_status_orange_hours: Optional[int] = Query(None),
+    battery_concurrent_deposit: Optional[bool] = Query(None),
+    pue_concurrent_deposit: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -12249,6 +12285,12 @@ async def update_hub_settings(
 
     if battery_status_orange_hours is not None:
         settings.battery_status_orange_hours = battery_status_orange_hours
+
+    if battery_concurrent_deposit is not None:
+        settings.battery_concurrent_deposit = battery_concurrent_deposit
+
+    if pue_concurrent_deposit is not None:
+        settings.pue_concurrent_deposit = pue_concurrent_deposit
 
     db.commit()
     db.refresh(settings)

@@ -91,7 +91,9 @@ export const useHubSettingsStore = defineStore('hubSettings', {
           debt_notification_threshold: -100,
           overdue_notification_hours: 24,
           vat_percentage: 0,
-          timezone: 'UTC'
+          timezone: 'UTC',
+          battery_concurrent_deposit: false,
+          pue_concurrent_deposit: true
         }
         return this.settings[hubId]
       } finally {

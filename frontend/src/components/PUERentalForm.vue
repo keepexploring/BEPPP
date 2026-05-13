@@ -786,8 +786,11 @@ const costEstimate = ref(null)
 const userCreditSummary = ref(null)
 const pueSearchFilter = ref('')
 
-// True when the user already has an active PUE deposit held — no new deposit needed
+// True when no new deposit should be charged on this rental
 const depositAlreadyHeld = computed(() => {
+  // If hub charges per concurrent item, always charge — never skip
+  if (hubSettingsStore.currentHubSettings?.pue_concurrent_deposit) return false
+  // Otherwise: skip if the user already has any PUE deposit held
   if (!userCreditSummary.value?.holds) return false
   return userCreditSummary.value.holds.some(h => h.rental_type === 'pue' && h.status === 'held')
 })
