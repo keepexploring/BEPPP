@@ -538,15 +538,25 @@
           />
 
           <!-- VAT/Tax Configuration -->
-          <q-input
-            v-model.number="hubSettings.vat_percentage"
-            type="number"
-            label="VAT/Tax Percentage"
-            hint="VAT or sales tax percentage (e.g., 15 for 15%)"
-            suffix="%"
-            step="0.01"
-            :rules="[val => val >= 0 || 'Must be 0 or greater']"
-          />
+          <div class="row items-center q-gutter-md">
+            <q-toggle
+              v-model="vatEnabled"
+              label="Apply VAT to rentals"
+              color="primary"
+              @update:model-value="val => { if (!val) hubSettings.vat_percentage = 0 }"
+            />
+            <q-input
+              v-if="vatEnabled"
+              v-model.number="hubSettings.vat_percentage"
+              type="number"
+              label="VAT Percentage"
+              hint="VAT or sales tax rate (e.g., 15 for 15%)"
+              suffix="%"
+              step="0.01"
+              style="max-width: 180px"
+              :rules="[val => val > 0 || 'Must be greater than 0']"
+            />
+          </div>
 
           <!-- Timezone Configuration -->
           <q-select
@@ -2353,14 +2363,18 @@ const hasPerRechargeComponent = computed(() => {
 })
 
 const isStructureValid = computed(() => {
+  const hasItemRef = newStructure.value.item_type === 'pue_item'
+    ? (newStructure.value.pue_item_ids && newStructure.value.pue_item_ids.length > 0)
+    : !!newStructure.value.item_reference
   return newStructure.value.name &&
          newStructure.value.item_type &&
-         newStructure.value.item_reference &&
+         hasItemRef &&
          newStructure.value.components.length > 0 &&
          newStructure.value.components.every(c => c.component_name && c.unit_type && c.rate > 0)
 })
 
 // Hub Settings
+const vatEnabled = ref(false)
 const hubSettings = ref({
   debt_notification_threshold: -100,
   default_currency: 'USD',
@@ -2463,6 +2477,7 @@ const loadHubSettings = async () => {
   try {
     const response = await settingsAPI.getHubSettings(activeHubId.value)
     hubSettings.value = response.data
+    vatEnabled.value = (response.data.vat_percentage || 0) > 0
   } catch (error) {
     console.error('Failed to load hub settings:', error)
   }
@@ -3733,7 +3748,8 @@ const saveStructure = async () => {
       item_total_cost: newStructure.value.item_total_cost,
       allow_multiple_items: newStructure.value.allow_multiple_items,
       allow_custom_duration: newStructure.value.allow_custom_duration,
-      pue_item_ids: pueItemIdsParam
+      pue_item_ids: pueItemIdsParam,
+      deposit_amount: requiresDeposit.value ? (newStructure.value.deposit_amount || 0) : 0
     }
 
     if (editingStructure.value) {

@@ -3615,7 +3615,13 @@ async def delete_user(
         user = db.query(User).filter(User.user_id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        
+
+        # Delete account first — SQLAlchemy doesn't cascade this without explicit ORM config
+        account = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
+        if account:
+            db.delete(account)
+            db.flush()
+
         db.delete(user)
         db.commit()
         return {"message": "User deleted successfully"}
@@ -5690,13 +5696,13 @@ async def calculate_return_cost(
             "amount": float(rental.total_cost)
         })
 
-    # Get hub VAT (default to 15% if not set)
+    # Get hub VAT from HubSettings (0 = no VAT)
     battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == rental.battery_id).first()
-    vat_percentage = 15.0  # Default VAT percentage
+    vat_percentage = 0.0
     if battery and battery.hub_id:
-        hub = db.query(SolarHub).filter(SolarHub.hub_id == battery.hub_id).first()
-        if hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None:
-            vat_percentage = hub.vat_percentage
+        hub_settings = db.query(HubSettings).filter(HubSettings.hub_id == battery.hub_id).first()
+        if hub_settings and hub_settings.vat_percentage is not None:
+            vat_percentage = float(hub_settings.vat_percentage)
 
     vat_amount = subtotal * (vat_percentage / 100)
     total = subtotal + vat_amount
@@ -7329,11 +7335,11 @@ async def calculate_battery_rental_return_cost(
 
                 subtotal += component_cost
 
-    # Get hub VAT
-    vat_percentage = 15.0
-    hub = db.query(SolarHub).filter(SolarHub.hub_id == rental.hub_id).first()
-    if hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None:
-        vat_percentage = hub.vat_percentage
+    # Get hub VAT from HubSettings (0 = no VAT)
+    vat_percentage = 0.0
+    hub_settings = db.query(HubSettings).filter(HubSettings.hub_id == rental.hub_id).first()
+    if hub_settings and hub_settings.vat_percentage is not None:
+        vat_percentage = float(hub_settings.vat_percentage)
 
     vat_amount = subtotal * (vat_percentage / 100)
     total = subtotal + vat_amount
@@ -8169,13 +8175,13 @@ async def calculate_pue_rental_return_cost(
                     })
                     subtotal += component_cost
 
-    # Get hub VAT
+    # Get hub VAT from HubSettings (0 = no VAT)
     pue = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == rental.pue_id).first()
-    vat_percentage = 15.0
+    vat_percentage = 0.0
     if pue and pue.hub_id:
-        hub = db.query(SolarHub).filter(SolarHub.hub_id == pue.hub_id).first()
-        if hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None:
-            vat_percentage = hub.vat_percentage
+        hub_settings = db.query(HubSettings).filter(HubSettings.hub_id == pue.hub_id).first()
+        if hub_settings and hub_settings.vat_percentage is not None:
+            vat_percentage = float(hub_settings.vat_percentage)
 
     vat_amount = subtotal * (vat_percentage / 100)
     total = subtotal + vat_amount
@@ -11749,6 +11755,7 @@ async def update_cost_structure(
     allow_multiple_items: Optional[bool] = Query(None),
     allow_custom_duration: Optional[bool] = Query(None),
     pue_item_ids: Optional[str] = Query(None),  # JSON array of pue_id strings for junction table
+    deposit_amount: Optional[float] = Query(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -11780,6 +11787,8 @@ async def update_cost_structure(
         structure.allow_multiple_items = allow_multiple_items
     if allow_custom_duration is not None:
         structure.allow_custom_duration = allow_custom_duration
+    if deposit_amount is not None:
+        structure.deposit_amount = deposit_amount
 
     # Update components if provided
     if components is not None:

@@ -4,6 +4,13 @@
       <q-toolbar>
         <q-btn dense flat round icon="menu" @click="toggleLeftDrawer" />
 
+        <q-btn
+          v-if="canGoBack"
+          dense flat round icon="arrow_back"
+          @click="router.back()"
+          class="q-mr-xs"
+        />
+
         <q-toolbar-title>
           <q-icon name="battery_charging_full" size="sm" />
           BEPPP
@@ -389,7 +396,7 @@
 
 <script setup>
 import { ref, computed, inject, onMounted, onUnmounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from 'stores/auth'
 import { useQuasar } from 'quasar'
 import { notificationsAPI } from 'src/services/api'
@@ -399,7 +406,10 @@ import { retryFailedMutation, discardFailedMutation } from 'src/services/syncMan
 const $q = useQuasar()
 const authStore = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 const leftDrawerOpen = ref(false)
+
+const canGoBack = computed(() => route.name !== 'dashboard')
 
 // Offline state (provided by boot/offline.js)
 const networkState = inject('networkState', { online: ref(true) })

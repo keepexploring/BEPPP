@@ -242,7 +242,11 @@
                 dense
                 icon="visibility"
                 color="primary"
-                :to="{ name: 'rental-detail', params: { id: props.row.rentral_id } }"
+                :to="props.row.rental_type === 'battery'
+                  ? { name: 'battery-rental-detail', params: { id: props.row.rentral_id } }
+                  : props.row.rental_type === 'pue'
+                  ? { name: 'pue-rental-detail', params: { id: props.row.pue_rental_id } }
+                  : { name: 'rental-detail', params: { id: props.row.rentral_id } }"
               />
               <q-btn
                 v-if="props.row.status === 'active' || props.row.status === 'overdue'"
