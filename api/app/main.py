@@ -14209,6 +14209,115 @@ async def reorder_job_cards(
     return {"message": f"Updated {updated_count} job cards"}
 
 # ============================================================================
+# GLOBAL SEARCH
+# ============================================================================
+
+@app.get("/search", tags=["Search"])
+async def global_search(
+    q: str = Query(..., min_length=2, description="Search query (min 2 characters)"),
+    hub_id: Optional[int] = Query(None, description="Limit results to this hub"),
+    limit: int = Query(5, ge=1, le=20),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Search across users, batteries, battery rentals, and PUE rentals."""
+    role = current_user.get('role')
+    user_hub_id = current_user.get('hub_id')
+
+    # hub_admin is restricted to their own hub
+    if role == UserRole.HUB_ADMIN:
+        hub_id = user_hub_id
+
+    search = f"%{q.lower()}%"
+    results = {"users": [], "batteries": [], "battery_rentals": [], "pue_rentals": []}
+
+    # --- Users ---
+    uq = db.query(User).filter(
+        or_(
+            func.lower(User.Name).like(search),
+            func.lower(User.username).like(search),
+            func.lower(User.mobile_number).like(search),
+            func.lower(User.short_id).like(search),
+            func.lower(User.users_identification_document_number).like(search),
+        )
+    )
+    if hub_id:
+        uq = uq.filter(User.hub_id == hub_id)
+    for u in uq.limit(limit).all():
+        results["users"].append({
+            "id": u.user_id,
+            "label": u.Name or u.username or f"User {u.user_id}",
+            "caption": u.mobile_number or u.username or "",
+            "short_id": u.short_id,
+            "route": {"name": "user-detail", "params": {"id": u.user_id}}
+        })
+
+    # --- Batteries ---
+    bq = db.query(BEPPPBattery).filter(
+        or_(
+            func.lower(func.cast(BEPPPBattery.battery_id, String)).like(search),
+            func.lower(BEPPPBattery.short_id).like(search),
+        )
+    )
+    if hub_id:
+        bq = bq.filter(BEPPPBattery.hub_id == hub_id)
+    for b in bq.limit(limit).all():
+        results["batteries"].append({
+            "id": b.battery_id,
+            "label": f"Battery {b.battery_id}",
+            "caption": b.short_id or b.status or "",
+            "status": b.status,
+            "route": {"name": "battery-detail", "params": {"id": b.battery_id}}
+        })
+
+    # --- Battery Rentals ---
+    # Search by rental_id or user name (join User for name search)
+    brq = db.query(BatteryRental, User).join(User, BatteryRental.user_id == User.user_id).filter(
+        or_(
+            func.lower(func.cast(BatteryRental.rental_id, String)).like(search),
+            func.lower(User.Name).like(search),
+            func.lower(User.username).like(search),
+        )
+    )
+    if hub_id:
+        brq = brq.filter(BatteryRental.hub_id == hub_id)
+    for rental, user in brq.order_by(BatteryRental.start_date.desc()).limit(limit).all():
+        results["battery_rentals"].append({
+            "id": rental.rental_id,
+            "label": f"Rental #{rental.rental_id}",
+            "caption": f"{user.Name or user.username} — {rental.status}",
+            "status": rental.status,
+            "route": {"name": "battery-rental-detail", "params": {"id": rental.rental_id}}
+        })
+
+    # --- PUE Rentals ---
+    prq = db.query(PUERental, User, ProductiveUseEquipment)\
+        .join(User, PUERental.user_id == User.user_id)\
+        .join(ProductiveUseEquipment, PUERental.pue_id == ProductiveUseEquipment.pue_id)\
+        .filter(
+            or_(
+                func.lower(func.cast(PUERental.pue_rental_id, String)).like(search),
+                func.lower(User.Name).like(search),
+                func.lower(User.username).like(search),
+                func.lower(ProductiveUseEquipment.name).like(search),
+            )
+        )
+    if hub_id:
+        prq = prq.filter(ProductiveUseEquipment.hub_id == hub_id)
+    for rental, user, pue in prq.order_by(PUERental.timestamp_taken.desc()).limit(limit).all():
+        results["pue_rentals"].append({
+            "id": rental.pue_rental_id,
+            "label": f"PUE Rental #{rental.pue_rental_id}",
+            "caption": f"{user.Name or user.username} — {pue.name}",
+            "active": rental.is_active,
+            "route": {"name": "pue-rental-detail", "params": {"id": rental.pue_rental_id}}
+        })
+
+    total = sum(len(v) for v in results.values())
+    return {"query": q, "total": total, "results": results}
+
+
+# ============================================================================
 # RUN THE APP
 # ============================================================================
 

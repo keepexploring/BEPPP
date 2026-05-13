@@ -437,4 +437,8 @@ export const jobCardsAPI = {
   getAdminUsers: () => api.get('/job-cards/admin-users')
 }
 
+export const searchAPI = {
+  search: (q, hubId) => api.get('/search', { params: { q, hub_id: hubId } })
+}
+
 export default api

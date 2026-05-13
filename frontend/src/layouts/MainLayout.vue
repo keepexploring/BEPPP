@@ -24,6 +24,10 @@
           class="q-mr-sm"
         />
 
+        <q-btn flat round dense icon="search" class="q-mr-xs" @click="showSearch = true">
+          <q-tooltip>Search (users, batteries, rentals)</q-tooltip>
+        </q-btn>
+
         <q-space />
 
         <q-chip
@@ -391,6 +395,8 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <GlobalSearchDialog v-model="showSearch" />
   </q-layout>
 </template>
 
@@ -402,12 +408,14 @@ import { useQuasar } from 'quasar'
 import { notificationsAPI } from 'src/services/api'
 import { getFailedMutations } from 'src/services/offlineDb'
 import { retryFailedMutation, discardFailedMutation } from 'src/services/syncManager'
+import GlobalSearchDialog from 'src/components/GlobalSearchDialog.vue'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 const leftDrawerOpen = ref(false)
+const showSearch = ref(false)
 
 const canGoBack = computed(() => route.name !== 'dashboard')
 
@@ -597,15 +605,24 @@ const onCacheUpdated = () => {
 }
 
 // Trigger notification check and load on mount
+const onKeydown = (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault()
+    showSearch.value = true
+  }
+}
+
 onMounted(() => {
   triggerNotificationCheck()
   window.addEventListener('offline-mutation-queued', onMutationQueued)
   window.addEventListener('cache-updated', onCacheUpdated)
+  window.addEventListener('keydown', onKeydown)
 })
 
 onUnmounted(() => {
   window.removeEventListener('offline-mutation-queued', onMutationQueued)
   window.removeEventListener('cache-updated', onCacheUpdated)
+  window.removeEventListener('keydown', onKeydown)
   if (cacheUpdatedTimer) clearTimeout(cacheUpdatedTimer)
 })
 </script>
