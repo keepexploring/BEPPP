@@ -42,11 +42,29 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 APP_DIR="/opt/battery-hub"
+REPO_DIR="/root/BEPPP"
 
 # Check if app directory exists
 if [ ! -d "$APP_DIR" ]; then
     log_error "Application directory $APP_DIR not found. Run deploy.sh first."
     exit 1
+fi
+
+###############################################################################
+# SELF-UPDATE: pull latest code first, re-exec if this script changed
+###############################################################################
+
+if [ -d "$REPO_DIR" ]; then
+    log_info "Pulling latest code for self-update check..."
+    cd "$REPO_DIR"
+    git pull origin main --quiet
+
+    SCRIPT_PATH="$(realpath "$0")"
+    if ! diff -q "$REPO_DIR/update.sh" "$SCRIPT_PATH" > /dev/null 2>&1; then
+        log_info "update.sh has changed — restarting with new version..."
+        cp "$REPO_DIR/update.sh" "$SCRIPT_PATH"
+        exec bash "$SCRIPT_PATH" "$@"
+    fi
 fi
 
 log_info "Starting Battery Hub update..."
@@ -100,13 +118,11 @@ log_success "Nginx config backed up"
 
 log_info "Pulling latest code from GitHub..."
 
-# Use the git repo in /root/BEPPP if it exists
-REPO_DIR="/root/BEPPP"
+# REPO_DIR already pulled above in the self-update step
 if [ -d "$REPO_DIR" ]; then
     log_info "Using repository at $REPO_DIR"
     cd "$REPO_DIR"
-    git pull origin main
-    log_success "Code updated from GitHub"
+    log_success "Code already up to date (pulled during self-update check)"
 
     # Copy updated files to app directory (except nginx config, .env, and migration backups)
     log_info "Copying updated files to $APP_DIR..."
