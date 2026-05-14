@@ -6,6 +6,24 @@
     <q-timeline color="primary">
 
       <q-timeline-entry
+        title="v1.7 — Mobile UX, global search, deposit fixes, cache improvements"
+        subtitle="May 2026"
+        icon="search"
+        color="primary"
+      >
+        <div class="text-body2">
+          <ul class="q-pl-md q-my-xs">
+            <li>Global search (Ctrl+K): now includes page shortcuts and hub results; role-scoped (kiosk operators see only customers and batteries)</li>
+            <li>Mobile UX: all dialogs now fit portrait screens; low-priority table columns hidden on small screens; Job Cards shows tab view on mobile</li>
+            <li>Deposit display fix: customer detail page now updates immediately after a rental is created (was showing stale cached value)</li>
+            <li>Cache staleness: Rental, Battery, and PUE detail pages now refresh automatically when background data sync completes</li>
+            <li>Failed sync: added Discard All button to the failed mutations dialog</li>
+            <li>Help page: new sections covering the Deposit System, Data Page, and Global Search</li>
+          </ul>
+        </div>
+      </q-timeline-entry>
+
+      <q-timeline-entry
         title="v1.6 — Hub filtering, CSV exports, release page"
         subtitle="May 2026"
         icon="filter_list"
