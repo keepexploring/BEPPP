@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Dockerfile for Panel Analytics
 FROM python:3.11-slim
 
@@ -12,8 +13,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 COPY panel_dashboard/requirements.txt ./panel_requirements.txt
 
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir -r panel_requirements.txt
+# pip cache persists between builds — only re-downloads changed packages
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt && \
+    pip install -r panel_requirements.txt
 
 # Copy application code
 COPY panel_dashboard /app/panel_dashboard

@@ -150,7 +150,7 @@ fi
 
 log_info "Rebuilding Docker images..."
 cd "$APP_DIR"
-docker compose -f docker-compose.prod.yml build
+DOCKER_BUILDKIT=1 docker compose -f docker-compose.prod.yml build
 
 log_success "Docker images rebuilt"
 
