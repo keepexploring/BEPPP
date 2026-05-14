@@ -13,11 +13,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 COPY panel_dashboard/requirements.txt ./panel_requirements.txt
 
-# pip cache persists between builds — only re-downloads changed packages
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip && \
-    pip install -r requirements.txt && \
-    pip install -r panel_requirements.txt
+# Install uv for fast dependency resolution
+RUN pip install uv
+
+# uv cache persists between builds — only re-downloads changed packages
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system -r requirements.txt && \
+    uv pip install --system -r panel_requirements.txt
 
 # Copy application code
 COPY panel_dashboard /app/panel_dashboard

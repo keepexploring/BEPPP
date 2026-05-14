@@ -9,12 +9,14 @@ WORKDIR /app
 # Install cron
 RUN apt-get update && apt-get install -y cron && rm -rf /var/lib/apt/lists/*
 
+# Install uv for fast dependency resolution
+RUN pip install uv
+
 # Copy requirements and install dependencies
 COPY requirements.txt .
-# pip cache persists between builds — only re-downloads changed packages
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip && \
-    pip install -r requirements.txt
+# uv cache persists between builds — only re-downloads changed packages
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system -r requirements.txt
 
 # Copy application code
 COPY models.py .
