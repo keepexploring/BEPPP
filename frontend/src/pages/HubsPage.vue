@@ -85,7 +85,7 @@
 
     <!-- Create/Edit Dialog -->
     <q-dialog v-model="showCreateDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">{{ editingHub ? 'Edit Hub' : 'Create Hub' }}</div>
         </q-card-section>

@@ -416,15 +416,24 @@
 
           <template v-slot:body-cell-options="props">
             <q-td :props="props">
-              <q-btn
-                flat
-                dense
-                size="sm"
-                :label="`${props.row.options?.length || 0} options`"
-                color="primary"
-                @click="viewQuestionOptions(props.row)"
-                v-if="['multiple_choice', 'multiple_select', 'rating', 'yes_no'].includes(props.row.question_type)"
-              />
+              <template v-if="['multiple_choice', 'multiple_select', 'rating', 'yes_no'].includes(props.row.question_type)">
+                <q-btn
+                  flat
+                  dense
+                  size="sm"
+                  :label="`${props.row.options?.length || 0} options`"
+                  :color="needsOptions(props.row) ? 'negative' : 'primary'"
+                  @click="viewQuestionOptions(props.row)"
+                />
+                <q-badge
+                  v-if="needsOptions(props.row)"
+                  color="negative"
+                  label="Fix needed"
+                  class="q-ml-xs"
+                >
+                  <q-tooltip>This question type requires options. Click Edit → Save to auto-generate (yes/no) or add options manually.</q-tooltip>
+                </q-badge>
+              </template>
             </q-td>
           </template>
 
@@ -538,15 +547,61 @@
           />
 
           <!-- VAT/Tax Configuration -->
-          <q-input
-            v-model.number="hubSettings.vat_percentage"
-            type="number"
-            label="VAT/Tax Percentage"
-            hint="VAT or sales tax percentage (e.g., 15 for 15%)"
-            suffix="%"
-            step="0.01"
-            :rules="[val => val >= 0 || 'Must be 0 or greater']"
-          />
+          <div class="row items-center q-gutter-md">
+            <q-toggle
+              v-model="vatEnabled"
+              label="Apply VAT to rentals"
+              color="primary"
+              @update:model-value="val => { if (!val) hubSettings.vat_percentage = 0 }"
+            />
+            <q-input
+              v-if="vatEnabled"
+              v-model.number="hubSettings.vat_percentage"
+              type="number"
+              label="VAT Percentage"
+              hint="VAT or sales tax rate (e.g., 15 for 15%)"
+              suffix="%"
+              step="0.01"
+              style="max-width: 180px"
+              :rules="[val => val > 0 || 'Must be greater than 0']"
+            />
+          </div>
+
+          <!-- Deposit Settings -->
+          <div class="q-mt-md">
+            <div class="text-subtitle2 q-mb-xs">Deposit Rules</div>
+            <div class="text-caption text-grey-7 q-mb-sm">
+              Controls when a deposit is charged. When disabled, a customer only ever pays one deposit per rental type regardless of how many times they rent sequentially.
+            </div>
+            <div class="column q-gutter-sm">
+              <q-toggle
+                v-model="hubSettings.battery_concurrent_deposit"
+                label="Charge battery deposit for each additional concurrent battery rental"
+                color="warning"
+              />
+              <div class="text-caption text-grey-7 q-ml-xl">
+                <span v-if="hubSettings.battery_concurrent_deposit">
+                  A deposit is charged for every battery rented at the same time. If a customer has 2 batteries out simultaneously, 2 deposits are held.
+                </span>
+                <span v-else>
+                  Deposit is held once per customer and kept until admin releases it. Returning and re-renting does not create a new deposit.
+                </span>
+              </div>
+              <q-toggle
+                v-model="hubSettings.pue_concurrent_deposit"
+                label="Charge PUE deposit for each additional concurrent PUE rental"
+                color="warning"
+              />
+              <div class="text-caption text-grey-7 q-ml-xl">
+                <span v-if="hubSettings.pue_concurrent_deposit">
+                  A deposit is charged for every PUE rented at the same time. If a customer has 2 PUEs out simultaneously, 2 deposits are held.
+                </span>
+                <span v-else>
+                  Deposit is held once per customer and kept until admin releases it. Returning and re-renting does not create a new deposit.
+                </span>
+              </div>
+            </div>
+          </div>
 
           <!-- Timezone Configuration -->
           <q-select
@@ -647,7 +702,7 @@
 
     <!-- Add/Edit Duration Dialog -->
     <q-dialog v-model="showAddDurationDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">{{ editingDuration ? 'Edit' : 'Add' }} Rental Duration Preset</div>
         </q-card-section>
@@ -672,7 +727,7 @@
 
     <!-- Add/Edit PUE Type Dialog -->
     <q-dialog v-model="showAddTypeDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">{{ editingType ? 'Edit' : 'Add' }} PUE Type</div>
         </q-card-section>
@@ -691,7 +746,7 @@
 
     <!-- Add Payment Type Dialog -->
     <q-dialog v-model="showAddPaymentTypeDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Add Payment Type</div>
         </q-card-section>
@@ -723,7 +778,7 @@
 
     <!-- Add/Edit Survey Question Dialog -->
     <q-dialog v-model="showAddSurveyQuestionDialog" persistent>
-      <q-card style="min-width: 600px; max-width: 800px">
+      <q-card style="width: 90vw; max-width: 800px">
         <q-card-section>
           <div class="text-h6">{{ editingSurveyQuestion ? 'Edit' : 'Add' }} Survey Question</div>
         </q-card-section>
@@ -982,7 +1037,7 @@
 
     <!-- View Question Options Dialog -->
     <q-dialog v-model="showQuestionOptionsDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Question Options</div>
           <div class="text-caption text-grey-7">{{ viewingQuestionOptions?.question_text }}</div>
@@ -1013,7 +1068,7 @@
 
     <!-- Add/Edit Cost Structure Dialog -->
     <q-dialog v-model="showAddStructureDialog" persistent>
-      <q-card style="min-width: 700px; max-width: 900px; max-height: 90vh">
+      <q-card style="width: 90vw; max-width: 900px; max-height: 90vh">
         <q-card-section>
           <div class="text-h6">{{ editingStructure ? 'Edit' : 'Create' }} Cost Structure</div>
         </q-card-section>
@@ -1780,7 +1835,7 @@
 
     <!-- Add Pricing Dialog -->
     <q-dialog v-model="showAddPricingDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Add Pricing Configuration</div>
         </q-card-section>
@@ -1956,7 +2011,7 @@
 
     <!-- Add GESI Status Option Dialog -->
     <q-dialog v-model="showAddGesiDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Add GESI Status Option</div>
         </q-card-section>
@@ -1996,7 +2051,7 @@
 
     <!-- Add Business Category Option Dialog -->
     <q-dialog v-model="showAddBusinessCategoryDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Add Business Category Option</div>
         </q-card-section>
@@ -2036,7 +2091,7 @@
 
     <!-- Add Signup Reason Option Dialog -->
     <q-dialog v-model="showAddSignupReasonDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Add Signup Reason Option</div>
         </q-card-section>
@@ -2353,14 +2408,18 @@ const hasPerRechargeComponent = computed(() => {
 })
 
 const isStructureValid = computed(() => {
+  const hasItemRef = newStructure.value.item_type === 'pue_item'
+    ? (newStructure.value.pue_item_ids && newStructure.value.pue_item_ids.length > 0)
+    : !!newStructure.value.item_reference
   return newStructure.value.name &&
          newStructure.value.item_type &&
-         newStructure.value.item_reference &&
+         hasItemRef &&
          newStructure.value.components.length > 0 &&
          newStructure.value.components.every(c => c.component_name && c.unit_type && c.rate > 0)
 })
 
 // Hub Settings
+const vatEnabled = ref(false)
 const hubSettings = ref({
   debt_notification_threshold: -100,
   default_currency: 'USD',
@@ -2370,7 +2429,9 @@ const hubSettings = ref({
   timezone: 'UTC',
   default_table_rows_per_page: 50,
   battery_status_green_hours: 3,
-  battery_status_orange_hours: 8
+  battery_status_orange_hours: 8,
+  battery_concurrent_deposit: false,
+  pue_concurrent_deposit: true
 })
 
 const currencyOptions = ['USD', 'GBP', 'EUR', 'MWK', 'ZAR', 'KES', 'UGX', 'TZS', 'NGN', 'GHS', 'RWF']
@@ -2463,6 +2524,7 @@ const loadHubSettings = async () => {
   try {
     const response = await settingsAPI.getHubSettings(activeHubId.value)
     hubSettings.value = response.data
+    vatEnabled.value = (response.data.vat_percentage || 0) > 0
   } catch (error) {
     console.error('Failed to load hub settings:', error)
   }
@@ -3156,6 +3218,11 @@ const formatQuestionType = (type) => {
   return labels[type] || type
 }
 
+const needsOptions = (question) => {
+  const requiresOptions = ['multiple_choice', 'multiple_select', 'yes_no'].includes(question.question_type)
+  return requiresOptions && (!question.options || question.options.length === 0)
+}
+
 const exportSurveyResponses = async () => {
   try {
     const params = {
@@ -3733,7 +3800,8 @@ const saveStructure = async () => {
       item_total_cost: newStructure.value.item_total_cost,
       allow_multiple_items: newStructure.value.allow_multiple_items,
       allow_custom_duration: newStructure.value.allow_custom_duration,
-      pue_item_ids: pueItemIdsParam
+      pue_item_ids: pueItemIdsParam,
+      deposit_amount: requiresDeposit.value ? (newStructure.value.deposit_amount || 0) : 0
     }
 
     if (editingStructure.value) {

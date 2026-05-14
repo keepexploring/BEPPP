@@ -169,6 +169,7 @@
             <q-table
               :rows="filteredUsers"
               :columns="userColumns"
+              :visible-columns="visibleUserColumns"
               row-key="user_id"
               :loading="usersLoading"
               :rows-per-page-options="[10, 25, 50, 100]"
@@ -249,6 +250,7 @@
             <q-table
               :rows="filteredTransactions"
               :columns="transactionColumns"
+              :visible-columns="visibleTransactionColumns"
               row-key="transaction_id"
               :loading="transactionsLoading"
               :rows-per-page-options="[10, 25, 50, 100]"
@@ -290,7 +292,7 @@
 
     <!-- Record Payment Dialog -->
     <q-dialog v-model="showPaymentDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Record Payment</div>
           <div class="text-subtitle2">Customer: {{ selectedUser?.user }}</div>
@@ -459,12 +461,12 @@ const userPagination = ref({
 })
 
 const userColumns = [
-  { name: 'user_id', label: 'Customer ID', field: 'user_id', align: 'left', sortable: true },
+  { name: 'user_id', label: 'Customer ID', field: 'user_id', align: 'left', sortable: true, hideOnMobile: true },
   { name: 'user_name', label: 'Name', field: 'user_name', align: 'left', sortable: true },
-  { name: 'mobile_number', label: 'Mobile', field: 'mobile_number', align: 'left', sortable: true },
-  { name: 'role', label: 'Role', field: 'role', align: 'center', sortable: true },
+  { name: 'mobile_number', label: 'Mobile', field: 'mobile_number', align: 'left', sortable: true, hideOnMobile: true },
+  { name: 'role', label: 'Role', field: 'role', align: 'center', sortable: true, hideOnMobile: true },
   { name: 'balance', label: 'Balance', field: 'balance', align: 'right', sortable: true },
-  { name: 'total_spent', label: 'Total Spent', field: 'total_spent', align: 'right', sortable: true },
+  { name: 'total_spent', label: 'Total Spent', field: 'total_spent', align: 'right', sortable: true, hideOnMobile: true },
   { name: 'total_owed', label: 'Total Owed', field: 'total_owed', align: 'right', sortable: true }
 ]
 
@@ -517,12 +519,24 @@ const transactionPagination = ref({
 const transactionColumns = [
   { name: 'timestamp', label: 'Date', field: 'timestamp', align: 'left', sortable: true },
   { name: 'user_name', label: 'Customer Name', field: 'user_name', align: 'left', sortable: true },
-  { name: 'user_id', label: 'Customer ID', field: 'user_id', align: 'left', sortable: true },
-  { name: 'mobile_number', label: 'Mobile', field: 'mobile_number', align: 'left', sortable: true },
+  { name: 'user_id', label: 'Customer ID', field: 'user_id', align: 'left', sortable: true, hideOnMobile: true },
+  { name: 'mobile_number', label: 'Mobile', field: 'mobile_number', align: 'left', sortable: true, hideOnMobile: true },
   { name: 'transaction_type', label: 'Type', field: 'transaction_type', align: 'center', sortable: true },
   { name: 'amount', label: 'Amount', field: 'amount', align: 'right', sortable: true },
-  { name: 'description', label: 'Description', field: 'description', align: 'left' }
+  { name: 'description', label: 'Description', field: 'description', align: 'left', hideOnMobile: true }
 ]
+
+const visibleUserColumns = computed(() =>
+  $q.screen.xs
+    ? userColumns.filter(c => !c.hideOnMobile).map(c => c.name)
+    : userColumns.map(c => c.name)
+)
+
+const visibleTransactionColumns = computed(() =>
+  $q.screen.xs
+    ? transactionColumns.filter(c => !c.hideOnMobile).map(c => c.name)
+    : transactionColumns.map(c => c.name)
+)
 
 const filteredTransactions = computed(() => {
   if (!transactionSearch.value) return allTransactions.value

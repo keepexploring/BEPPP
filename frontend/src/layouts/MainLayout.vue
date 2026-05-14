@@ -4,6 +4,13 @@
       <q-toolbar>
         <q-btn dense flat round icon="menu" @click="toggleLeftDrawer" />
 
+        <q-btn
+          v-if="canGoBack"
+          dense flat round icon="arrow_back"
+          @click="router.back()"
+          class="q-mr-xs"
+        />
+
         <q-toolbar-title>
           <q-icon name="battery_charging_full" size="sm" />
           BEPPP
@@ -16,6 +23,10 @@
           :to="{ name: 'dashboard' }"
           class="q-mr-sm"
         />
+
+        <q-btn flat round dense icon="search" class="q-mr-xs" @click="showSearch = true">
+          <q-tooltip>Search (users, batteries, rentals)</q-tooltip>
+        </q-btn>
 
         <q-space />
 
@@ -68,7 +79,7 @@
         <q-btn flat round dense icon="notifications">
           <q-badge v-if="unreadCount > 0" color="red" floating>{{ unreadCount }}</q-badge>
           <q-menu max-width="400px">
-            <q-list style="min-width: 350px; max-height: 400px">
+            <q-list style="width: min(90vw, 400px); max-height: 400px">
               <q-item>
                 <q-item-section>
                   <q-item-label class="text-weight-bold">Notifications</q-item-label>
@@ -325,6 +336,20 @@
               <q-item-label>Webhook Logs</q-item-label>
             </q-item-section>
           </q-item>
+          <q-separator class="q-my-xs" />
+
+          <q-item
+            clickable
+            :to="{ name: 'release-info' }"
+            v-ripple
+          >
+            <q-item-section avatar>
+              <q-icon name="new_releases" />
+            </q-item-section>
+            <q-item-section>
+              <q-item-label>Release Info</q-item-label>
+            </q-item-section>
+          </q-item>
         </template>
       </q-list>
     </q-drawer>
@@ -335,7 +360,7 @@
 
     <!-- Failed Mutations Dialog -->
     <q-dialog v-model="showFailedDialog">
-      <q-card style="min-width: 400px; max-width: 600px">
+      <q-card style="width: 90vw; max-width: 600px">
         <q-card-section>
           <div class="text-h6">Failed Sync Items</div>
           <div class="text-caption text-grey-7">These changes could not be saved to the server.</div>
@@ -366,26 +391,40 @@
         </q-list>
 
         <q-card-actions align="right">
+          <q-btn
+            v-if="failedMutations.length > 1"
+            flat
+            label="Discard All"
+            color="negative"
+            @click="discardAllMutations"
+          />
           <q-btn flat label="Close" v-close-popup />
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <GlobalSearchDialog v-model="showSearch" />
   </q-layout>
 </template>
 
 <script setup>
 import { ref, computed, inject, onMounted, onUnmounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from 'stores/auth'
 import { useQuasar } from 'quasar'
 import { notificationsAPI } from 'src/services/api'
 import { getFailedMutations } from 'src/services/offlineDb'
 import { retryFailedMutation, discardFailedMutation } from 'src/services/syncManager'
+import GlobalSearchDialog from 'src/components/GlobalSearchDialog.vue'
 
 const $q = useQuasar()
 const authStore = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 const leftDrawerOpen = ref(false)
+const showSearch = ref(false)
+
+const canGoBack = computed(() => route.name !== 'dashboard')
 
 // Offline state (provided by boot/offline.js)
 const networkState = inject('networkState', { online: ref(true) })
@@ -429,6 +468,14 @@ const discardMutation = async (id) => {
   if (failedMutations.value.length === 0) {
     showFailedDialog.value = false
   }
+}
+
+const discardAllMutations = async () => {
+  for (const m of failedMutations.value) {
+    await discardFailedMutation(m.id)
+  }
+  failedMutations.value = []
+  showFailedDialog.value = false
 }
 
 // Load failed mutations when dialog opens
@@ -573,15 +620,24 @@ const onCacheUpdated = () => {
 }
 
 // Trigger notification check and load on mount
+const onKeydown = (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault()
+    showSearch.value = true
+  }
+}
+
 onMounted(() => {
   triggerNotificationCheck()
   window.addEventListener('offline-mutation-queued', onMutationQueued)
   window.addEventListener('cache-updated', onCacheUpdated)
+  window.addEventListener('keydown', onKeydown)
 })
 
 onUnmounted(() => {
   window.removeEventListener('offline-mutation-queued', onMutationQueued)
   window.removeEventListener('cache-updated', onCacheUpdated)
+  window.removeEventListener('keydown', onKeydown)
   if (cacheUpdatedTimer) clearTimeout(cacheUpdatedTimer)
 })
 </script>

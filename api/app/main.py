@@ -3231,6 +3231,31 @@ def serialize_user(user):
         data["main_reason_for_signup"] = [s.strip() for s in data["main_reason_for_signup"].split(",")]
     return data
 
+@app.get("/users/")
+async def list_users(
+    hub_id: Optional[int] = Query(None, description="Filter by hub. Superadmins see all hubs if omitted."),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """List users. Superadmins can see all hubs or filter by hub_id. Others see their hub only."""
+    if current_user.get('role') == UserRole.DATA_ADMIN:
+        raise HTTPException(status_code=403, detail="Data admins cannot access user information")
+
+    role = current_user.get('role')
+    user_hub_id = current_user.get('hub_id')
+
+    query = db.query(User)
+    if role == UserRole.SUPERADMIN:
+        if hub_id:
+            query = query.filter(User.hub_id == hub_id)
+        # else: no filter — return all users across all hubs
+    else:
+        # Non-superadmins always scoped to their hub
+        query = query.filter(User.hub_id == user_hub_id)
+
+    users = query.all()
+    return [serialize_user(u) for u in users]
+
 @app.post("/users/")
 async def create_user(
     user: UserCreate,
@@ -3590,7 +3615,13 @@ async def delete_user(
         user = db.query(User).filter(User.user_id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        
+
+        # Delete account first — SQLAlchemy doesn't cascade this without explicit ORM config
+        account = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
+        if account:
+            db.delete(account)
+            db.flush()
+
         db.delete(user)
         db.commit()
         return {"message": "User deleted successfully"}
@@ -5665,13 +5696,13 @@ async def calculate_return_cost(
             "amount": float(rental.total_cost)
         })
 
-    # Get hub VAT (default to 15% if not set)
+    # Get hub VAT from HubSettings (0 = no VAT)
     battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == rental.battery_id).first()
-    vat_percentage = 15.0  # Default VAT percentage
+    vat_percentage = 0.0
     if battery and battery.hub_id:
-        hub = db.query(SolarHub).filter(SolarHub.hub_id == battery.hub_id).first()
-        if hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None:
-            vat_percentage = hub.vat_percentage
+        hub_settings = db.query(HubSettings).filter(HubSettings.hub_id == battery.hub_id).first()
+        if hub_settings and hub_settings.vat_percentage is not None:
+            vat_percentage = float(hub_settings.vat_percentage)
 
     vat_amount = subtotal * (vat_percentage / 100)
     total = subtotal + vat_amount
@@ -6226,45 +6257,70 @@ async def create_battery_rental(
                 db.add(user_account)
                 db.flush()
 
-            # Calculate available credit (balance minus active held deposits)
-            active_holds_total = db.query(func.coalesce(func.sum(DepositHold.amount), 0)).filter(
-                DepositHold.account_id == user_account.account_id,
-                DepositHold.status == 'held'
-            ).scalar()
-            available_credit = user_account.balance - float(active_holds_total)
-
-            if available_credit < deposit_required:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Insufficient credit for deposit. Required: {deposit_required}, Available: {round(available_credit, 2)}. Deposit must be collected as part of the upfront payment."
-                )
-
-            # Create deposit hold
-            hold = DepositHold(
-                account_id=user_account.account_id,
-                rental_id=new_rental.rental_id,
-                rental_type='battery',
-                amount=deposit_required,
-                status='held'
+            # Check hub setting: charge deposit for each additional concurrent item?
+            hub_settings_for_deposit = db.query(HubSettings).filter(HubSettings.hub_id == new_rental.hub_id).first()
+            battery_concurrent_deposit = (
+                bool(hub_settings_for_deposit.battery_concurrent_deposit)
+                if hub_settings_for_deposit and hub_settings_for_deposit.battery_concurrent_deposit is not None
+                else False
             )
-            db.add(hold)
-            new_rental.deposit_amount = deposit_required
-            deposit_hold_info = {"amount": deposit_required, "status": "held"}
 
-            # Check remaining credit and create low-credit notification if needed
-            remaining_available = available_credit - deposit_required
-            if remaining_available < 0:
-                notification = Notification(
-                    hub_id=new_rental.hub_id,
-                    user_id=rental.user_id,
-                    notification_type='low_credit',
-                    title='Low Credit Warning',
-                    message=f"User {user.Name or user.first_names} has insufficient credit (available: {round(remaining_available, 2)})",
-                    severity='warning',
-                    link_type='user',
-                    link_id=str(rental.user_id)
+            # Determine whether to charge a deposit
+            existing_battery_hold = None
+            if battery_concurrent_deposit:
+                # Charge for each concurrent rental — always create a new hold
+                should_charge_deposit = True
+            else:
+                # Default: skip if already holds any battery deposit (first-time only)
+                existing_battery_hold = db.query(DepositHold).filter(
+                    DepositHold.account_id == user_account.account_id,
+                    DepositHold.rental_type == 'battery',
+                    DepositHold.status == 'held'
+                ).first()
+                should_charge_deposit = existing_battery_hold is None
+
+            if should_charge_deposit:
+                # Calculate available credit (balance minus all currently held deposits)
+                active_holds_total = db.query(func.coalesce(func.sum(DepositHold.amount), 0)).filter(
+                    DepositHold.account_id == user_account.account_id,
+                    DepositHold.status == 'held'
+                ).scalar()
+                available_credit = user_account.balance - float(active_holds_total)
+
+                if available_credit < deposit_required:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Insufficient credit for deposit. Required: {deposit_required}, Available: {round(available_credit, 2)}. Deposit must be collected as part of the upfront payment."
+                    )
+
+                # Create deposit hold
+                hold = DepositHold(
+                    account_id=user_account.account_id,
+                    rental_id=new_rental.rental_id,
+                    rental_type='battery',
+                    amount=deposit_required,
+                    status='held'
                 )
-                db.add(notification)
+                db.add(hold)
+                new_rental.deposit_amount = deposit_required
+                deposit_hold_info = {"amount": deposit_required, "status": "held"}
+
+                # Low credit notification (only when deposit was newly charged)
+                remaining_available = available_credit - deposit_required
+                if remaining_available < 0:
+                    notification = Notification(
+                        hub_id=new_rental.hub_id,
+                        user_id=rental.user_id,
+                        notification_type='low_credit',
+                        title='Low Credit Warning',
+                        message=f"User {user.Name or user.first_names} has insufficient credit (available: {round(remaining_available, 2)})",
+                        severity='warning',
+                        link_type='user',
+                        link_id=str(rental.user_id)
+                    )
+                    db.add(notification)
+            else:
+                deposit_hold_info = {"amount": 0, "status": "already_held", "existing_hold_id": existing_battery_hold.hold_id if existing_battery_hold else None}
 
         db.commit()
         db.refresh(new_rental)
@@ -7304,11 +7360,11 @@ async def calculate_battery_rental_return_cost(
 
                 subtotal += component_cost
 
-    # Get hub VAT
-    vat_percentage = 15.0
-    hub = db.query(SolarHub).filter(SolarHub.hub_id == rental.hub_id).first()
-    if hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None:
-        vat_percentage = hub.vat_percentage
+    # Get hub VAT from HubSettings (0 = no VAT)
+    vat_percentage = 0.0
+    hub_settings = db.query(HubSettings).filter(HubSettings.hub_id == rental.hub_id).first()
+    if hub_settings and hub_settings.vat_percentage is not None:
+        vat_percentage = float(hub_settings.vat_percentage)
 
     vat_amount = subtotal * (vat_percentage / 100)
     total = subtotal + vat_amount
@@ -7631,45 +7687,70 @@ async def create_pue_rental(
                 db.add(pue_user_account)
                 db.flush()
 
-            # Calculate available credit
-            active_holds_total = db.query(func.coalesce(func.sum(DepositHold.amount), 0)).filter(
-                DepositHold.account_id == pue_user_account.account_id,
-                DepositHold.status == 'held'
-            ).scalar()
-            available_credit = pue_user_account.balance - float(active_holds_total)
-
-            if available_credit < pue_deposit_amount:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Insufficient credit for deposit. Required: {pue_deposit_amount}, Available: {round(available_credit, 2)}"
-                )
-
-            # Create deposit hold
-            hold = DepositHold(
-                account_id=pue_user_account.account_id,
-                pue_rental_id=new_rental.pue_rental_id,
-                rental_type='pue',
-                amount=pue_deposit_amount,
-                status='held'
+            # Check hub setting: charge deposit for each additional concurrent PUE item?
+            hub_settings_for_pue_deposit = db.query(HubSettings).filter(HubSettings.hub_id == pue.hub_id).first()
+            pue_concurrent_deposit = (
+                bool(hub_settings_for_pue_deposit.pue_concurrent_deposit)
+                if hub_settings_for_pue_deposit and hub_settings_for_pue_deposit.pue_concurrent_deposit is not None
+                else True  # Default True: PUE charges per concurrent item
             )
-            db.add(hold)
-            new_rental.deposit_amount = pue_deposit_amount
-            deposit_hold_info = {"amount": pue_deposit_amount, "status": "held"}
 
-            # Low credit notification
-            remaining_available = available_credit - pue_deposit_amount
-            if remaining_available < 0:
-                notification = Notification(
-                    hub_id=pue.hub_id,
-                    user_id=rental.user_id,
-                    notification_type='low_credit',
-                    title='Low Credit Warning',
-                    message=f"User {user.Name or user.first_names} has insufficient credit (available: {round(remaining_available, 2)})",
-                    severity='warning',
-                    link_type='user',
-                    link_id=str(rental.user_id)
+            # Determine whether to charge a deposit
+            existing_pue_hold = None
+            if pue_concurrent_deposit:
+                # Charge for each concurrent PUE rental — always create a new hold
+                should_charge_pue_deposit = True
+            else:
+                # Skip if already holds any PUE deposit (first-time only)
+                existing_pue_hold = db.query(DepositHold).filter(
+                    DepositHold.account_id == pue_user_account.account_id,
+                    DepositHold.rental_type == 'pue',
+                    DepositHold.status == 'held'
+                ).first()
+                should_charge_pue_deposit = existing_pue_hold is None
+
+            if should_charge_pue_deposit:
+                # Calculate available credit
+                active_holds_total = db.query(func.coalesce(func.sum(DepositHold.amount), 0)).filter(
+                    DepositHold.account_id == pue_user_account.account_id,
+                    DepositHold.status == 'held'
+                ).scalar()
+                available_credit = pue_user_account.balance - float(active_holds_total)
+
+                if available_credit < pue_deposit_amount:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Insufficient credit for deposit. Required: {pue_deposit_amount}, Available: {round(available_credit, 2)}"
+                    )
+
+                # Create deposit hold
+                hold = DepositHold(
+                    account_id=pue_user_account.account_id,
+                    pue_rental_id=new_rental.pue_rental_id,
+                    rental_type='pue',
+                    amount=pue_deposit_amount,
+                    status='held'
                 )
-                db.add(notification)
+                db.add(hold)
+                new_rental.deposit_amount = pue_deposit_amount
+                deposit_hold_info = {"amount": pue_deposit_amount, "status": "held"}
+
+                # Low credit notification (only when deposit was newly charged)
+                remaining_available = available_credit - pue_deposit_amount
+                if remaining_available < 0:
+                    notification = Notification(
+                        hub_id=pue.hub_id,
+                        user_id=rental.user_id,
+                        notification_type='low_credit',
+                        title='Low Credit Warning',
+                        message=f"User {user.Name or user.first_names} has insufficient credit (available: {round(remaining_available, 2)})",
+                        severity='warning',
+                        link_type='user',
+                        link_id=str(rental.user_id)
+                    )
+                    db.add(notification)
+            else:
+                deposit_hold_info = {"amount": 0, "status": "already_held", "existing_hold_id": existing_pue_hold.hold_id if existing_pue_hold else None}
 
         # Add notes if provided
         if rental.notes:
@@ -8144,13 +8225,13 @@ async def calculate_pue_rental_return_cost(
                     })
                     subtotal += component_cost
 
-    # Get hub VAT
+    # Get hub VAT from HubSettings (0 = no VAT)
     pue = db.query(ProductiveUseEquipment).filter(ProductiveUseEquipment.pue_id == rental.pue_id).first()
-    vat_percentage = 15.0
+    vat_percentage = 0.0
     if pue and pue.hub_id:
-        hub = db.query(SolarHub).filter(SolarHub.hub_id == pue.hub_id).first()
-        if hub and hasattr(hub, 'vat_percentage') and hub.vat_percentage is not None:
-            vat_percentage = hub.vat_percentage
+        hub_settings = db.query(HubSettings).filter(HubSettings.hub_id == pue.hub_id).first()
+        if hub_settings and hub_settings.vat_percentage is not None:
+            vat_percentage = float(hub_settings.vat_percentage)
 
     vat_amount = subtotal * (vat_percentage / 100)
     total = subtotal + vat_amount
@@ -11724,6 +11805,7 @@ async def update_cost_structure(
     allow_multiple_items: Optional[bool] = Query(None),
     allow_custom_duration: Optional[bool] = Query(None),
     pue_item_ids: Optional[str] = Query(None),  # JSON array of pue_id strings for junction table
+    deposit_amount: Optional[float] = Query(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -11755,6 +11837,8 @@ async def update_cost_structure(
         structure.allow_multiple_items = allow_multiple_items
     if allow_custom_duration is not None:
         structure.allow_custom_duration = allow_custom_duration
+    if deposit_amount is not None:
+        structure.deposit_amount = deposit_amount
 
     # Update components if provided
     if components is not None:
@@ -12132,7 +12216,9 @@ async def get_hub_settings(
             "overdue_notification_hours": 24,
             "default_table_rows_per_page": 50,
             "battery_status_green_hours": 3,
-            "battery_status_orange_hours": 8
+            "battery_status_orange_hours": 8,
+            "battery_concurrent_deposit": False,
+            "pue_concurrent_deposit": True
         }
 
     return {
@@ -12145,7 +12231,9 @@ async def get_hub_settings(
         "overdue_notification_hours": settings.overdue_notification_hours if settings.overdue_notification_hours else 24,
         "default_table_rows_per_page": settings.default_table_rows_per_page if settings.default_table_rows_per_page else 50,
         "battery_status_green_hours": settings.battery_status_green_hours if settings.battery_status_green_hours else 3,
-        "battery_status_orange_hours": settings.battery_status_orange_hours if settings.battery_status_orange_hours else 8
+        "battery_status_orange_hours": settings.battery_status_orange_hours if settings.battery_status_orange_hours else 8,
+        "battery_concurrent_deposit": bool(settings.battery_concurrent_deposit) if settings.battery_concurrent_deposit is not None else False,
+        "pue_concurrent_deposit": bool(settings.pue_concurrent_deposit) if settings.pue_concurrent_deposit is not None else True
     }
 
 @app.put("/settings/hub/{hub_id}", tags=["Settings"])
@@ -12159,6 +12247,8 @@ async def update_hub_settings(
     default_table_rows_per_page: Optional[int] = Query(None),
     battery_status_green_hours: Optional[int] = Query(None),
     battery_status_orange_hours: Optional[int] = Query(None),
+    battery_concurrent_deposit: Optional[bool] = Query(None),
+    pue_concurrent_deposit: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -12195,6 +12285,12 @@ async def update_hub_settings(
 
     if battery_status_orange_hours is not None:
         settings.battery_status_orange_hours = battery_status_orange_hours
+
+    if battery_concurrent_deposit is not None:
+        settings.battery_concurrent_deposit = battery_concurrent_deposit
+
+    if pue_concurrent_deposit is not None:
+        settings.pue_concurrent_deposit = pue_concurrent_deposit
 
     db.commit()
     db.refresh(settings)
@@ -12734,7 +12830,10 @@ async def get_user_account(
     account = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
 
     if not account:
-        # Auto-create account
+        # Verify user exists before auto-creating account
+        user_exists = db.query(User.user_id).filter(User.user_id == user_id).first()
+        if not user_exists:
+            raise HTTPException(status_code=404, detail="User not found")
         account = UserAccount(
             user_id=user_id,
             balance=0,
@@ -12947,6 +13046,52 @@ async def get_user_credit_summary(
             }
             for h in active_holds
         ]
+    }
+
+
+@app.post("/accounts/user/{user_id}/deposit-holds/{hold_id}/return", tags=["Accounts"])
+async def return_deposit_hold(
+    user_id: int,
+    hold_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Release a deposit hold — makes the held amount available as credit again. Admin only."""
+    if current_user.get('role') not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    user_account = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
+    if not user_account:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    hold = db.query(DepositHold).filter(
+        DepositHold.hold_id == hold_id,
+        DepositHold.account_id == user_account.account_id
+    ).first()
+    if not hold:
+        raise HTTPException(status_code=404, detail="Deposit hold not found")
+    if hold.status != 'held':
+        raise HTTPException(status_code=400, detail="Deposit is not currently held")
+
+    hold.status = 'released'
+    hold.released_at = datetime.now(timezone.utc)
+
+    label = "Battery deposit" if hold.rental_type == 'battery' else "PUE deposit"
+    transaction = AccountTransaction(
+        account_id=user_account.account_id,
+        transaction_type='deposit_returned',
+        amount=float(hold.amount),
+        balance_after=float(user_account.balance),
+        description=f"{label} released (hold #{hold.hold_id})"
+    )
+    db.add(transaction)
+    db.commit()
+
+    return {
+        "hold_id": hold.hold_id,
+        "status": "released",
+        "amount": float(hold.amount),
+        "released_at": hold.released_at.isoformat()
     }
 
 
@@ -14065,6 +14210,164 @@ async def reorder_job_cards(
     db.commit()
 
     return {"message": f"Updated {updated_count} job cards"}
+
+# ============================================================================
+# GLOBAL SEARCH
+# ============================================================================
+
+@app.get("/search", tags=["Search"])
+async def global_search(
+    q: str = Query(..., min_length=2, description="Search query (min 2 characters)"),
+    hub_id: Optional[int] = Query(None, description="Limit results to this hub"),
+    limit: int = Query(5, ge=1, le=20),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Search across users, batteries, battery rentals, and PUE rentals."""
+    role = current_user.get('role')
+    user_hub_id = current_user.get('hub_id')
+
+    # hub_admin and regular users are restricted to their own hub
+    if role in ('hub_admin', 'user'):
+        hub_id = user_hub_id
+
+    search = f"%{q.lower()}%"
+    results = {"hubs": [], "users": [], "batteries": [], "battery_rentals": [], "pue_rentals": []}
+
+    # --- Hubs (admin/superadmin/data_admin only) ---
+    if role in ('superadmin', 'admin', 'data_admin'):
+        hq = db.query(SolarHub).filter(
+            or_(
+                func.lower(SolarHub.what_three_word_location).like(search),
+                func.lower(SolarHub.country).like(search),
+                func.lower(func.cast(SolarHub.hub_id, String)).like(search),
+            )
+        )
+        for h in hq.limit(limit).all():
+            results["hubs"].append({
+                "id": h.hub_id,
+                "label": h.what_three_word_location or f"Hub {h.hub_id}",
+                "caption": h.country or f"Hub {h.hub_id}",
+                "route": {"name": "hub-detail", "params": {"id": h.hub_id}}
+            })
+
+    # --- Users ---
+    uq = db.query(User).filter(
+        or_(
+            func.lower(User.Name).like(search),
+            func.lower(User.username).like(search),
+            func.lower(User.mobile_number).like(search),
+            func.lower(User.short_id).like(search),
+            func.lower(User.users_identification_document_number).like(search),
+        )
+    )
+    if hub_id:
+        uq = uq.filter(User.hub_id == hub_id)
+    for u in uq.limit(limit).all():
+        results["users"].append({
+            "id": u.user_id,
+            "label": u.Name or u.username or f"User {u.user_id}",
+            "caption": u.mobile_number or u.username or "",
+            "short_id": u.short_id,
+            "route": {"name": "user-detail", "params": {"id": u.user_id}}
+        })
+
+    # --- Batteries ---
+    bq = db.query(BEPPPBattery).filter(
+        or_(
+            func.lower(func.cast(BEPPPBattery.battery_id, String)).like(search),
+            func.lower(BEPPPBattery.short_id).like(search),
+        )
+    )
+    if hub_id:
+        bq = bq.filter(BEPPPBattery.hub_id == hub_id)
+    for b in bq.limit(limit).all():
+        results["batteries"].append({
+            "id": b.battery_id,
+            "label": f"Battery {b.battery_id}",
+            "caption": b.short_id or b.status or "",
+            "status": b.status,
+            "route": {"name": "battery-detail", "params": {"id": b.battery_id}}
+        })
+
+    # --- Battery Rentals + PUE Rentals (hub_admin and above only) ---
+    if role != 'user':
+        brq = db.query(BatteryRental, User).join(User, BatteryRental.user_id == User.user_id).filter(
+            or_(
+                func.lower(func.cast(BatteryRental.rental_id, String)).like(search),
+                func.lower(User.Name).like(search),
+                func.lower(User.username).like(search),
+            )
+        )
+        if hub_id:
+            brq = brq.filter(BatteryRental.hub_id == hub_id)
+        for rental, user in brq.order_by(BatteryRental.start_date.desc()).limit(limit).all():
+            results["battery_rentals"].append({
+                "id": rental.rental_id,
+                "label": f"Rental #{rental.rental_id}",
+                "caption": f"{user.Name or user.username} — {rental.status}",
+                "status": rental.status,
+                "route": {"name": "battery-rental-detail", "params": {"id": rental.rental_id}}
+            })
+
+        prq = db.query(PUERental, User, ProductiveUseEquipment)\
+            .join(User, PUERental.user_id == User.user_id)\
+            .join(ProductiveUseEquipment, PUERental.pue_id == ProductiveUseEquipment.pue_id)\
+            .filter(
+                or_(
+                    func.lower(func.cast(PUERental.pue_rental_id, String)).like(search),
+                    func.lower(User.Name).like(search),
+                    func.lower(User.username).like(search),
+                    func.lower(ProductiveUseEquipment.name).like(search),
+                )
+            )
+        if hub_id:
+            prq = prq.filter(ProductiveUseEquipment.hub_id == hub_id)
+        for rental, user, pue in prq.order_by(PUERental.timestamp_taken.desc()).limit(limit).all():
+            results["pue_rentals"].append({
+                "id": rental.pue_rental_id,
+                "label": f"PUE Rental #{rental.pue_rental_id}",
+                "caption": f"{user.Name or user.username} — {pue.name}",
+                "active": rental.is_active,
+                "route": {"name": "pue-rental-detail", "params": {"id": rental.pue_rental_id}}
+            })
+
+    # --- Page / Action shortcuts ---
+    # Define navigable pages and actions; filter by what the role can see
+    all_pages = [
+        {"label": "Dashboard", "caption": "Overview and stats", "icon": "dashboard", "route": {"name": "dashboard"}, "keywords": ["dashboard", "home", "overview"], "roles": None},
+        {"label": "Customers", "caption": "View all customers", "icon": "people", "route": {"name": "customers"}, "keywords": ["customers", "users", "people"], "roles": None},
+        {"label": "Batteries", "caption": "View all batteries", "icon": "battery_charging_full", "route": {"name": "batteries"}, "keywords": ["batteries", "battery"], "roles": None},
+        {"label": "Rent Battery", "caption": "Create a new battery rental", "icon": "add_circle", "route": {"name": "create-battery-rental"}, "keywords": ["rent", "rental", "new rental", "create rental", "rent battery", "battery rental"], "roles": None},
+        {"label": "Rent PUE", "caption": "Create a new PUE rental", "icon": "add_circle", "route": {"name": "create-pue-rental"}, "keywords": ["rent", "rental", "pue", "new rental", "create rental", "rent pue", "pue rental"], "roles": None},
+        {"label": "Rentals", "caption": "View all rentals and returns", "icon": "receipt", "route": {"name": "rentals"}, "keywords": ["rentals", "rental", "history", "returns", "return", "returned"], "roles": None},
+        {"label": "PUE", "caption": "Productive use equipment", "icon": "devices", "route": {"name": "pue"}, "keywords": ["pue", "equipment", "productive"], "roles": None},
+        {"label": "Hubs", "caption": "View all hubs", "icon": "hub", "route": {"name": "hubs"}, "keywords": ["hubs", "hub", "locations"], "roles": ["superadmin", "admin", "data_admin"]},
+        {"label": "Accounts", "caption": "Financial accounts and transactions", "icon": "account_balance", "route": {"name": "accounts"}, "keywords": ["accounts", "financial", "transactions", "payments", "money"], "roles": ["superadmin", "admin", "hub_admin", "data_admin"]},
+        {"label": "Analytics", "caption": "Data analytics and reports", "icon": "bar_chart", "route": {"name": "analytics"}, "keywords": ["analytics", "reports", "charts", "statistics", "graphs"], "roles": ["superadmin", "admin", "hub_admin", "data_admin"]},
+        {"label": "Data", "caption": "Export data, rental history, power usage", "icon": "table_chart", "route": {"name": "data"}, "keywords": ["data", "export", "download", "csv", "power", "usage", "history"], "roles": ["superadmin", "admin", "hub_admin", "data_admin"]},
+        {"label": "Job Cards", "caption": "Maintenance job cards", "icon": "build", "route": {"name": "job-cards"}, "keywords": ["job", "jobs", "maintenance", "job cards", "cards", "issues"], "roles": ["superadmin", "admin", "hub_admin"]},
+        {"label": "Settings", "caption": "Hub and system settings", "icon": "settings", "route": {"name": "settings"}, "keywords": ["settings", "configuration", "config", "hub settings", "currency", "timezone", "deposit"], "roles": ["superadmin", "admin", "hub_admin"]},
+        {"label": "Webhook Logs", "caption": "Incoming webhook event logs", "icon": "webhook", "route": {"name": "webhook-logs"}, "keywords": ["webhook", "webhooks", "logs", "events", "api logs"], "roles": ["superadmin", "admin"]},
+        {"label": "Release Info", "caption": "Version history and changelog", "icon": "new_releases", "route": {"name": "release-info"}, "keywords": ["release", "version", "changelog", "updates", "what's new", "history"], "roles": None},
+        {"label": "Help", "caption": "Documentation and support", "icon": "help", "route": {"name": "help"}, "keywords": ["help", "support", "docs", "documentation", "guide", "how to"], "roles": None},
+    ]
+    results["pages"] = []
+    q_lower = q.lower()
+    for page in all_pages:
+        if page["roles"] and role not in page["roles"]:
+            continue
+        if any(q_lower in kw or kw in q_lower for kw in page["keywords"]):
+            results["pages"].append({
+                "label": page["label"],
+                "caption": page["caption"],
+                "icon": page["icon"],
+                "route": page["route"]
+            })
+
+    total = sum(len(v) for v in results.values())
+    return {"query": q, "total": total, "results": results}
+
 
 # ============================================================================
 # RUN THE APP

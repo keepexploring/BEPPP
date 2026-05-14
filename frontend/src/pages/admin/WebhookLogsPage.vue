@@ -164,7 +164,7 @@
 
     <!-- Details Dialog -->
     <q-dialog v-model="showDetailsDialog">
-      <q-card style="min-width: 600px; max-width: 80vw">
+      <q-card style="width: 90vw; max-width: 80vw">
         <q-card-section>
           <div class="text-h6">Webhook Details</div>
         </q-card-section>

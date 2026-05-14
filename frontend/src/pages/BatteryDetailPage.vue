@@ -293,7 +293,7 @@
 
     <!-- Battery Secret Dialog -->
     <q-dialog v-model="showSecretDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Reset Battery Secret</div>
         </q-card-section>
@@ -360,7 +360,7 @@
 
     <!-- Add Note Dialog -->
     <q-dialog v-model="showAddNoteDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Add Note</div>
         </q-card-section>
@@ -407,7 +407,7 @@
 
     <!-- Edit Dialog -->
     <q-dialog v-model="showEditDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Edit Battery</div>
         </q-card-section>
@@ -466,7 +466,7 @@
 </template>
 
 <script setup>
-import { ref, inject, onMounted, computed } from 'vue'
+import { ref, inject, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { batteriesAPI, dataAPI, hubsAPI, batteryRentalsAPI, notificationsAPI } from 'src/services/api'
 import { useQuasar, copyToClipboard } from 'quasar'
@@ -818,8 +818,21 @@ const onJobCardSaved = () => {
   showJobCardDialog.value = false
 }
 
+const onCacheUpdated = (event) => {
+  const url = event.detail?.url || ''
+  const id = batteryId.value
+  if (url.includes(`/batteries/${id}`) || url.includes(`battery_id=${id}`)) {
+    loadBatteryDetails()
+  }
+}
+
 onMounted(() => {
   loadBatteryDetails()
   loadHubs()
+  window.addEventListener('cache-updated', onCacheUpdated)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
 })
 </script>

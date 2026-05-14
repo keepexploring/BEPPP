@@ -2220,6 +2220,236 @@
           </q-card-section>
         </q-card>
 
+        <!-- Deposit System -->
+        <q-card id="deposit-system" class="q-mb-md">
+          <q-card-section class="bg-primary text-white">
+            <div class="text-h5">
+              <q-icon name="savings" />
+              Deposit System
+            </div>
+          </q-card-section>
+          <q-card-section>
+            <div class="text-h6 q-mb-sm">What is a Deposit?</div>
+            <p class="text-body1">
+              A deposit is a refundable security amount collected from a customer when they rent a battery or PUE item.
+              It is held separately from the customer's account balance and is automatically released back to their account when they return the item.
+            </p>
+
+            <div class="text-h6 q-mt-lg q-mb-sm">How Deposits Work</div>
+            <q-list bordered separator class="q-mb-md">
+              <q-item>
+                <q-item-section avatar><div class="text-h6 text-primary">1</div></q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Deposit set in cost structure</q-item-label>
+                  <q-item-label caption>Each cost structure defines a deposit amount. This is collected at the start of a rental.</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-item>
+                <q-item-section avatar><div class="text-h6 text-primary">2</div></q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Deposit is held, not spent</q-item-label>
+                  <q-item-label caption>The deposit is placed as a "hold" on the customer's account — it is tracked separately from their balance and cannot be used for fees.</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-item>
+                <q-item-section avatar><div class="text-h6 text-primary">3</div></q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Automatically released on return</q-item-label>
+                  <q-item-label caption>When a rental is returned, the deposit hold is released and the amount is credited back to the customer's account balance.</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-item>
+                <q-item-section avatar><div class="text-h6 text-primary">4</div></q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Seen on the customer profile</q-item-label>
+                  <q-item-label caption>Active deposit holds are visible on the customer detail page under their credit summary.</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+
+            <div class="text-h6 q-mt-lg q-mb-sm">Concurrent Deposit Settings</div>
+            <p class="text-body2 q-mb-sm">
+              Each hub has two settings controlling when a second deposit is charged — one for batteries, one for PUE.
+              These are configured in <strong>Settings → Deposit Rules</strong>.
+            </p>
+            <q-list bordered class="q-mb-md">
+              <q-item>
+                <q-item-section avatar>
+                  <q-icon name="toggle_off" color="grey" size="md" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Toggle OFF (default for batteries)</q-item-label>
+                  <q-item-label caption>
+                    One deposit per customer, regardless of how many rentals they have over time.
+                    If a customer returns a battery and rents another the next day, no new deposit is charged.
+                    A new deposit is only triggered if the customer has no active hold for that item type.
+                  </q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-separator />
+              <q-item>
+                <q-item-section avatar>
+                  <q-icon name="toggle_on" color="primary" size="md" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Toggle ON (default for PUE)</q-item-label>
+                  <q-item-label caption>
+                    A deposit is charged for each item rented at the same time.
+                    If a customer rents a second PUE item while still holding the first, a second deposit is collected.
+                    Sequential rentals (return first, then rent again) still only charge one deposit at a time.
+                  </q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+
+            <q-banner class="bg-blue-1 q-mt-md">
+              <template v-slot:avatar>
+                <q-icon name="info" color="primary" />
+              </template>
+              <strong>Example:</strong> A customer has a battery out on rental (deposit held). They want to rent a second battery.
+              <ul class="q-ml-md q-mt-xs q-mb-none">
+                <li><strong>Toggle OFF:</strong> No second deposit — the existing hold covers both rentals.</li>
+                <li><strong>Toggle ON:</strong> A second deposit is charged because they are holding two items simultaneously.</li>
+              </ul>
+            </q-banner>
+
+            <div class="text-h6 q-mt-lg q-mb-sm">Low Credit Warning</div>
+            <p class="text-body2">
+              When collecting a deposit, if the customer does not have enough credit to cover it the system will show a warning on the rental form.
+              You can still proceed with the rental — the warning is informational to let the operator know the customer's account will go into a negative balance.
+            </p>
+          </q-card-section>
+        </q-card>
+
+        <!-- Data Page -->
+        <q-card id="data-page" class="q-mb-md">
+          <q-card-section class="bg-primary text-white">
+            <div class="text-h5">
+              <q-icon name="table_chart" />
+              Data Page
+            </div>
+          </q-card-section>
+          <q-card-section>
+            <p class="text-body1">
+              The <strong>Data</strong> page (accessible from the sidebar) provides exports, power usage analytics, and custom report building.
+              Superadmins must select a hub from the dropdown at the top before data loads.
+            </p>
+
+            <div class="text-h6 q-mt-md q-mb-sm">Rental History Tab</div>
+            <p class="text-body2 q-mb-xs">Shows a full list of rentals for the selected hub with CSV download.</p>
+            <ul class="q-ml-md q-mb-md">
+              <li>Filter by date range (start/end date)</li>
+              <li>Shows battery rentals and PUE rentals separately</li>
+              <li>Click <strong>CSV</strong> to download — includes all rental fields, customer details, cost, and payment status</li>
+            </ul>
+
+            <div class="text-h6 q-mt-md q-mb-sm">Power Usage Tab</div>
+            <p class="text-body2 q-mb-xs">Visualises energy consumed across your fleet over time.</p>
+            <ul class="q-ml-md q-mb-md">
+              <li><strong>Battery mode:</strong> Aggregate power in/out per day across all batteries at the hub</li>
+              <li><strong>PUE mode:</strong> Power output grouped by PUE type</li>
+              <li>Toggle series: Mean, Median, Std Dev to show statistical bands</li>
+              <li>Download chart data as CSV</li>
+              <li>Select individual batteries or PUE types to compare</li>
+            </ul>
+
+            <div class="text-h6 q-mt-md q-mb-sm">Report Builder Tab</div>
+            <p class="text-body2 q-mb-xs">Build custom reports by combining filters and fields.</p>
+            <ul class="q-ml-md q-mb-md">
+              <li>Choose report type (rentals, customers, transactions)</li>
+              <li>Apply date, status, and hub filters</li>
+              <li>Select which columns to include in the export</li>
+              <li>Download as CSV</li>
+            </ul>
+
+            <q-banner class="bg-orange-1 q-mt-md">
+              <template v-slot:avatar>
+                <q-icon name="warning" color="orange" />
+              </template>
+              <strong>Remember to select a hub</strong> (superadmin only) — the orange warning icon in the top bar appears when no hub is selected.
+              Data will not load until a hub is chosen.
+            </q-banner>
+          </q-card-section>
+        </q-card>
+
+        <!-- Global Search -->
+        <q-card id="global-search" class="q-mb-md">
+          <q-card-section class="bg-primary text-white">
+            <div class="text-h5">
+              <q-icon name="search" />
+              Global Search
+            </div>
+          </q-card-section>
+          <q-card-section>
+            <p class="text-body1">
+              The search bar (magnifying glass icon in the top toolbar, or <strong>Ctrl+K</strong> / <strong>Cmd+K</strong>) lets you quickly find
+              customers, batteries, rentals, hubs, and navigate to any page in the system.
+            </p>
+
+            <div class="text-h6 q-mt-md q-mb-sm">What you can search for</div>
+            <q-list bordered class="q-mb-md">
+              <q-item>
+                <q-item-section avatar><q-icon name="apps" color="blue-grey" /></q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Pages &amp; Actions</q-item-label>
+                  <q-item-label caption>Type "rent", "returns", "settings", "data", "help", "webhook" etc. to jump directly to any page or action</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-separator />
+              <q-item>
+                <q-item-section avatar><q-icon name="hub" color="teal" /></q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Hubs</q-item-label>
+                  <q-item-label caption>Search by hub name or country — links directly to the hub detail page (admin and above)</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-separator />
+              <q-item>
+                <q-item-section avatar><q-icon name="person" color="primary" /></q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Customers</q-item-label>
+                  <q-item-label caption>Search by name, mobile number, username, or ID document number</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-separator />
+              <q-item>
+                <q-item-section avatar><q-icon name="battery_charging_full" color="positive" /></q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Batteries</q-item-label>
+                  <q-item-label caption>Search by battery ID or short ID</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-separator />
+              <q-item>
+                <q-item-section avatar><q-icon name="receipt" color="secondary" /></q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-weight-bold">Rentals</q-item-label>
+                  <q-item-label caption>Search by rental ID or customer name — shows battery and PUE rentals (hub admin and above)</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+
+            <div class="text-h6 q-mt-md q-mb-sm">Access by role</div>
+            <q-list bordered dense class="q-mb-md">
+              <q-item>
+                <q-item-section avatar><q-icon name="person" color="grey" /></q-item-section>
+                <q-item-section><q-item-label>Kiosk operator (User)</q-item-label></q-item-section>
+                <q-item-section side><q-item-label caption>Customers + Batteries only</q-item-label></q-item-section>
+              </q-item>
+              <q-item>
+                <q-item-section avatar><q-icon name="manage_accounts" color="blue-grey" /></q-item-section>
+                <q-item-section><q-item-label>Hub Admin</q-item-label></q-item-section>
+                <q-item-section side><q-item-label caption>Customers, Batteries, Rentals</q-item-label></q-item-section>
+              </q-item>
+              <q-item>
+                <q-item-section avatar><q-icon name="admin_panel_settings" color="primary" /></q-item-section>
+                <q-item-section><q-item-label>Admin / Superadmin</q-item-label></q-item-section>
+                <q-item-section side><q-item-label caption>All results including Hubs</q-item-label></q-item-section>
+              </q-item>
+            </q-list>
+          </q-card-section>
+        </q-card>
+
         <!-- Support -->
         <q-card id="support" class="q-mb-xl">
           <q-card-section class="bg-primary text-white">
@@ -2284,6 +2514,9 @@ const quickLinks = [
   { id: 'return-surveys', label: 'Return Surveys' },
   { id: 'data-download', label: 'Download Data' },
   { id: 'customer-fields', label: 'Customer Fields' },
+  { id: 'deposit-system', label: 'Deposit System' },
+  { id: 'data-page', label: 'Data Page' },
+  { id: 'global-search', label: 'Global Search' },
   { id: 'support', label: 'Support' }
 ]
 

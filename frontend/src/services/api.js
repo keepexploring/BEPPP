@@ -372,6 +372,8 @@ export const accountsAPI = {
     api.get(`/accounts/user/${userId}/deposit-holds`, { params }),
   getCreditSummary: (userId) =>
     api.get(`/accounts/user/${userId}/credit-summary`),
+  returnDepositHold: (userId, holdId) =>
+    api.post(`/accounts/user/${userId}/deposit-holds/${holdId}/return`),
 
   // Hub Accounts
   getHubSummary: (hubId, params) =>
@@ -433,6 +435,10 @@ export const jobCardsAPI = {
   addActivity: (cardId, data) => api.post(`/job-cards/${cardId}/activities`, data),
   reorder: (updates) => api.put('/job-cards/reorder', updates),
   getAdminUsers: () => api.get('/job-cards/admin-users')
+}
+
+export const searchAPI = {
+  search: (q, hubId) => api.get('/search', { params: { q, hub_id: hubId } })
 }
 
 export default api

@@ -823,6 +823,8 @@ class HubSettings(Base):
     battery_status_orange_hours = Column(Integer, server_default='8', nullable=False)  # Hours threshold for orange status (data getting old)
     other_settings = Column(Text, nullable=True)  # JSON string for flexibility
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    battery_concurrent_deposit = Column(Boolean, server_default='false', nullable=False)
+    pue_concurrent_deposit = Column(Boolean, server_default='true', nullable=False)
 
     # Relationships
     hub = relationship("SolarHub", foreign_keys=[hub_id])

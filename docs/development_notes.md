@@ -916,5 +916,46 @@ cp update.sh /opt/battery-hub/
   sudo bash /opt/battery-hub/update.sh
 
 
+---
+
+## Google Drive Database Backup
+
+Backups are uploaded to Google Drive via rclone. Configure the destination in `.env`:
+
+```
+RCLONE_REMOTE=gdrive          # name of the rclone remote (set during setup)
+GDRIVE_FOLDER=BEPPP-Backups   # folder on Google Drive (created automatically)
+GDRIVE_KEEP=30                # days to retain remote backups
+```
+
+You can use a nested folder path: `GDRIVE_FOLDER=CREATIVenergie/BEPPP/Database-Backups`
+
+### First-time setup (run once per machine)
+
+```bash
+make gdrive-setup
+```
+
+Choose **Option 1** (browser OAuth) for local dev, or **Option 2** (service account JSON) for a headless server.
+
+**Service account setup (server):**
+1. Go to console.cloud.google.com → enable **Google Drive API**
+2. Create a **Service Account** → download the JSON key
+3. Share your Google Drive folder with the service account email (Editor access)
+4. Copy the JSON key to the server (e.g. `/etc/beppp/gdrive-sa.json`)
+5. Run `make gdrive-setup` and enter the JSON path when prompted
+
+### Commands
+
+```bash
+make gdrive-setup           # configure rclone (run once per machine)
+make db-backup-gdrive       # run a backup now and upload to Drive
+make db-backup-gdrive-test  # end-to-end test (non-destructive)
+make gdrive-cron-install    # schedule daily 2 AM backup via cron
+make gdrive-cron-remove     # remove the cron job
+make gdrive-list            # list recent backups on Google Drive
+```
+
+rclone auth credentials are stored in `~/.config/rclone/rclone.conf` — not in `.env`.
   cd /opt/battery-hub
   bash update.sh

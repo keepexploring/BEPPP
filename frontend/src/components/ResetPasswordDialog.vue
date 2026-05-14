@@ -1,6 +1,6 @@
 <template>
   <q-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" persistent>
-    <q-card style="min-width: 550px">
+    <q-card style="width: 90vw; max-width: 550px">
       <!-- Confirmation Step -->
       <template v-if="!resetComplete">
         <q-card-section class="row items-center q-pb-none">
@@ -177,7 +177,7 @@ const props = defineProps({
   },
   user: {
     type: Object,
-    required: true
+    default: null
   }
 })
 

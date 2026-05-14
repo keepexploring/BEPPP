@@ -64,7 +64,7 @@
     </div>
 
     <!-- Kanban Board -->
-    <div v-else class="kanban-board row q-col-gutter-md">
+    <div v-else-if="!$q.screen.xs" class="kanban-board row q-col-gutter-md">
       <!-- To Do Column -->
       <div class="col-12 col-md-3">
         <q-card flat bordered class="column-card">
@@ -194,6 +194,61 @@
       </div>
     </div>
 
+    <!-- Mobile list view (xs screens) -->
+    <div v-else-if="$q.screen.xs">
+      <q-tabs
+        v-model="mobileTab"
+        dense
+        class="text-grey q-mb-sm"
+        active-color="primary"
+        indicator-color="primary"
+        align="justify"
+      >
+        <q-tab name="todo" label="To Do" />
+        <q-tab name="in_progress" label="In Progress" />
+        <q-tab name="blocked" label="Blocked" />
+        <q-tab name="done" label="Done" />
+      </q-tabs>
+      <q-tab-panels v-model="mobileTab" animated>
+        <q-tab-panel name="todo" class="q-pa-none q-pt-sm">
+          <div v-if="getColumnCount('todo') === 0" class="text-center text-grey-6 q-py-md">No cards</div>
+          <JobCard
+            v-for="card in getColumnCards('todo')"
+            :key="card.card_id"
+            :card="card"
+            @click="openCardDialog(card)"
+          />
+        </q-tab-panel>
+        <q-tab-panel name="in_progress" class="q-pa-none q-pt-sm">
+          <div v-if="getColumnCount('in_progress') === 0" class="text-center text-grey-6 q-py-md">No cards</div>
+          <JobCard
+            v-for="card in getColumnCards('in_progress')"
+            :key="card.card_id"
+            :card="card"
+            @click="openCardDialog(card)"
+          />
+        </q-tab-panel>
+        <q-tab-panel name="blocked" class="q-pa-none q-pt-sm">
+          <div v-if="getColumnCount('blocked') === 0" class="text-center text-grey-6 q-py-md">No cards</div>
+          <JobCard
+            v-for="card in getColumnCards('blocked')"
+            :key="card.card_id"
+            :card="card"
+            @click="openCardDialog(card)"
+          />
+        </q-tab-panel>
+        <q-tab-panel name="done" class="q-pa-none q-pt-sm">
+          <div v-if="getColumnCount('done') === 0" class="text-center text-grey-6 q-py-md">No cards</div>
+          <JobCard
+            v-for="card in getColumnCards('done')"
+            :key="card.card_id"
+            :card="card"
+            @click="openCardDialog(card)"
+          />
+        </q-tab-panel>
+      </q-tab-panels>
+    </div>
+
     <!-- Create Card Dialog -->
     <JobCardDialog
       v-model="showCreateDialog"
@@ -227,6 +282,7 @@ const showCreateDialog = ref(false)
 const showEditDialog = ref(false)
 const selectedCardId = ref(null)
 const draggedCard = ref(null)
+const mobileTab = ref('todo')
 
 // Filters
 const filterAssignedTo = ref(null)

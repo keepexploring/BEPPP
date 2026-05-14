@@ -275,21 +275,36 @@
           <q-table
             v-if="creditSummary.holds.length > 0"
             :rows="creditSummary.holds"
-            :columns="[
-              { name: 'rental_type', label: 'Type', field: 'rental_type', align: 'left' },
-              { name: 'rental_id', label: 'Rental', field: row => row.rental_id || row.pue_rental_id, align: 'left' },
-              { name: 'amount', label: 'Amount', field: 'amount', align: 'right', format: val => `${currencySymbol}${val.toFixed(2)}` },
-              { name: 'created_at', label: 'Held Since', field: 'created_at', align: 'left', format: val => val ? new Date(val).toLocaleDateString() : '' }
-            ]"
+            :columns="depositHoldColumns"
             flat
             bordered
             dense
-            :rows-per-page-options="[5]"
+            :rows-per-page-options="[10]"
             title="Active Deposit Holds"
             hide-bottom
-          />
+          >
+            <template v-slot:body-cell-label="props">
+              <q-td :props="props">
+                <q-badge :color="props.row.rental_type === 'battery' ? 'blue' : 'orange'" class="q-mr-xs">
+                  {{ props.row.rental_type === 'battery' ? 'Battery' : 'PUE' }}
+                </q-badge>
+                Deposit #{{ props.row.hold_id }}
+              </q-td>
+            </template>
+            <template v-slot:body-cell-actions="props">
+              <q-td :props="props">
+                <q-btn
+                  flat dense size="sm" icon="lock_open" color="positive"
+                  label="Release"
+                  @click="confirmReleaseDeposit(props.row)"
+                >
+                  <q-tooltip>Release this deposit — held amount becomes available credit</q-tooltip>
+                </q-btn>
+              </q-td>
+            </template>
+          </q-table>
           <div v-else class="text-caption text-grey-6 q-mt-sm">
-            No deposits currently held. Deposits are created automatically when a rental uses a cost structure with a deposit requirement.
+            No deposits currently held. A deposit is collected on the customer's first battery or PUE rental (once held, it is not charged again).
           </div>
         </q-card-section>
       </q-card>
@@ -709,6 +724,10 @@
 
             <!-- Battery Rental History Tab -->
             <q-tab-panel name="battery-history">
+              <div class="row justify-end q-mb-sm" v-if="batteryHistory.length">
+                <q-btn label="CSV" icon="download" outline color="primary" dense @click="downloadBatteryHistoryCSV" />
+              </div>
+
               <div v-if="batteryHistoryLoading" class="row justify-center q-pa-md">
                 <q-spinner color="primary" size="2em" />
               </div>
@@ -771,6 +790,10 @@
 
             <!-- PUE Rental History Tab -->
             <q-tab-panel name="pue-history">
+              <div class="row justify-end q-mb-sm" v-if="pueHistory.length">
+                <q-btn label="CSV" icon="download" outline color="primary" dense @click="downloadPueHistoryCSV" />
+              </div>
+
               <div v-if="pueHistoryLoading" class="row justify-center q-pa-md">
                 <q-spinner color="primary" size="2em" />
               </div>
@@ -930,7 +953,7 @@
 
     <!-- Settle Debt Dialog -->
     <q-dialog v-model="showPaymentDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Settle Debt</div>
           <div class="text-subtitle2">Customer: {{ user.Name || user.username || `Customer ${user.user_id}` }}</div>
@@ -1109,7 +1132,7 @@
 
     <!-- Take Payment Dialog -->
     <q-dialog v-model="showTakePaymentDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Take Payment</div>
           <div class="text-subtitle2">Customer: {{ user.Name || user.username || `Customer ${user.user_id}` }}</div>
@@ -1320,7 +1343,7 @@
 
     <!-- Manual Adjustment Dialog -->
     <q-dialog v-model="showManualAdjustmentDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section class="bg-warning text-white">
           <div class="text-h6">
             <q-icon name="warning" class="q-mr-sm" />
@@ -1429,7 +1452,7 @@
 
     <!-- Add Credit Dialog -->
     <q-dialog v-model="showAddCreditDialog">
-      <q-card style="min-width: 450px">
+      <q-card style="width: 90vw; max-width: 450px">
         <q-card-section>
           <div class="text-h6">Add Prepaid Credit</div>
           <div class="text-subtitle2">Customer: {{ user.Name || user.username || `Customer ${user.user_id}` }}</div>
@@ -1511,7 +1534,7 @@
 
     <!-- Assign Subscription Dialog -->
     <q-dialog v-model="showAssignSubscriptionDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Assign Subscription</div>
         </q-card-section>
@@ -1641,7 +1664,7 @@
 
     <!-- Edit Customer Dialog -->
     <q-dialog v-model="showEditUserDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Edit Customer</div>
           <div class="text-subtitle2">Customer ID: {{ user.user_id }}</div>
@@ -1696,7 +1719,7 @@
 
     <!-- Extend Rental Dialog -->
     <q-dialog v-model="showExtendDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Extend Rental</div>
           <div class="text-subtitle2">Rental #{{ selectedRental?.rentral_id }}</div>
@@ -1787,7 +1810,7 @@
 
     <!-- ID Document Photo Dialog -->
     <q-dialog v-model="showPhotoDialog">
-      <q-card style="min-width: 400px; max-width: 90vw">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section class="row items-center q-pb-none">
           <div class="text-h6">ID Document Photo</div>
           <q-space />
@@ -1822,7 +1845,7 @@
 </template>
 
 <script setup>
-import { ref, inject, computed, onMounted, watch } from 'vue'
+import { ref, inject, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { usersAPI, accountsAPI, settingsAPI, subscriptionsAPI, rentalsAPI, batteryRentalsAPI, pueRentalsAPI } from 'src/services/api'
@@ -1852,6 +1875,13 @@ const account = ref({
   total_spent: 0,
   total_owed: 0
 })
+const depositHoldColumns = [
+  { name: 'label', label: 'Deposit', align: 'left' },
+  { name: 'amount', label: 'Amount', field: 'amount', align: 'right', format: val => `${currencySymbol.value}${Number(val).toFixed(2)}` },
+  { name: 'created_at', label: 'Held Since', field: 'created_at', align: 'left', format: val => val ? new Date(val).toLocaleDateString() : '' },
+  { name: 'actions', label: '', align: 'right' }
+]
+
 const creditSummary = ref({
   balance: 0,
   held_deposits: 0,
@@ -2296,6 +2326,25 @@ const loadCreditSummary = async () => {
   } catch (error) {
     console.error('Failed to load credit summary:', error)
   }
+}
+
+const confirmReleaseDeposit = (hold) => {
+  const label = hold.rental_type === 'battery' ? 'Battery' : 'PUE'
+  $q.dialog({
+    title: 'Release Deposit Hold',
+    message: `Release the ${label} deposit of ${currencySymbol.value}${Number(hold.amount).toFixed(2)}? The amount will remain in the customer's account as available credit.`,
+    cancel: true,
+    ok: { label: 'Release', color: 'positive' }
+  }).onOk(async () => {
+    try {
+      await accountsAPI.returnDepositHold(userId.value, hold.hold_id)
+      $q.notify({ type: 'positive', message: 'Deposit released — amount now available as credit', position: 'top' })
+      await loadCreditSummary()
+      await loadTransactions()
+    } catch (error) {
+      $q.notify({ type: 'negative', message: error.response?.data?.detail || 'Failed to release deposit', position: 'top' })
+    }
+  })
 }
 
 const loadTransactions = async () => {
@@ -3131,6 +3180,16 @@ const onPasswordResetSuccess = () => {
   })
 }
 
+const onCacheUpdated = (event) => {
+  const url = event.detail?.url || ''
+  if (url.includes(`/accounts/user/${userId.value}/credit-summary`)) {
+    loadCreditSummary()
+  }
+  if (url.includes(`/accounts/user/${userId.value}`) && !url.includes('credit-summary')) {
+    loadAccount()
+  }
+}
+
 onMounted(async () => {
   loadHubSettings()
   await loadUser()
@@ -3142,5 +3201,38 @@ onMounted(async () => {
   loadSubscriptionPackages()
   // Load new rental system data
   refreshAllRentals()
+  window.addEventListener('cache-updated', onCacheUpdated)
 })
+
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
+})
+
+function downloadCSV(rows, filename) {
+  const csv = rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+}
+
+function downloadBatteryHistoryCSV() {
+  const headers = ['rental_id', 'status', 'battery_count', 'recharge_count', 'cost_structure', 'start_date', 'due_date', 'return_date', 'deposit', 'total_cost']
+  const rows = batteryHistory.value.map(r => [
+    r.rental_id, r.status, r.battery_count ?? r.items?.length ?? 0, r.recharge_count ?? 0,
+    r.cost_structure_name || '', r.rental_start_date || '', r.due_date || '',
+    r.actual_return_date || '', r.deposit_amount ?? '', r.total_cost ?? ''
+  ])
+  downloadCSV([headers, ...rows], `battery_rentals_user_${userId.value}.csv`)
+}
+
+function downloadPueHistoryCSV() {
+  const headers = ['rental_id', 'status', 'pue_name', 'cost_structure', 'start_date', 'return_date', 'total_cost']
+  const rows = pueHistory.value.map(r => [
+    r.rental_id, r.status, r.pue_name || r.pue_id || '', r.cost_structure_name || '',
+    r.rental_start_date || '', r.actual_return_date || '', r.total_cost ?? ''
+  ])
+  downloadCSV([headers, ...rows], `pue_rentals_user_${userId.value}.csv`)
+}
 </script>

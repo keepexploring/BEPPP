@@ -333,7 +333,7 @@
 
     <!-- Return PUE Item Dialog -->
     <q-dialog v-model="showPUEReturnDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Return PUE Item</div>
           <div class="text-subtitle2">{{ selectedPUEItem?.pue?.name || `PUE #${selectedPUEItem?.pue_id}` }}</div>
@@ -358,7 +358,7 @@
 
     <!-- Take Payment Dialog -->
     <q-dialog v-model="showPaymentDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Take Payment</div>
           <div class="text-subtitle2">Rental #{{ $route.params.id }}</div>
@@ -526,7 +526,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api, { rentalsAPI, batteryRentalsAPI, pueRentalsAPI } from 'src/services/api'
 import { invalidateCacheByPrefix } from 'src/services/offlineDb.js'
@@ -1075,8 +1075,25 @@ const collectPayment = async () => {
   }
 }
 
+const onCacheUpdated = (event) => {
+  const url = event.detail?.url || ''
+  const id = route.params.id
+  if (
+    url.includes(`/battery-rentals/${id}`) ||
+    url.includes(`/pue-rentals/${id}`) ||
+    url.includes(`/rentals/${id}`)
+  ) {
+    loadRentalDetails()
+  }
+}
+
 onMounted(() => {
   loadRentalDetails()
+  window.addEventListener('cache-updated', onCacheUpdated)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
 })
 
 // Watch for when payment dialog opens to pre-fill amount and fetch account balance

@@ -12,7 +12,14 @@
         <div class="text-h5">{{ pageTitle }}</div>
       </div>
       <div class="col-12 col-sm row items-center q-gutter-sm">
-        <HubFilter v-model="selectedHub" @change="onHubChange" />
+        <div class="row items-center q-gutter-xs">
+          <q-icon name="warning" color="orange" size="sm" v-if="authStore.isSuperAdmin && selectedHub === null"><q-tooltip>Remember to select a hub before adding or editing customers</q-tooltip></q-icon>
+          <HubFilter
+            v-model="selectedHub"
+            @change="onHubChange"
+            :class="authStore.isSuperAdmin && selectedHub === null ? 'hub-filter-highlight' : ''"
+          />
+        </div>
         <q-btn
           label="Add User"
           icon="add"
@@ -29,6 +36,7 @@
         <q-table
           :rows="users"
           :columns="columns"
+          :visible-columns="visibleColumns"
           row-key="user_id"
           :loading="loading"
           :filter="filter"
@@ -129,7 +137,7 @@
 
     <!-- Create/Edit Dialog -->
     <q-dialog v-model="showCreateDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">{{ editingUser ? 'Edit Customer' : 'Create Customer' }}</div>
         </q-card-section>
@@ -366,7 +374,7 @@
 
     <!-- Hub Access Dialog -->
     <q-dialog v-model="showHubAccessDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Manage Hub Access</div>
           <div class="text-subtitle2">{{ selectedUser?.username }}</div>
@@ -583,13 +591,19 @@ const roleOptions = computed(() => {
 })
 
 const columns = [
-  { name: 'user_id', label: 'ID', field: 'user_id', align: 'left', sortable: true },
-  { name: 'username', label: 'Username', field: 'username', align: 'left', sortable: true },
+  { name: 'user_id', label: 'ID', field: 'user_id', align: 'left', sortable: true, hideOnMobile: true },
+  { name: 'username', label: 'Username', field: 'username', align: 'left', sortable: true, hideOnMobile: true },
   { name: 'Name', label: 'Name', field: 'Name', align: 'left', sortable: true },
   { name: 'mobile_number', label: 'Mobile', field: 'mobile_number', align: 'left' },
   { name: 'user_access_level', label: 'Role', field: 'user_access_level', align: 'center', sortable: true },
   { name: 'actions', label: 'Actions', align: 'center' }
 ]
+
+const visibleColumns = computed(() =>
+  $q.screen.xs
+    ? columns.filter(c => !c.hideOnMobile).map(c => c.name)
+    : columns.map(c => c.name)
+)
 
 const getRoleColor = (role) => {
   const colors = {
@@ -606,25 +620,9 @@ const getRoleColor = (role) => {
 const loadUsers = async () => {
   loading.value = true
   try {
-    if (selectedHub.value) {
-      // Load users for selected hub only
-      const usersResponse = await hubsAPI.getUsers(selectedHub.value)
-      allUsers.value = usersResponse.data
-    } else {
-      // Note: The API doesn't have a list all users endpoint
-      // We'll need to load users from hubs
-      const hubsResponse = await hubsAPI.list()
-      const userMap = new Map()
-
-      for (const hub of hubsResponse.data) {
-        const usersResponse = await hubsAPI.getUsers(hub.hub_id)
-        usersResponse.data.forEach(user => {
-          userMap.set(user.user_id, user)
-        })
-      }
-
-      allUsers.value = Array.from(userMap.values())
-    }
+    const params = selectedHub.value ? { hub_id: selectedHub.value } : {}
+    const usersResponse = await usersAPI.list(params)
+    allUsers.value = usersResponse.data
   } catch (error) {
     if (navigator.onLine) {
       $q.notify({
@@ -943,3 +941,10 @@ onUnmounted(() => {
   window.removeEventListener('cache-updated', onCacheUpdated)
 })
 </script>
+
+<style scoped>
+.hub-filter-highlight :deep(.q-field__control) {
+  border-color: #f57c00 !important;
+  background: #fff8e1;
+}
+</style>

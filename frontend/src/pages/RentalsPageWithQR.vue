@@ -126,7 +126,7 @@
 
     <!-- Create/Edit Dialog with QR Scanner -->
     <q-dialog v-model="showCreateDialog" persistent>
-      <q-card style="min-width: 700px">
+      <q-card style="width: 90vw; max-width: 700px">
         <q-card-section>
           <div class="text-h6">{{ editingRental ? 'Edit Rental' : 'New Rental' }}</div>
         </q-card-section>
@@ -402,7 +402,7 @@
 
     <!-- Return Rental Dialog -->
     <q-dialog v-model="showReturnDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Return Rental</div>
         </q-card-section>

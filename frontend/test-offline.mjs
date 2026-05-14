@@ -2884,6 +2884,125 @@ try {
   pass('shouldForceFullRefresh handles timing correctly')
 } catch (e) { fail('shouldForceFullRefresh handles timing', e) }
 
+// ── cache-updated listener presence in detail pages ──────────────────
+
+console.log('\n=== cache-updated listeners in detail pages ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const pagesDir = path.resolve(import.meta.dirname, 'src', 'pages')
+
+  const checks = [
+    { file: 'UserDetailPage.vue',    urls: ['credit-summary', 'accounts/user'] },
+    { file: 'RentalDetailPage.vue',  urls: ['battery-rentals', 'pue-rentals'] },
+    { file: 'BatteryDetailPage.vue', urls: ['batteries/'] },
+    { file: 'PUEDetailPage.vue',     urls: ['pue/'] },
+  ]
+
+  for (const { file, urls } of checks) {
+    const src = fs.readFileSync(path.join(pagesDir, file), 'utf8')
+    assert.ok(
+      src.includes('cache-updated'),
+      `${file} must listen for cache-updated events`
+    )
+    assert.ok(
+      src.includes('onUnmounted'),
+      `${file} must clean up cache-updated listener in onUnmounted`
+    )
+    for (const url of urls) {
+      assert.ok(
+        src.includes(url),
+        `${file} cache-updated handler must check for '${url}'`
+      )
+    }
+    pass(`${file} has cache-updated listener covering ${urls.join(', ')}`)
+  }
+} catch (e) { fail('cache-updated listeners in detail pages', e) }
+
+
+// ── Discard All mutations (MainLayout) ────────────────────────────────
+
+console.log('\n=== Discard All mutations ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const layoutSrc = fs.readFileSync(
+    path.resolve(import.meta.dirname, 'src', 'layouts', 'MainLayout.vue'), 'utf8'
+  )
+  assert.ok(layoutSrc.includes('discardAllMutations'), 'MainLayout has discardAllMutations function')
+  assert.ok(layoutSrc.includes('Discard All'), 'MainLayout has Discard All button label')
+  assert.ok(
+    layoutSrc.includes('failedMutations.length > 1') || layoutSrc.includes('failedMutations.value.length'),
+    'Discard All button is conditionally shown'
+  )
+  pass('MainLayout has Discard All button wired to discardAllMutations')
+} catch (e) { fail('Discard All button in MainLayout', e) }
+
+try {
+  // Verify discard-all logic: adding multiple failed mutations then discarding one-by-one
+  const db = await openDb()
+  const tx = db.transaction('mutationQueue', 'readwrite')
+  await tx.objectStore('mutationQueue').clear()
+  await tx.done
+
+  const id1 = await addToMutationQueue({ method: 'post', url: 'http://localhost:8000/users/', data: { username: 'discard1' } })
+  const id2 = await addToMutationQueue({ method: 'post', url: 'http://localhost:8000/users/', data: { username: 'discard2' } })
+  const id3 = await addToMutationQueue({ method: 'post', url: 'http://localhost:8000/users/', data: { username: 'discard3' } })
+  await updateMutation(id1, { status: 'failed', retryCount: 3 })
+  await updateMutation(id2, { status: 'failed', retryCount: 3 })
+  await updateMutation(id3, { status: 'failed', retryCount: 3 })
+
+  assert.strictEqual(await getFailedMutationCount(), 3, '3 failed mutations queued')
+
+  // Simulate discardAllMutations: iterate and remove each
+  for (const id of [id1, id2, id3]) {
+    await removeMutation(id)
+  }
+  assert.strictEqual(await getFailedMutationCount(), 0, 'all 3 discarded')
+  pass('Discard All logic removes all failed mutations from queue')
+} catch (e) { fail('Discard All removes all failed mutations', e) }
+
+
+// ── Global search api.js endpoints ───────────────────────────────────
+
+console.log('\n=== Global search API endpoints ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const apiJs = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'services', 'api.js'), 'utf8')
+
+  assert.ok(apiJs.includes('searchAPI'), 'api.js exports searchAPI')
+  assert.ok(apiJs.includes('/search'), 'api.js has /search endpoint')
+  pass('api.js has global search endpoint')
+} catch (e) { fail('api.js global search', e) }
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const dialogSrc = fs.readFileSync(
+    path.resolve(import.meta.dirname, 'src', 'components', 'GlobalSearchDialog.vue'), 'utf8'
+  )
+  // Results must include pages and hubs sections
+  assert.ok(dialogSrc.includes("results.pages"), 'GlobalSearchDialog renders pages results')
+  assert.ok(dialogSrc.includes("results.hubs"), 'GlobalSearchDialog renders hubs results')
+  assert.ok(dialogSrc.includes("results.users"), 'GlobalSearchDialog renders users results')
+  assert.ok(dialogSrc.includes("results.batteries"), 'GlobalSearchDialog renders batteries results')
+  // emptyResults must initialise pages and hubs
+  assert.ok(
+    dialogSrc.includes('pages: []') || dialogSrc.includes("pages:[]"),
+    'emptyResults initialises pages array'
+  )
+  assert.ok(
+    dialogSrc.includes('hubs: []') || dialogSrc.includes("hubs:[]"),
+    'emptyResults initialises hubs array'
+  )
+  pass('GlobalSearchDialog renders all result sections including pages and hubs')
+} catch (e) { fail('GlobalSearchDialog result sections', e) }
+
+
 // ── Summary ──────────────────────────────────────────────────────────
 
 console.log('\n========================================')

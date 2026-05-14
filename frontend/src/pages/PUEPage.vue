@@ -124,7 +124,7 @@
 
     <!-- Create/Edit Dialog -->
     <q-dialog v-model="showCreateDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">{{ editingPUE ? 'Edit Equipment' : 'Add Equipment' }}</div>
         </q-card-section>
@@ -452,7 +452,7 @@
 
     <!-- Inspection Dialog -->
     <q-dialog v-model="showInspectionDialog">
-      <q-card style="min-width: 700px">
+      <q-card style="width: 90vw; max-width: 700px">
         <q-card-section>
           <div class="text-h6">Inspections - {{ selectedPUE?.name || `PUE #${selectedPUE?.pue_id}` }}</div>
         </q-card-section>
@@ -510,7 +510,7 @@
 
     <!-- Record Inspection Dialog -->
     <q-dialog v-model="showRecordInspectionDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Record New Inspection</div>
         </q-card-section>

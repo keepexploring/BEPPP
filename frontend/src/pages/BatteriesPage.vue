@@ -154,7 +154,7 @@
 
     <!-- Create/Edit Dialog -->
     <q-dialog v-model="showCreateDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">{{ editingBattery ? 'Edit Battery' : 'Create Battery' }}</div>
         </q-card-section>
@@ -382,6 +382,10 @@ const columns = computed(() => {
     { name: 'actions', label: 'Actions', align: 'center' }
   )
 
+  if ($q.screen.xs) {
+    const mobileNames = new Set(['battery_id', 'data_status', 'status', 'actions'])
+    return cols.filter(c => mobileNames.has(c.name))
+  }
   return cols
 })
 
