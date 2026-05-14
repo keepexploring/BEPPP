@@ -1,7 +1,7 @@
 # Multi-stage build for Quasar frontend
 
 # Stage 1: Build
-FROM node:20-alpine as build
+FROM node:20-alpine AS build
 
 # Build arguments
 ARG API_URL=http://localhost:8000
