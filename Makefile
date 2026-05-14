@@ -1,5 +1,5 @@
 # Solar Hub API Test Makefile
-.PHONY: help setup test test-quick test-auth test-coverage clean backend-dev frontend-install frontend-dev frontend-build frontend-start frontend-test-offline test-batch-endpoint dev dev-full db-start db-stop db-status docker-up docker-down docker-rebuild jupyter jupyter-stop jupyter-logs panel-restart jupyter-open subscription-billing subscription-billing-dry-run reconstruct-timestamps reconstruct-timestamps-dry-run db-backup db-restore db-backup-test test-all test-user-flows test-cron-jobs seed-dev-data
+.PHONY: help setup test test-quick test-auth test-coverage clean backend-dev frontend-install frontend-dev frontend-build frontend-start frontend-test-offline test-batch-endpoint dev dev-full db-start db-stop db-status docker-up docker-down docker-rebuild jupyter jupyter-stop jupyter-logs panel-restart jupyter-open subscription-billing subscription-billing-dry-run reconstruct-timestamps reconstruct-timestamps-dry-run db-backup db-restore db-backup-test gdrive-setup db-backup-gdrive db-backup-gdrive-test gdrive-cron-install gdrive-cron-remove gdrive-list test-all test-user-flows test-cron-jobs seed-dev-data
 
 # Default target
 help:
@@ -24,6 +24,13 @@ help:
 	@echo "  make db-backup     - Create database backup"
 	@echo "  make db-restore FILE=path  - Restore database from backup"
 	@echo "  make db-backup-test        - Test backup/restore (non-destructive)"
+	@echo ""
+	@echo "☁️  Google Drive Backup:"
+	@echo "  make gdrive-setup          - First-time setup (install rclone + configure)"
+	@echo "  make db-backup-gdrive      - Backup DB and upload to Google Drive"
+	@echo "  make db-backup-gdrive-test - End-to-end test (non-destructive)"
+	@echo "  make gdrive-cron-install   - Schedule daily backup at 2 AM"
+	@echo "  make gdrive-list           - List backups on Google Drive"
 	@echo ""
 	@echo "🧪 Testing Commands:"
 	@echo "  make test-all      - Run ALL tests (offline PWA + build verification)"
@@ -499,6 +506,44 @@ db-backup-test:
 	@echo "🧪 Testing database backup/restore..."
 	@chmod +x scripts/test_backup_restore.sh
 	@./scripts/test_backup_restore.sh
+
+# ── Google Drive backup ──────────────────────────────────────────────────────
+
+# First-time setup: install rclone and configure Google Drive remote
+gdrive-setup:
+	@echo "🔧 Setting up rclone Google Drive backup..."
+	@chmod +x scripts/setup_rclone_gdrive.sh
+	@./scripts/setup_rclone_gdrive.sh
+
+# Create local backup AND upload to Google Drive
+db-backup-gdrive:
+	@echo "☁️  Backing up database to Google Drive..."
+	@chmod +x scripts/backup_db_gdrive.sh
+	@./scripts/backup_db_gdrive.sh
+
+# End-to-end test: backup → upload → verify → cleanup (non-destructive)
+db-backup-gdrive-test:
+	@echo "🧪 Testing Google Drive backup pipeline..."
+	@chmod +x scripts/test_gdrive_backup.sh
+	@./scripts/test_gdrive_backup.sh
+
+# Install a daily cron job (2 AM) that runs db-backup-gdrive automatically
+gdrive-cron-install:
+	@chmod +x scripts/install_gdrive_cron.sh
+	@./scripts/install_gdrive_cron.sh
+
+# Remove the cron job
+gdrive-cron-remove:
+	@echo "Removing Google Drive backup cron job..."
+	@crontab -l 2>/dev/null | grep -v "backup_db_gdrive.sh" | crontab - && echo "✓ Cron job removed" || echo "No cron job found"
+
+# List backups currently stored on Google Drive
+gdrive-list:
+	@echo "📂 Backups on Google Drive ($(RCLONE_REMOTE):$(GDRIVE_FOLDER)/):"
+	@rclone ls "$${RCLONE_REMOTE:-gdrive}:$${GDRIVE_FOLDER:-BEPPP-Backups}/" \
+		--include "beppp_backup_*.sql.gz" 2>/dev/null \
+		| sort -k2 -r | awk '{printf "  %s  (%s bytes)\n", $$2, $$1}' \
+		|| echo "  (none found — run: make gdrive-setup)"
 
 # ============================================================================
 # Unified Test Commands

@@ -12830,7 +12830,10 @@ async def get_user_account(
     account = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
 
     if not account:
-        # Auto-create account
+        # Verify user exists before auto-creating account
+        user_exists = db.query(User.user_id).filter(User.user_id == user_id).first()
+        if not user_exists:
+            raise HTTPException(status_code=404, detail="User not found")
         account = UserAccount(
             user_id=user_id,
             balance=0,
@@ -14224,12 +14227,29 @@ async def global_search(
     role = current_user.get('role')
     user_hub_id = current_user.get('hub_id')
 
-    # hub_admin is restricted to their own hub
-    if role == UserRole.HUB_ADMIN:
+    # hub_admin and regular users are restricted to their own hub
+    if role in ('hub_admin', 'user'):
         hub_id = user_hub_id
 
     search = f"%{q.lower()}%"
-    results = {"users": [], "batteries": [], "battery_rentals": [], "pue_rentals": []}
+    results = {"hubs": [], "users": [], "batteries": [], "battery_rentals": [], "pue_rentals": []}
+
+    # --- Hubs (admin/superadmin/data_admin only) ---
+    if role in ('superadmin', 'admin', 'data_admin'):
+        hq = db.query(SolarHub).filter(
+            or_(
+                func.lower(SolarHub.what_three_word_location).like(search),
+                func.lower(SolarHub.country).like(search),
+                func.lower(func.cast(SolarHub.hub_id, String)).like(search),
+            )
+        )
+        for h in hq.limit(limit).all():
+            results["hubs"].append({
+                "id": h.hub_id,
+                "label": h.what_three_word_location or f"Hub {h.hub_id}",
+                "caption": h.country or f"Hub {h.hub_id}",
+                "route": {"name": "hub-detail", "params": {"id": h.hub_id}}
+            })
 
     # --- Users ---
     uq = db.query(User).filter(
@@ -14270,48 +14290,80 @@ async def global_search(
             "route": {"name": "battery-detail", "params": {"id": b.battery_id}}
         })
 
-    # --- Battery Rentals ---
-    # Search by rental_id or user name (join User for name search)
-    brq = db.query(BatteryRental, User).join(User, BatteryRental.user_id == User.user_id).filter(
-        or_(
-            func.lower(func.cast(BatteryRental.rental_id, String)).like(search),
-            func.lower(User.Name).like(search),
-            func.lower(User.username).like(search),
-        )
-    )
-    if hub_id:
-        brq = brq.filter(BatteryRental.hub_id == hub_id)
-    for rental, user in brq.order_by(BatteryRental.start_date.desc()).limit(limit).all():
-        results["battery_rentals"].append({
-            "id": rental.rental_id,
-            "label": f"Rental #{rental.rental_id}",
-            "caption": f"{user.Name or user.username} — {rental.status}",
-            "status": rental.status,
-            "route": {"name": "battery-rental-detail", "params": {"id": rental.rental_id}}
-        })
-
-    # --- PUE Rentals ---
-    prq = db.query(PUERental, User, ProductiveUseEquipment)\
-        .join(User, PUERental.user_id == User.user_id)\
-        .join(ProductiveUseEquipment, PUERental.pue_id == ProductiveUseEquipment.pue_id)\
-        .filter(
+    # --- Battery Rentals + PUE Rentals (hub_admin and above only) ---
+    if role != 'user':
+        brq = db.query(BatteryRental, User).join(User, BatteryRental.user_id == User.user_id).filter(
             or_(
-                func.lower(func.cast(PUERental.pue_rental_id, String)).like(search),
+                func.lower(func.cast(BatteryRental.rental_id, String)).like(search),
                 func.lower(User.Name).like(search),
                 func.lower(User.username).like(search),
-                func.lower(ProductiveUseEquipment.name).like(search),
             )
         )
-    if hub_id:
-        prq = prq.filter(ProductiveUseEquipment.hub_id == hub_id)
-    for rental, user, pue in prq.order_by(PUERental.timestamp_taken.desc()).limit(limit).all():
-        results["pue_rentals"].append({
-            "id": rental.pue_rental_id,
-            "label": f"PUE Rental #{rental.pue_rental_id}",
-            "caption": f"{user.Name or user.username} — {pue.name}",
-            "active": rental.is_active,
-            "route": {"name": "pue-rental-detail", "params": {"id": rental.pue_rental_id}}
-        })
+        if hub_id:
+            brq = brq.filter(BatteryRental.hub_id == hub_id)
+        for rental, user in brq.order_by(BatteryRental.start_date.desc()).limit(limit).all():
+            results["battery_rentals"].append({
+                "id": rental.rental_id,
+                "label": f"Rental #{rental.rental_id}",
+                "caption": f"{user.Name or user.username} — {rental.status}",
+                "status": rental.status,
+                "route": {"name": "battery-rental-detail", "params": {"id": rental.rental_id}}
+            })
+
+        prq = db.query(PUERental, User, ProductiveUseEquipment)\
+            .join(User, PUERental.user_id == User.user_id)\
+            .join(ProductiveUseEquipment, PUERental.pue_id == ProductiveUseEquipment.pue_id)\
+            .filter(
+                or_(
+                    func.lower(func.cast(PUERental.pue_rental_id, String)).like(search),
+                    func.lower(User.Name).like(search),
+                    func.lower(User.username).like(search),
+                    func.lower(ProductiveUseEquipment.name).like(search),
+                )
+            )
+        if hub_id:
+            prq = prq.filter(ProductiveUseEquipment.hub_id == hub_id)
+        for rental, user, pue in prq.order_by(PUERental.timestamp_taken.desc()).limit(limit).all():
+            results["pue_rentals"].append({
+                "id": rental.pue_rental_id,
+                "label": f"PUE Rental #{rental.pue_rental_id}",
+                "caption": f"{user.Name or user.username} — {pue.name}",
+                "active": rental.is_active,
+                "route": {"name": "pue-rental-detail", "params": {"id": rental.pue_rental_id}}
+            })
+
+    # --- Page / Action shortcuts ---
+    # Define navigable pages and actions; filter by what the role can see
+    all_pages = [
+        {"label": "Dashboard", "caption": "Overview and stats", "icon": "dashboard", "route": {"name": "dashboard"}, "keywords": ["dashboard", "home", "overview"], "roles": None},
+        {"label": "Customers", "caption": "View all customers", "icon": "people", "route": {"name": "customers"}, "keywords": ["customers", "users", "people"], "roles": None},
+        {"label": "Batteries", "caption": "View all batteries", "icon": "battery_charging_full", "route": {"name": "batteries"}, "keywords": ["batteries", "battery"], "roles": None},
+        {"label": "Rent Battery", "caption": "Create a new battery rental", "icon": "add_circle", "route": {"name": "create-battery-rental"}, "keywords": ["rent", "rental", "new rental", "create rental", "rent battery", "battery rental"], "roles": None},
+        {"label": "Rent PUE", "caption": "Create a new PUE rental", "icon": "add_circle", "route": {"name": "create-pue-rental"}, "keywords": ["rent", "rental", "pue", "new rental", "create rental", "rent pue", "pue rental"], "roles": None},
+        {"label": "Rentals", "caption": "View all rentals and returns", "icon": "receipt", "route": {"name": "rentals"}, "keywords": ["rentals", "rental", "history", "returns", "return", "returned"], "roles": None},
+        {"label": "PUE", "caption": "Productive use equipment", "icon": "devices", "route": {"name": "pue"}, "keywords": ["pue", "equipment", "productive"], "roles": None},
+        {"label": "Hubs", "caption": "View all hubs", "icon": "hub", "route": {"name": "hubs"}, "keywords": ["hubs", "hub", "locations"], "roles": ["superadmin", "admin", "data_admin"]},
+        {"label": "Accounts", "caption": "Financial accounts and transactions", "icon": "account_balance", "route": {"name": "accounts"}, "keywords": ["accounts", "financial", "transactions", "payments", "money"], "roles": ["superadmin", "admin", "hub_admin", "data_admin"]},
+        {"label": "Analytics", "caption": "Data analytics and reports", "icon": "bar_chart", "route": {"name": "analytics"}, "keywords": ["analytics", "reports", "charts", "statistics", "graphs"], "roles": ["superadmin", "admin", "hub_admin", "data_admin"]},
+        {"label": "Data", "caption": "Export data, rental history, power usage", "icon": "table_chart", "route": {"name": "data"}, "keywords": ["data", "export", "download", "csv", "power", "usage", "history"], "roles": ["superadmin", "admin", "hub_admin", "data_admin"]},
+        {"label": "Job Cards", "caption": "Maintenance job cards", "icon": "build", "route": {"name": "job-cards"}, "keywords": ["job", "jobs", "maintenance", "job cards", "cards", "issues"], "roles": ["superadmin", "admin", "hub_admin"]},
+        {"label": "Settings", "caption": "Hub and system settings", "icon": "settings", "route": {"name": "settings"}, "keywords": ["settings", "configuration", "config", "hub settings", "currency", "timezone", "deposit"], "roles": ["superadmin", "admin", "hub_admin"]},
+        {"label": "Webhook Logs", "caption": "Incoming webhook event logs", "icon": "webhook", "route": {"name": "webhook-logs"}, "keywords": ["webhook", "webhooks", "logs", "events", "api logs"], "roles": ["superadmin", "admin"]},
+        {"label": "Release Info", "caption": "Version history and changelog", "icon": "new_releases", "route": {"name": "release-info"}, "keywords": ["release", "version", "changelog", "updates", "what's new", "history"], "roles": None},
+        {"label": "Help", "caption": "Documentation and support", "icon": "help", "route": {"name": "help"}, "keywords": ["help", "support", "docs", "documentation", "guide", "how to"], "roles": None},
+    ]
+    results["pages"] = []
+    q_lower = q.lower()
+    for page in all_pages:
+        if page["roles"] and role not in page["roles"]:
+            continue
+        if any(q_lower in kw or kw in q_lower for kw in page["keywords"]):
+            results["pages"].append({
+                "label": page["label"],
+                "caption": page["caption"],
+                "icon": page["icon"],
+                "route": page["route"]
+            })
 
     total = sum(len(v) for v in results.values())
     return {"query": q, "total": total, "results": results}

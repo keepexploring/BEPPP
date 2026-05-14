@@ -1,6 +1,6 @@
 <template>
   <q-dialog v-model="showDialog" @hide="onHide" persistent>
-    <q-card style="min-width: 700px; max-width: 900px; height: 80vh; display: flex; flex-direction: column;">
+    <q-card style="width: 90vw; max-width: 900px; height: 80vh; display: flex; flex-direction: column;">
       <!-- Header -->
       <q-card-section class="row items-center q-pb-none">
         <div class="text-h6">{{ isEditMode ? 'Edit Job Card' : 'Create Job Card' }}</div>

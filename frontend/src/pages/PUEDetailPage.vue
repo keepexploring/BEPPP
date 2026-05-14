@@ -426,7 +426,7 @@
 
     <!-- Record Inspection Dialog -->
     <q-dialog v-model="showRecordInspectionDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Record New Inspection</div>
         </q-card-section>
@@ -480,7 +480,7 @@
 
     <!-- Edit PUE Dialog -->
     <q-dialog v-model="showEditDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Edit Equipment</div>
         </q-card-section>
@@ -576,7 +576,7 @@
 </template>
 
 <script setup>
-import { ref, inject, onMounted, computed } from 'vue'
+import { ref, inject, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { pueAPI, pueInspectionsAPI, pueRentalsAPI, settingsAPI } from 'src/services/api'
 import { useAuthStore } from 'stores/auth'
@@ -1061,7 +1061,20 @@ const onJobCardSaved = () => {
   showJobCardDialog.value = false
 }
 
+const onCacheUpdated = (event) => {
+  const url = event.detail?.url || ''
+  const id = route.params.id
+  if (url.includes(`/pue/${id}`) || url.includes(`pue_id=${id}`)) {
+    loadPUE()
+  }
+}
+
 onMounted(() => {
   loadPUE()
+  window.addEventListener('cache-updated', onCacheUpdated)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
 })
 </script>

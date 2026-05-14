@@ -1,6 +1,6 @@
 <template>
   <q-dialog v-model="showDialog" @hide="onHide">
-    <q-card style="min-width: 500px; max-width: 700px">
+    <q-card style="width: 90vw; max-width: 700px">
       <q-card-section>
         <div class="text-h6">Swap Battery</div>
         <div class="text-caption" v-if="rental">

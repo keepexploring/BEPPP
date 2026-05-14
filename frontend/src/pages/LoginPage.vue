@@ -114,7 +114,7 @@ const handleLogin = async () => {
 }
 
 .login-card {
-  min-width: 400px;
+  width: 90vw; max-width: 400px;
   max-width: 90vw;
 }
 </style>

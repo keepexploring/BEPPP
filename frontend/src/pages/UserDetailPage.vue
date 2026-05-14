@@ -953,7 +953,7 @@
 
     <!-- Settle Debt Dialog -->
     <q-dialog v-model="showPaymentDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Settle Debt</div>
           <div class="text-subtitle2">Customer: {{ user.Name || user.username || `Customer ${user.user_id}` }}</div>
@@ -1132,7 +1132,7 @@
 
     <!-- Take Payment Dialog -->
     <q-dialog v-model="showTakePaymentDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Take Payment</div>
           <div class="text-subtitle2">Customer: {{ user.Name || user.username || `Customer ${user.user_id}` }}</div>
@@ -1343,7 +1343,7 @@
 
     <!-- Manual Adjustment Dialog -->
     <q-dialog v-model="showManualAdjustmentDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section class="bg-warning text-white">
           <div class="text-h6">
             <q-icon name="warning" class="q-mr-sm" />
@@ -1452,7 +1452,7 @@
 
     <!-- Add Credit Dialog -->
     <q-dialog v-model="showAddCreditDialog">
-      <q-card style="min-width: 450px">
+      <q-card style="width: 90vw; max-width: 450px">
         <q-card-section>
           <div class="text-h6">Add Prepaid Credit</div>
           <div class="text-subtitle2">Customer: {{ user.Name || user.username || `Customer ${user.user_id}` }}</div>
@@ -1534,7 +1534,7 @@
 
     <!-- Assign Subscription Dialog -->
     <q-dialog v-model="showAssignSubscriptionDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Assign Subscription</div>
         </q-card-section>
@@ -1664,7 +1664,7 @@
 
     <!-- Edit Customer Dialog -->
     <q-dialog v-model="showEditUserDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Edit Customer</div>
           <div class="text-subtitle2">Customer ID: {{ user.user_id }}</div>
@@ -1719,7 +1719,7 @@
 
     <!-- Extend Rental Dialog -->
     <q-dialog v-model="showExtendDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Extend Rental</div>
           <div class="text-subtitle2">Rental #{{ selectedRental?.rentral_id }}</div>
@@ -1810,7 +1810,7 @@
 
     <!-- ID Document Photo Dialog -->
     <q-dialog v-model="showPhotoDialog">
-      <q-card style="min-width: 400px; max-width: 90vw">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section class="row items-center q-pb-none">
           <div class="text-h6">ID Document Photo</div>
           <q-space />
@@ -1845,7 +1845,7 @@
 </template>
 
 <script setup>
-import { ref, inject, computed, onMounted, watch } from 'vue'
+import { ref, inject, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { usersAPI, accountsAPI, settingsAPI, subscriptionsAPI, rentalsAPI, batteryRentalsAPI, pueRentalsAPI } from 'src/services/api'
@@ -3180,6 +3180,16 @@ const onPasswordResetSuccess = () => {
   })
 }
 
+const onCacheUpdated = (event) => {
+  const url = event.detail?.url || ''
+  if (url.includes(`/accounts/user/${userId.value}/credit-summary`)) {
+    loadCreditSummary()
+  }
+  if (url.includes(`/accounts/user/${userId.value}`) && !url.includes('credit-summary')) {
+    loadAccount()
+  }
+}
+
 onMounted(async () => {
   loadHubSettings()
   await loadUser()
@@ -3191,6 +3201,11 @@ onMounted(async () => {
   loadSubscriptionPackages()
   // Load new rental system data
   refreshAllRentals()
+  window.addEventListener('cache-updated', onCacheUpdated)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('cache-updated', onCacheUpdated)
 })
 
 function downloadCSV(rows, filename) {

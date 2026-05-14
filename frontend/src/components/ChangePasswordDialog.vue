@@ -1,6 +1,6 @@
 <template>
   <q-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" persistent>
-    <q-card style="min-width: 500px">
+    <q-card style="width: 90vw; max-width: 500px">
       <q-card-section class="row items-center q-pb-none">
         <q-icon name="vpn_key" color="primary" size="32px" class="q-mr-md" />
         <div class="text-h6">Change Password</div>

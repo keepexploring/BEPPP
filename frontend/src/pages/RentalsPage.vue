@@ -79,6 +79,7 @@
         <q-table
           :rows="rentals"
           :columns="columns"
+          :visible-columns="visibleColumns"
           row-key="rentral_id"
           :loading="loading"
           :filter="filter"
@@ -297,7 +298,7 @@
 
     <!-- PUE Cost Structure Selection Dialog -->
     <q-dialog v-model="showPUECostStructureDialog" persistent>
-      <q-card style="min-width: 600px">
+      <q-card style="width: 90vw; max-width: 600px">
         <q-card-section>
           <div class="text-h6">Add PUE Item</div>
           <div class="text-caption" v-if="selectedPUEItem">
@@ -440,7 +441,7 @@
 
     <!-- Quick Returns Dialog -->
     <q-dialog v-model="showQuickReturnsDialog">
-      <q-card style="min-width: 600px; max-width: 800px">
+      <q-card style="width: 90vw; max-width: 800px">
         <q-card-section>
           <div class="text-h6">Quick Returns</div>
           <div class="text-caption text-grey-7">Search and select a rental to return</div>
@@ -553,7 +554,7 @@
 
     <!-- Deposit Collection Dialog -->
     <q-dialog v-model="showDepositDialog" persistent>
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Collect Deposit</div>
           <div class="text-caption text-grey-7">Enter deposit amount collected from customer</div>
@@ -615,7 +616,7 @@
 
     <!-- Payment Collection Dialog -->
     <q-dialog v-model="showPaymentCollectionDialog" persistent>
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Collect Payment</div>
           <div class="text-caption text-grey-7">Enter payment amount collected from customer</div>
@@ -677,7 +678,7 @@
 
     <!-- PUE Payment Collection Dialog -->
     <q-dialog v-model="showPUEPaymentCollectionDialog" persistent>
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Collect Payment</div>
           <div class="text-caption text-grey-7">Enter payment amount collected from customer</div>
@@ -739,7 +740,7 @@
 
     <!-- PUE Deposit Collection Dialog -->
     <q-dialog v-model="showPUEDepositDialog" persistent>
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Collect Deposit</div>
           <div class="text-caption text-grey-7">Enter deposit amount collected from customer</div>
@@ -801,7 +802,7 @@
 
     <!-- Apply Credit Dialog -->
     <q-dialog v-model="showApplyCreditDialog" persistent>
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Apply Account Credit</div>
           <div class="text-caption text-grey-7">Apply customer's existing credit to this rental</div>
@@ -1290,9 +1291,9 @@ const columns = [
       return row.pue_rental_id
     }
     return row.rentral_id
-  }, align: 'left', sortable: true },
+  }, align: 'left', sortable: true, hideOnMobile: true },
   { name: 'rental_type', label: 'Type', field: 'rental_type', align: 'center', sortable: true },
-  { name: 'hub', label: 'Hub', field: row => row.hub?.what_three_word_location || `Hub ${row.hub?.hub_id || '-'}`, align: 'left', sortable: true },
+  { name: 'hub', label: 'Hub', field: row => row.hub?.what_three_word_location || `Hub ${row.hub?.hub_id || '-'}`, align: 'left', sortable: true, hideOnMobile: true },
   { name: 'user', label: 'User', field: row => {
     const userName = row.user?.Name || row.user?.username || `User ${row.user_id}`
     const shortId = row.user?.short_id ? ` (${row.user.short_id})` : ''
@@ -1304,14 +1305,20 @@ const columns = [
     }
     return row.battery?.short_id || `Battery ${row.battery_id}`
   }, align: 'left' },
-  { name: 'subscription', label: 'Subscription', field: row => row.subscription?.package_name || '-', align: 'left', sortable: true },
+  { name: 'subscription', label: 'Subscription', field: row => row.subscription?.package_name || '-', align: 'left', sortable: true, hideOnMobile: true },
   { name: 'timestamp_taken', label: 'Rental Date', field: 'timestamp_taken', align: 'left', sortable: true },
-  { name: 'due_back', label: 'Due Back', field: 'due_back', align: 'left', sortable: true },
+  { name: 'due_back', label: 'Due Back', field: 'due_back', align: 'left', sortable: true, hideOnMobile: true },
   { name: 'status', label: 'Status', field: 'status', align: 'center', sortable: true },
   { name: 'total_cost', label: 'Total Cost', field: 'total_cost', align: 'left', sortable: true },
   { name: 'payment_status', label: 'Payment', field: 'payment_status', align: 'center', sortable: true },
   { name: 'actions', label: 'Actions', align: 'center' }
 ]
+
+const visibleColumns = computed(() =>
+  $q.screen.xs
+    ? columns.filter(c => !c.hideOnMobile).map(c => c.name)
+    : columns.map(c => c.name)
+)
 
 const getStatusColor = (status) => {
   const colors = {

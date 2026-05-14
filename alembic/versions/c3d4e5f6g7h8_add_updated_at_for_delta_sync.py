@@ -56,3 +56,4 @@ def downgrade() -> None:
     # Drop columns
     for table in NEW_COLUMN_TABLES:
         op.drop_column(table, 'updated_at')
+

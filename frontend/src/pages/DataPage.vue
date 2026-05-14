@@ -4,7 +4,9 @@
       <div class="text-h5">Data</div>
       <q-space />
       <div v-if="authStore.isSuperAdmin" class="row items-center q-gutter-sm">
-        <q-icon name="warning" color="orange" size="sm" v-if="selectedHub === null" />
+        <q-icon name="warning" color="orange" size="sm" v-if="selectedHub === null">
+          <q-tooltip>Remember to select a hub before performing actions on this page</q-tooltip>
+        </q-icon>
         <HubFilter
           v-model="selectedHub"
           @change="onHubChange"

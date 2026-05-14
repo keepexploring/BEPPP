@@ -702,7 +702,7 @@
 
     <!-- Add/Edit Duration Dialog -->
     <q-dialog v-model="showAddDurationDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">{{ editingDuration ? 'Edit' : 'Add' }} Rental Duration Preset</div>
         </q-card-section>
@@ -727,7 +727,7 @@
 
     <!-- Add/Edit PUE Type Dialog -->
     <q-dialog v-model="showAddTypeDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">{{ editingType ? 'Edit' : 'Add' }} PUE Type</div>
         </q-card-section>
@@ -746,7 +746,7 @@
 
     <!-- Add Payment Type Dialog -->
     <q-dialog v-model="showAddPaymentTypeDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Add Payment Type</div>
         </q-card-section>
@@ -778,7 +778,7 @@
 
     <!-- Add/Edit Survey Question Dialog -->
     <q-dialog v-model="showAddSurveyQuestionDialog" persistent>
-      <q-card style="min-width: 600px; max-width: 800px">
+      <q-card style="width: 90vw; max-width: 800px">
         <q-card-section>
           <div class="text-h6">{{ editingSurveyQuestion ? 'Edit' : 'Add' }} Survey Question</div>
         </q-card-section>
@@ -1037,7 +1037,7 @@
 
     <!-- View Question Options Dialog -->
     <q-dialog v-model="showQuestionOptionsDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Question Options</div>
           <div class="text-caption text-grey-7">{{ viewingQuestionOptions?.question_text }}</div>
@@ -1068,7 +1068,7 @@
 
     <!-- Add/Edit Cost Structure Dialog -->
     <q-dialog v-model="showAddStructureDialog" persistent>
-      <q-card style="min-width: 700px; max-width: 900px; max-height: 90vh">
+      <q-card style="width: 90vw; max-width: 900px; max-height: 90vh">
         <q-card-section>
           <div class="text-h6">{{ editingStructure ? 'Edit' : 'Create' }} Cost Structure</div>
         </q-card-section>
@@ -1835,7 +1835,7 @@
 
     <!-- Add Pricing Dialog -->
     <q-dialog v-model="showAddPricingDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Add Pricing Configuration</div>
         </q-card-section>
@@ -2011,7 +2011,7 @@
 
     <!-- Add GESI Status Option Dialog -->
     <q-dialog v-model="showAddGesiDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Add GESI Status Option</div>
         </q-card-section>
@@ -2051,7 +2051,7 @@
 
     <!-- Add Business Category Option Dialog -->
     <q-dialog v-model="showAddBusinessCategoryDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Add Business Category Option</div>
         </q-card-section>
@@ -2091,7 +2091,7 @@
 
     <!-- Add Signup Reason Option Dialog -->
     <q-dialog v-model="showAddSignupReasonDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 90vw; max-width: 400px">
         <q-card-section>
           <div class="text-h6">Add Signup Reason Option</div>
         </q-card-section>

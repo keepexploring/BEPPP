@@ -5,7 +5,7 @@
         <q-input
           ref="inputRef"
           v-model="query"
-          placeholder="Search users, batteries, rentals..."
+          placeholder="Search hubs, users, batteries, rentals..."
           outlined
           autofocus
           clearable
@@ -24,7 +24,7 @@
 
       <!-- No query state -->
       <q-card-section v-if="!query" class="text-center text-grey-6 q-py-lg">
-        Type to search across users, batteries, and rentals
+        Type to search across hubs, users, batteries, and rentals
       </q-card-section>
 
       <!-- No results -->
@@ -34,6 +34,56 @@
 
       <!-- Results -->
       <q-list v-else-if="!loading && !hasNoResults" separator>
+
+        <!-- Pages / Actions -->
+        <template v-if="results.pages && results.pages.length">
+          <q-item-label header class="text-weight-bold q-pt-md q-pb-xs">
+            <q-icon name="apps" size="xs" class="q-mr-xs" /> Pages & Actions
+          </q-item-label>
+          <q-item
+            v-for="item in results.pages"
+            :key="`p-${item.label}`"
+            clickable
+            v-ripple
+            @click="navigate(item.route)"
+          >
+            <q-item-section avatar>
+              <q-avatar color="blue-grey" text-color="white" size="sm" :icon="item.icon" />
+            </q-item-section>
+            <q-item-section>
+              <q-item-label>{{ item.label }}</q-item-label>
+              <q-item-label caption>{{ item.caption }}</q-item-label>
+            </q-item-section>
+            <q-item-section side>
+              <q-icon name="chevron_right" color="grey-5" />
+            </q-item-section>
+          </q-item>
+        </template>
+
+        <!-- Hubs -->
+        <template v-if="results.hubs && results.hubs.length">
+          <q-item-label header class="text-weight-bold q-pt-md q-pb-xs">
+            <q-icon name="hub" size="xs" class="q-mr-xs" /> Hubs ({{ results.hubs.length }})
+          </q-item-label>
+          <q-item
+            v-for="item in results.hubs"
+            :key="`h-${item.id}`"
+            clickable
+            v-ripple
+            @click="navigate(item.route)"
+          >
+            <q-item-section avatar>
+              <q-avatar color="teal" text-color="white" size="sm" icon="hub" />
+            </q-item-section>
+            <q-item-section>
+              <q-item-label>{{ item.label }}</q-item-label>
+              <q-item-label caption>{{ item.caption }}</q-item-label>
+            </q-item-section>
+            <q-item-section side>
+              <q-icon name="chevron_right" color="grey-5" />
+            </q-item-section>
+          </q-item>
+        </template>
 
         <!-- Users -->
         <template v-if="results.users.length">
@@ -56,6 +106,7 @@
             </q-item-section>
             <q-item-section side>
               <q-chip v-if="item.short_id" dense size="sm" color="grey-3">{{ item.short_id }}</q-chip>
+              <q-icon v-else name="chevron_right" color="grey-5" />
             </q-item-section>
           </q-item>
         </template>
@@ -104,6 +155,9 @@
               <q-item-label>{{ item.label }}</q-item-label>
               <q-item-label caption>{{ item.caption }}</q-item-label>
             </q-item-section>
+            <q-item-section side>
+              <q-icon name="chevron_right" color="grey-5" />
+            </q-item-section>
           </q-item>
         </template>
 
@@ -125,6 +179,9 @@
             <q-item-section>
               <q-item-label>{{ item.label }}</q-item-label>
               <q-item-label caption>{{ item.caption }}</q-item-label>
+            </q-item-section>
+            <q-item-section side>
+              <q-icon name="chevron_right" color="grey-5" />
             </q-item-section>
           </q-item>
         </template>
@@ -155,11 +212,15 @@ const show = computed({
   set: (v) => emit('update:modelValue', v)
 })
 
+const emptyResults = () => ({ pages: [], hubs: [], users: [], batteries: [], battery_rentals: [], pue_rentals: [] })
+
 const query = ref('')
 const loading = ref(false)
-const results = ref({ users: [], batteries: [], battery_rentals: [], pue_rentals: [] })
+const results = ref(emptyResults())
 
 const hasNoResults = computed(() =>
+  results.value.pages.length === 0 &&
+  results.value.hubs.length === 0 &&
   results.value.users.length === 0 &&
   results.value.batteries.length === 0 &&
   results.value.battery_rentals.length === 0 &&
@@ -168,16 +229,16 @@ const hasNoResults = computed(() =>
 
 const doSearch = async (q) => {
   if (!q || q.length < 2) {
-    results.value = { users: [], batteries: [], battery_rentals: [], pue_rentals: [] }
+    results.value = emptyResults()
     return
   }
   loading.value = true
   try {
     const hubId = authStore.currentHubId || undefined
     const res = await searchAPI.search(q, hubId)
-    results.value = res.data.results
+    results.value = { ...emptyResults(), ...res.data.results }
   } catch {
-    results.value = { users: [], batteries: [], battery_rentals: [], pue_rentals: [] }
+    results.value = emptyResults()
   } finally {
     loading.value = false
   }
@@ -190,7 +251,7 @@ const navigate = (route) => {
 
 const onHide = () => {
   query.value = ''
-  results.value = { users: [], batteries: [], battery_rentals: [], pue_rentals: [] }
+  results.value = emptyResults()
 }
 
 const statusColor = (status) => {

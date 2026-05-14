@@ -79,7 +79,7 @@
         <q-btn flat round dense icon="notifications">
           <q-badge v-if="unreadCount > 0" color="red" floating>{{ unreadCount }}</q-badge>
           <q-menu max-width="400px">
-            <q-list style="min-width: 350px; max-height: 400px">
+            <q-list style="width: min(90vw, 400px); max-height: 400px">
               <q-item>
                 <q-item-section>
                   <q-item-label class="text-weight-bold">Notifications</q-item-label>
@@ -360,7 +360,7 @@
 
     <!-- Failed Mutations Dialog -->
     <q-dialog v-model="showFailedDialog">
-      <q-card style="min-width: 400px; max-width: 600px">
+      <q-card style="width: 90vw; max-width: 600px">
         <q-card-section>
           <div class="text-h6">Failed Sync Items</div>
           <div class="text-caption text-grey-7">These changes could not be saved to the server.</div>
@@ -391,6 +391,13 @@
         </q-list>
 
         <q-card-actions align="right">
+          <q-btn
+            v-if="failedMutations.length > 1"
+            flat
+            label="Discard All"
+            color="negative"
+            @click="discardAllMutations"
+          />
           <q-btn flat label="Close" v-close-popup />
         </q-card-actions>
       </q-card>
@@ -461,6 +468,14 @@ const discardMutation = async (id) => {
   if (failedMutations.value.length === 0) {
     showFailedDialog.value = false
   }
+}
+
+const discardAllMutations = async () => {
+  for (const m of failedMutations.value) {
+    await discardFailedMutation(m.id)
+  }
+  failedMutations.value = []
+  showFailedDialog.value = false
 }
 
 // Load failed mutations when dialog opens

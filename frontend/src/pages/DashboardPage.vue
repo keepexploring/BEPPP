@@ -449,7 +449,7 @@
 
     <!-- Rental Details Dialog -->
     <q-dialog v-model="showRentalDialog">
-      <q-card style="min-width: 500px">
+      <q-card style="width: 90vw; max-width: 500px">
         <q-card-section>
           <div class="text-h6">Rental Details</div>
         </q-card-section>

@@ -1,6 +1,6 @@
 <template>
   <q-dialog v-model="showDialog" @hide="onHide" persistent>
-    <q-card style="min-width: 600px; max-width: 800px">
+    <q-card style="width: 90vw; max-width: 800px">
       <q-card-section>
         <div class="text-h6">Return Feedback Survey</div>
         <div class="text-caption text-grey-7">
@@ -90,7 +90,7 @@
             <!-- Rating -->
             <div v-else-if="question.question_type === 'rating'" class="q-mt-sm">
               <div class="row items-center q-mb-sm">
-                <div class="col-auto text-caption text-grey-7 q-pr-md" style="min-width: 100px; text-align: right">
+                <div class="col-auto text-caption text-grey-7 q-pr-md" style="max-width: 100px; text-align: right">
                   {{ question.rating_min_label || 'Low' }}
                 </div>
                 <div class="col-auto q-gutter-xs">
@@ -101,11 +101,11 @@
                     :color="responses[question.question_id].response_value === (question.rating_min || 1) + n - 1 ? 'primary' : 'grey-4'"
                     :text-color="responses[question.question_id].response_value === (question.rating_min || 1) + n - 1 ? 'white' : 'grey-8'"
                     size="md"
-                    style="min-width: 45px"
+                    style="width: 45px"
                     @click="responses[question.question_id].response_value = (question.rating_min || 1) + n - 1; handleAnswerChange(question, (question.rating_min || 1) + n - 1)"
                   />
                 </div>
-                <div class="col-auto text-caption text-grey-7 q-pl-md" style="min-width: 100px">
+                <div class="col-auto text-caption text-grey-7 q-pl-md" style="max-width: 100px">
                   {{ question.rating_max_label || 'High' }}
                 </div>
               </div>
