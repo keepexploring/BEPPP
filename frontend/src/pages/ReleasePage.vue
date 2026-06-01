@@ -14,7 +14,7 @@
         <div class="text-body2">
           <ul class="q-pl-md q-my-xs">
             <li>Hub Admin role can now edit battery status and add/manage notes and job cards</li>
-            <li>Historical rental records: enter paper records via the new "Historical Record" button on the Rentals page — availability check is skipped, payment can be recorded, status is set to returned immediately</li>
+            <li>Historical rental records: enter paper records via the new "Historical Record" button on the Rentals page — full-screen bulk-entry form with two-column layout, "Save &amp; Add Another" button, optional keep-customer-selected checkbox, and a running table of records added in the session</li>
             <li>Superadmin can edit rental return times directly from the rental detail page (Edit Times button)</li>
             <li>Hub settings: configurable default return time (e.g. 10:00) — automatically applied when creating battery rentals</li>
             <li>Battery status changes made by hub admins are restricted to their own hub</li>
