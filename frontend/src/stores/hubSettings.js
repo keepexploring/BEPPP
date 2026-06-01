@@ -93,7 +93,8 @@ export const useHubSettingsStore = defineStore('hubSettings', {
           vat_percentage: 0,
           timezone: 'UTC',
           battery_concurrent_deposit: false,
-          pue_concurrent_deposit: true
+          pue_concurrent_deposit: true,
+          default_return_time: '10:00'
         }
         return this.settings[hubId]
       } finally {

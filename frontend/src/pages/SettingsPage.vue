@@ -619,6 +619,20 @@
             </template>
           </q-select>
 
+          <!-- Default Return Time -->
+          <q-input
+            v-model="hubSettings.default_return_time"
+            label="Default Battery Return Time"
+            hint="Time of day batteries are due back (e.g. 10:00). Applied automatically when creating rentals."
+            outlined
+            mask="##:##"
+            placeholder="10:00"
+          >
+            <template v-slot:prepend>
+              <q-icon name="alarm" />
+            </template>
+          </q-input>
+
           <!-- Battery Status Thresholds -->
           <div class="q-mt-md">
             <div class="text-subtitle2 q-mb-sm">Battery Status Indicators</div>
@@ -2431,7 +2445,8 @@ const hubSettings = ref({
   battery_status_green_hours: 3,
   battery_status_orange_hours: 8,
   battery_concurrent_deposit: false,
-  pue_concurrent_deposit: true
+  pue_concurrent_deposit: true,
+  default_return_time: '10:00'
 })
 
 const currencyOptions = ['USD', 'GBP', 'EUR', 'MWK', 'ZAR', 'KES', 'UGX', 'TZS', 'NGN', 'GHS', 'RWF']

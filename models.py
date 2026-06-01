@@ -825,6 +825,7 @@ class HubSettings(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     battery_concurrent_deposit = Column(Boolean, server_default='false', nullable=False)
     pue_concurrent_deposit = Column(Boolean, server_default='true', nullable=False)
+    default_return_time = Column(String(5), nullable=True)  # e.g., "10:00"
 
     # Relationships
     hub = relationship("SolarHub", foreign_keys=[hub_id])

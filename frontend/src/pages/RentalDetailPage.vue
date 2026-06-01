@@ -28,6 +28,14 @@
           color="primary"
           @click="showPaymentDialog = true"
         />
+        <q-btn
+          v-if="authStore.isSuperAdmin"
+          label="Edit Times"
+          icon="edit_calendar"
+          color="warning"
+          outline
+          @click="openEditTimesDialog"
+        />
       </div>
     </div>
 
@@ -522,6 +530,34 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <!-- Edit Times Dialog (superadmin only) -->
+    <q-dialog v-model="showEditTimesDialog">
+      <q-card style="min-width: 350px">
+        <q-card-section>
+          <div class="text-h6">Edit Rental Times</div>
+        </q-card-section>
+        <q-card-section class="q-gutter-md">
+          <q-input
+            v-model="editTimes.due_back"
+            label="Expected Return Date/Time"
+            type="datetime-local"
+            outlined
+          />
+          <q-input
+            v-model="editTimes.date_returned"
+            label="Actual Return Date/Time (leave blank if not returned)"
+            type="datetime-local"
+            outlined
+            clearable
+          />
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn label="Save" color="primary" :loading="editTimesSubmitting" @click="saveEditTimes" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -534,11 +570,13 @@ import { useQuasar, date } from 'quasar'
 import RentalReturnDialog from 'components/RentalReturnDialog.vue'
 import SwapBatteryDialog from 'components/SwapBatteryDialog.vue'
 import { useHubSettingsStore } from 'stores/hubSettings'
+import { useAuthStore } from 'stores/auth'
 
 const $q = useQuasar()
 const route = useRoute()
 const router = useRouter()
 const hubSettingsStore = useHubSettingsStore()
+const authStore = useAuthStore()
 
 const currencySymbol = computed(() => hubSettingsStore.currentCurrencySymbol)
 
@@ -691,6 +729,37 @@ const canSwap = computed(() => {
 const showReturnDialog = ref(false)
 const showSwapDialog = ref(false)
 const showPaymentDialog = ref(false)
+const showEditTimesDialog = ref(false)
+const editTimesSubmitting = ref(false)
+const editTimes = ref({ due_back: '', date_returned: '' })
+
+const openEditTimesDialog = () => {
+  const rd = rentalData.value
+  editTimes.value = {
+    due_back: rd?.expected_return_date ? date.formatDate(rd.expected_return_date, 'YYYY-MM-DDTHH:mm') : '',
+    date_returned: rd?.actual_return_date ? date.formatDate(rd.actual_return_date, 'YYYY-MM-DDTHH:mm') : ''
+  }
+  showEditTimesDialog.value = true
+}
+
+const saveEditTimes = async () => {
+  editTimesSubmitting.value = true
+  try {
+    const rentalId = rentalData.value?.id || route.params.id
+    const payload = {
+      due_back: editTimes.value.due_back ? new Date(editTimes.value.due_back).toISOString() : undefined,
+      date_returned: editTimes.value.date_returned ? new Date(editTimes.value.date_returned).toISOString() : null
+    }
+    await api.put(`/rentals/${rentalId}`, payload)
+    showEditTimesDialog.value = false
+    await loadRentalDetails()
+    $q.notify({ type: 'positive', message: 'Rental times updated', position: 'top' })
+  } catch (err) {
+    $q.notify({ type: 'negative', message: err.response?.data?.detail || 'Failed to update times', position: 'top' })
+  } finally {
+    editTimesSubmitting.value = false
+  }
+}
 const paymentAmount = ref(0)
 const paymentType = ref('cash')
 const paymentNotes = ref('')

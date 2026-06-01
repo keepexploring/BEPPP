@@ -6,6 +6,22 @@
     <q-timeline color="primary">
 
       <q-timeline-entry
+        title="v1.8 — Hub admin permissions, rental time editing, default return time"
+        subtitle="June 2026"
+        icon="manage_accounts"
+        color="primary"
+      >
+        <div class="text-body2">
+          <ul class="q-pl-md q-my-xs">
+            <li>Hub Admin role can now edit battery status and add/manage notes and job cards</li>
+            <li>Superadmin can edit rental return times directly from the rental detail page (Edit Times button)</li>
+            <li>Hub settings: configurable default return time (e.g. 10:00) — automatically applied when creating battery rentals</li>
+            <li>Battery status changes made by hub admins are restricted to their own hub</li>
+          </ul>
+        </div>
+      </q-timeline-entry>
+
+      <q-timeline-entry
         title="v1.7 — Mobile UX, global search, deposit fixes, cache improvements"
         subtitle="May 2026"
         icon="search"

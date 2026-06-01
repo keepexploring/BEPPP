@@ -976,7 +976,16 @@ const updateDueDate = () => {
   else if (durationUnit === 'weeks') addOptions.days = durationValue * 7
   else if (durationUnit === 'months') addOptions.months = durationValue
 
-  const dueDate = date.addToDate(startDate, addOptions)
+  let dueDate = date.addToDate(startDate, addOptions)
+
+  // Apply hub default return time if set (e.g., "10:00")
+  const defaultReturnTime = hubSettingsStore.currentHubSettings?.default_return_time
+  if (defaultReturnTime) {
+    const [hours, minutes] = defaultReturnTime.split(':').map(Number)
+    dueDate = new Date(dueDate)
+    dueDate.setHours(hours, minutes, 0, 0)
+  }
+
   formData.value.dueDate = date.formatDate(dueDate, 'YYYY-MM-DDTHH:mm')
 
   // Recalculate cost estimate

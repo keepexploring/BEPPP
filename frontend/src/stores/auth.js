@@ -15,6 +15,8 @@ export const useAuthStore = defineStore('auth', {
     isAuthenticated: (state) => !!state.token,
     isAdmin: (state) => ['admin', 'superadmin'].includes(state.role),
     isSuperAdmin: (state) => state.role === 'superadmin',
+    isHubAdmin: (state) => state.role === 'hub_admin',
+    canManageHub: (state) => ['admin', 'superadmin', 'hub_admin'].includes(state.role),
     isDataAdmin: (state) => state.role === 'data_admin',
     userName: (state) => state.user?.username || 'User',
     currentHubId: (state) => state.user?.hub_id || null

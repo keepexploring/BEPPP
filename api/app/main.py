@@ -80,6 +80,7 @@ class UserRole(str, Enum):
     SUPERADMIN = "superadmin"
     BATTERY = "battery"
     DATA_ADMIN = "data_admin"
+    HUB_ADMIN = "hub_admin"
 
 class ExportFormat(str, Enum):
     json = "json"
@@ -3858,7 +3859,7 @@ async def update_battery(
     if not battery:
         raise HTTPException(status_code=404, detail="Battery not found")
     
-    if current_user.get('role') == UserRole.USER:
+    if current_user.get('role') in [UserRole.USER, UserRole.HUB_ADMIN]:
         if battery.hub_id != current_user.get('hub_id'):
             raise HTTPException(status_code=403, detail="Access denied")
         if battery_update.battery_secret is not None:
@@ -12218,7 +12219,8 @@ async def get_hub_settings(
             "battery_status_green_hours": 3,
             "battery_status_orange_hours": 8,
             "battery_concurrent_deposit": False,
-            "pue_concurrent_deposit": True
+            "pue_concurrent_deposit": True,
+            "default_return_time": "10:00"
         }
 
     return {
@@ -12233,7 +12235,8 @@ async def get_hub_settings(
         "battery_status_green_hours": settings.battery_status_green_hours if settings.battery_status_green_hours else 3,
         "battery_status_orange_hours": settings.battery_status_orange_hours if settings.battery_status_orange_hours else 8,
         "battery_concurrent_deposit": bool(settings.battery_concurrent_deposit) if settings.battery_concurrent_deposit is not None else False,
-        "pue_concurrent_deposit": bool(settings.pue_concurrent_deposit) if settings.pue_concurrent_deposit is not None else True
+        "pue_concurrent_deposit": bool(settings.pue_concurrent_deposit) if settings.pue_concurrent_deposit is not None else True,
+        "default_return_time": settings.default_return_time or "10:00"
     }
 
 @app.put("/settings/hub/{hub_id}", tags=["Settings"])
@@ -12249,6 +12252,7 @@ async def update_hub_settings(
     battery_status_orange_hours: Optional[int] = Query(None),
     battery_concurrent_deposit: Optional[bool] = Query(None),
     pue_concurrent_deposit: Optional[bool] = Query(None),
+    default_return_time: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -12291,6 +12295,9 @@ async def update_hub_settings(
 
     if pue_concurrent_deposit is not None:
         settings.pue_concurrent_deposit = pue_concurrent_deposit
+
+    if default_return_time is not None:
+        settings.default_return_time = default_return_time
 
     db.commit()
     db.refresh(settings)

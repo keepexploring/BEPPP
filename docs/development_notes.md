@@ -959,3 +959,47 @@ make gdrive-list            # list recent backups on Google Drive
 rclone auth credentials are stored in `~/.config/rclone/rclone.conf` — not in `.env`.
   cd /opt/battery-hub
   bash update.sh
+
+---
+
+## Running Long Deployments Without Disconnection
+
+Docker builds can take 10-20 minutes. A dropped SSH connection kills the build. Two options:
+
+### Option A: screen (recommended — lets you watch live output)
+
+```bash
+screen -S deploy
+bash /opt/battery-hub/update.sh
+```
+
+- **Detach** (keep running, close terminal safely): `Ctrl+A` then `D`
+- **Reattach** after reconnecting: `screen -r deploy`
+- **List sessions**: `screen -ls`
+
+If you close the terminal without detaching, the session dies. Always use `Ctrl+A D` first.
+
+### Option B: nohup (fire and forget — survives terminal close)
+
+```bash
+nohup bash /opt/battery-hub/update.sh > /root/update.log 2>&1 &
+echo $!   # prints PID
+```
+
+- **Watch output**: `tail -f /root/update.log`
+- **Check if still running**: `ps aux | grep update.sh`
+- **Kill it**: `kill <PID>`
+
+`nohup` ignores the SIGHUP signal sent when your SSH session ends, so the process keeps going even if you close the window.
+
+### Checking for stale processes before building
+
+If a previous build was interrupted, orphaned processes may hog CPU/memory:
+
+```bash
+ps aux --sort=-%cpu | head -15         # top CPU consumers
+docker stats --no-stream               # container resource usage
+ps aux | grep -E "node|quasar|pip|uv"  # leftover build processes
+```
+
+Kill anything stuck from a previous run before starting a fresh deploy.

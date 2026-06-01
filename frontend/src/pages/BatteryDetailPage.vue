@@ -35,7 +35,7 @@
           :disable="isOffline"
         />
         <q-btn
-          v-if="authStore.isAdmin && battery"
+          v-if="(authStore.isAdmin || authStore.isHubAdmin) && battery"
           label="Edit"
           icon="edit"
           color="warning"
@@ -215,7 +215,7 @@
               </div>
               <div class="col-auto">
                 <q-btn
-                  v-if="authStore.isAdmin"
+                  v-if="authStore.isAdmin || authStore.isHubAdmin"
                   flat
                   round
                   dense
@@ -239,7 +239,7 @@
                     <span v-if="note.creator"> - {{ note.creator.Name || note.creator.username }}</span>
                   </q-item-label>
                 </q-item-section>
-                <q-item-section side top v-if="authStore.isAdmin">
+                <q-item-section side top v-if="authStore.isAdmin || authStore.isHubAdmin">
                   <q-btn
                     flat
                     round
