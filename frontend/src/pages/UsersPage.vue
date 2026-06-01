@@ -265,9 +265,8 @@
                 v-model="idDocumentPhoto"
                 outlined
                 accept="image/*"
-                capture="environment"
-                :label="isOffline ? 'Photo upload unavailable offline' : 'Upload or Take Photo'"
-                :hint="isOffline ? 'Connect to internet to upload photos' : 'Optional - take a photo or upload from device'"
+                :label="isOffline ? 'Photo upload unavailable offline' : 'Upload ID Photo'"
+                :hint="isOffline ? 'Connect to internet to upload photos' : 'Optional - choose a file or take a photo'"
                 :clearable="true"
                 :disable="isOffline"
                 @update:model-value="onPhotoSelected"

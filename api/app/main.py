@@ -659,12 +659,15 @@ class BatteryRentalCreate(BaseModel):
     """Create a new battery rental"""
     user_id: int = Field(..., description="User ID renting the batteries")
     battery_ids: List[str] = Field(..., description="List of battery IDs to rent")
-    cost_structure_id: int = Field(..., description="Cost structure to apply")
+    cost_structure_id: Optional[int] = Field(None, description="Cost structure to apply (optional for historical records)")
     rental_start_date: Optional[datetime] = Field(None, description="Rental start date (defaults to now)")
     due_date: Optional[datetime] = Field(None, description="Expected return date")
     deposit_amount: Optional[float] = Field(None, description="Deposit collected")
     upfront_payment: Optional[dict] = Field(None, description="Upfront payment: {payment_method, payment_amount}")
     notes: Optional[List[str]] = Field(None, description="Notes about the rental")
+    actual_return_date: Optional[datetime] = Field(None, description="If set, creates as a historical completed rental — skips availability check")
+    amount_paid: Optional[float] = Field(None, description="Total amount paid (for historical records)")
+    payment_type: Optional[str] = Field(None, description="Payment method (cash, mobile_money, etc.)")
 
     @field_validator('battery_ids', mode='before')
     @classmethod
@@ -6040,15 +6043,18 @@ async def create_battery_rental(
             if user.hub_id != current_user.get('hub_id'):
                 raise HTTPException(status_code=403, detail="Access denied")
 
-        # Verify cost structure exists
-        cost_structure = db.query(CostStructure).filter(
-            CostStructure.structure_id == rental.cost_structure_id
-        ).first()
-        if not cost_structure:
-            raise HTTPException(status_code=404, detail="Cost structure not found")
+        is_historical = rental.actual_return_date is not None
 
-        # Determine initial recharge count based on cost structure setting
-        initial_recharges = 1 if cost_structure.count_initial_checkout_as_recharge else 0
+        # Verify cost structure exists (optional for historical records)
+        cost_structure = None
+        initial_recharges = 0
+        if rental.cost_structure_id:
+            cost_structure = db.query(CostStructure).filter(
+                CostStructure.structure_id == rental.cost_structure_id
+            ).first()
+            if not cost_structure:
+                raise HTTPException(status_code=404, detail="Cost structure not found")
+            initial_recharges = 1 if cost_structure.count_initial_checkout_as_recharge else 0
 
         # ENFORCE SINGLE BATTERY ONLY (for multi-battery support, remove this validation)
         if len(rental.battery_ids) != 1:
@@ -6057,36 +6063,39 @@ async def create_battery_rental(
                 detail="Currently only single battery rentals are supported. Please select exactly one battery."
             )
 
-        # Check all batteries exist and are available
+        # Check all batteries exist; skip availability check for historical records
         batteries = []
         for battery_id in rental.battery_ids:
             battery = db.query(BEPPPBattery).filter(BEPPPBattery.battery_id == battery_id).first()
             if not battery:
                 raise HTTPException(status_code=404, detail=f"Battery {battery_id} not found")
 
-            # Check if battery is already in an active rental
-            existing_rental = db.query(BatteryRentalItem).join(BatteryRental).filter(
-                BatteryRentalItem.battery_id == battery_id,
-                BatteryRentalItem.returned_at.is_(None),
-                BatteryRental.status == 'active'
-            ).first()
-            if existing_rental:
-                raise HTTPException(status_code=409, detail=f"Battery {battery_id} is already rented")
+            if not is_historical:
+                # Check if battery is already in an active rental
+                existing_rental = db.query(BatteryRentalItem).join(BatteryRental).filter(
+                    BatteryRentalItem.battery_id == battery_id,
+                    BatteryRentalItem.returned_at.is_(None),
+                    BatteryRental.status == 'active'
+                ).first()
+                if existing_rental:
+                    raise HTTPException(status_code=409, detail=f"Battery {battery_id} is already rented")
 
             batteries.append(battery)
 
         # Create rental
         rental_start = rental.rental_start_date or datetime.now(timezone.utc)
+        due_date = rental.due_date or rental.actual_return_date or rental_start
         new_rental = BatteryRental(
             user_id=rental.user_id,
             hub_id=user.hub_id,
             cost_structure_id=rental.cost_structure_id,
             start_date=rental_start,
-            end_date=rental.due_date,
+            end_date=due_date,
             deposit_amount=rental.deposit_amount or 0.0,
-            status='active',
-            recharges_used=initial_recharges,  # Set based on cost structure setting
-            max_recharges=cost_structure.max_recharges
+            status='returned' if is_historical else 'active',
+            actual_return_date=rental.actual_return_date if is_historical else None,
+            recharges_used=initial_recharges,
+            max_recharges=cost_structure.max_recharges if cost_structure else None
         )
         db.add(new_rental)
         db.flush()  # Get rental_id
@@ -6099,11 +6108,14 @@ async def create_battery_rental(
                 battery_id=battery.battery_id
                 # added_at will be set automatically by server default
             )
+            if is_historical:
+                item.returned_at = rental.actual_return_date
             db.add(item)
             rental_items.append(item)
 
-            # Mark battery as rented
-            battery.status = 'rented'
+            if not is_historical:
+                # Mark battery as rented (don't change status for historical records)
+                battery.status = 'rented'
 
         # Add notes if provided
         if rental.notes:
@@ -6322,6 +6334,28 @@ async def create_battery_rental(
                     db.add(notification)
             else:
                 deposit_hold_info = {"amount": 0, "status": "already_held", "existing_hold_id": existing_battery_hold.hold_id if existing_battery_hold else None}
+
+        # For historical records: record simple payment if amount_paid provided
+        if is_historical and rental.amount_paid and rental.amount_paid > 0:
+            user_account = db.query(UserAccount).filter(UserAccount.user_id == rental.user_id).first()
+            if not user_account:
+                user_account = UserAccount(user_id=rental.user_id, balance=0)
+                db.add(user_account)
+                db.flush()
+            user_account.total_spent += rental.amount_paid
+            payment_transaction = AccountTransaction(
+                account_id=user_account.account_id,
+                transaction_type='payment_received',
+                amount=rental.amount_paid,
+                balance_after=user_account.balance,
+                description=f"Historical rental payment for Battery Rental #{new_rental.rental_id}",
+                payment_type=rental.payment_type or 'cash',
+                payment_method='historical'
+            )
+            db.add(payment_transaction)
+            new_rental.amount_paid = rental.amount_paid
+            new_rental.payment_type = rental.payment_type or 'cash'
+            new_rental.final_cost_total = rental.amount_paid
 
         db.commit()
         db.refresh(new_rental)

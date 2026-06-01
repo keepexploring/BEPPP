@@ -3003,6 +3003,143 @@ try {
 } catch (e) { fail('GlobalSearchDialog result sections', e) }
 
 
+// ── v1.8 feature tests ───────────────────────────────────────────────
+
+console.log('\n=== v1.8: Hub admin permissions ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const authSrc = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'stores', 'auth.js'), 'utf8')
+  assert.ok(authSrc.includes("isHubAdmin"), 'auth.js has isHubAdmin getter')
+  assert.ok(authSrc.includes("'hub_admin'") || authSrc.includes('"hub_admin"'), 'auth.js references hub_admin role')
+  pass('auth.js has isHubAdmin getter for hub_admin role')
+} catch (e) { fail('auth.js isHubAdmin getter', e) }
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const authSrc = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'stores', 'auth.js'), 'utf8')
+  assert.ok(authSrc.includes("canManageHub"), 'auth.js has canManageHub getter')
+  assert.ok(authSrc.includes('hub_admin'), 'canManageHub includes hub_admin')
+  pass('auth.js has canManageHub getter covering hub_admin')
+} catch (e) { fail('auth.js canManageHub getter', e) }
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const batterySrc = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'pages', 'BatteryDetailPage.vue'), 'utf8')
+  assert.ok(batterySrc.includes('isHubAdmin'), 'BatteryDetailPage uses isHubAdmin for edit/note/job card permissions')
+  pass('BatteryDetailPage gates edit/note actions with isHubAdmin')
+} catch (e) { fail('BatteryDetailPage hub_admin permissions', e) }
+
+console.log('\n=== v1.8: Rental time editing (superadmin) ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const rentalDetailSrc = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'pages', 'RentalDetailPage.vue'), 'utf8')
+  assert.ok(rentalDetailSrc.includes('isSuperAdmin'), 'RentalDetailPage has isSuperAdmin check')
+  assert.ok(rentalDetailSrc.includes('Edit Times') || rentalDetailSrc.includes('edit_times') || rentalDetailSrc.includes('editTimes'), 'RentalDetailPage has edit times functionality')
+  pass('RentalDetailPage has Edit Times button gated to superadmin')
+} catch (e) { fail('RentalDetailPage edit times', e) }
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const rentalDetailSrc = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'pages', 'RentalDetailPage.vue'), 'utf8')
+  assert.ok(rentalDetailSrc.includes('showEditTimesDialog') || rentalDetailSrc.includes('editTimesDialog'), 'RentalDetailPage has edit times dialog state')
+  assert.ok(rentalDetailSrc.includes('datetime-local'), 'edit times dialog uses datetime-local inputs')
+  pass('RentalDetailPage edit times dialog has datetime-local inputs')
+} catch (e) { fail('RentalDetailPage edit times dialog inputs', e) }
+
+console.log('\n=== v1.8: Default return time ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const hubSettingsSrc = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'stores', 'hubSettings.js'), 'utf8')
+  assert.ok(hubSettingsSrc.includes('default_return_time'), 'hubSettings store has default_return_time in fallback defaults')
+  pass('hubSettings store includes default_return_time in error fallback')
+} catch (e) { fail('hubSettings default_return_time', e) }
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const settingsSrc = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'pages', 'SettingsPage.vue'), 'utf8')
+  assert.ok(settingsSrc.includes('default_return_time'), 'SettingsPage has default_return_time field')
+  pass('SettingsPage exposes default_return_time configuration input')
+} catch (e) { fail('SettingsPage default_return_time input', e) }
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const rentalFormSrc = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'components', 'BatteryRentalForm.vue'), 'utf8')
+  assert.ok(rentalFormSrc.includes('default_return_time'), 'BatteryRentalForm applies default_return_time from hub settings')
+  pass('BatteryRentalForm reads default_return_time and applies to due date')
+} catch (e) { fail('BatteryRentalForm default_return_time applied', e) }
+
+console.log('\n=== v1.8: Historical rental records ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const dialogPath = path.resolve(import.meta.dirname, 'src', 'components', 'HistoricalRentalDialog.vue')
+  assert.ok(fs.existsSync(dialogPath), 'HistoricalRentalDialog.vue component exists')
+  pass('HistoricalRentalDialog.vue component file exists')
+} catch (e) { fail('HistoricalRentalDialog.vue exists', e) }
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const dialogSrc = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'components', 'HistoricalRentalDialog.vue'), 'utf8')
+  assert.ok(dialogSrc.includes('actual_return_date'), 'dialog sends actual_return_date to trigger historical mode')
+  assert.ok(dialogSrc.includes('battery_id'), 'dialog has battery_id field')
+  assert.ok(dialogSrc.includes('rental_start_date'), 'dialog has rental_start_date field')
+  assert.ok(dialogSrc.includes('amount_paid'), 'dialog has amount_paid field')
+  pass('HistoricalRentalDialog has all required fields (actual_return_date, battery_id, dates, payment)')
+} catch (e) { fail('HistoricalRentalDialog required fields', e) }
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const dialogSrc = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'components', 'HistoricalRentalDialog.vue'), 'utf8')
+  assert.ok(dialogSrc.includes('/battery-rentals'), 'dialog POSTs to /battery-rentals endpoint')
+  pass('HistoricalRentalDialog POSTs to /battery-rentals endpoint')
+} catch (e) { fail('HistoricalRentalDialog API endpoint', e) }
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const rentalsPageSrc = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'pages', 'RentalsPage.vue'), 'utf8')
+  assert.ok(rentalsPageSrc.includes('HistoricalRentalDialog'), 'RentalsPage imports HistoricalRentalDialog')
+  assert.ok(rentalsPageSrc.includes('showHistoricalRentalDialog'), 'RentalsPage has showHistoricalRentalDialog state')
+  assert.ok(rentalsPageSrc.includes('Historical Record') || rentalsPageSrc.includes('historical'), 'RentalsPage has Historical Record button')
+  pass('RentalsPage integrates HistoricalRentalDialog with button and state')
+} catch (e) { fail('RentalsPage historical rental integration', e) }
+
+console.log('\n=== v1.8: ID photo file upload fix ===\n')
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const usersSrc = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'pages', 'UsersPage.vue'), 'utf8')
+  // capture="environment" forces camera-only on mobile; removing it enables file picker
+  const captureEnvCount = (usersSrc.match(/capture="environment"/g) || []).length
+  assert.strictEqual(captureEnvCount, 0, 'no capture="environment" attribute on ID photo upload')
+  pass('UsersPage ID photo q-file does not force camera-only (capture="environment" removed)')
+} catch (e) { fail('UsersPage ID photo file picker enabled', e) }
+
+try {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const usersSrc = fs.readFileSync(path.resolve(import.meta.dirname, 'src', 'pages', 'UsersPage.vue'), 'utf8')
+  // Should still accept images
+  assert.ok(usersSrc.includes('accept="image/*"'), 'ID photo upload still restricts to image files')
+  pass('UsersPage ID photo upload accepts image/* (file type restriction preserved)')
+} catch (e) { fail('UsersPage ID photo accept image/*', e) }
+
+
 // ── Summary ──────────────────────────────────────────────────────────
 
 console.log('\n========================================')

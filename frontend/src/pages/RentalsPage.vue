@@ -38,6 +38,16 @@
           size="sm"
           class="col-12 col-sm-auto"
         />
+        <q-btn
+          v-if="authStore.role !== 'data_admin'"
+          label="Historical Record"
+          icon="history"
+          color="brown-6"
+          outline
+          @click="showHistoricalRentalDialog = true"
+          size="sm"
+          class="col-12 col-sm-auto"
+        />
       </div>
     </div>
 
@@ -290,6 +300,9 @@
     <q-dialog v-model="showCreateDialog" persistent>
       <BatteryRentalForm @success="onBatteryRentalSuccess" @cancel="closeBatteryRentalDialog" />
     </q-dialog>
+
+    <!-- Historical Rental Dialog -->
+    <HistoricalRentalDialog v-model="showHistoricalRentalDialog" @saved="loadRentals" />
 
     <!-- PUE Rental Dialog -->
     <q-dialog v-model="showPUERentalDialog" persistent>
@@ -896,6 +909,7 @@ import SwapBatteryDialog from 'src/components/SwapBatteryDialog.vue'
 import HubFilter from 'src/components/HubFilter.vue'
 import BatteryRentalForm from 'src/components/BatteryRentalForm.vue'
 import PUERentalForm from 'src/components/PUERentalForm.vue'
+import HistoricalRentalDialog from 'src/components/HistoricalRentalDialog.vue'
 import { formatDateWithTimezone } from 'src/utils/dateFormat'
 
 const $q = useQuasar()
@@ -921,6 +935,7 @@ const statusFilter = ref('active')
 const rentalTypeFilter = ref('all')
 const selectedHub = ref(null)
 const showCreateDialog = ref(false)
+const showHistoricalRentalDialog = ref(false)
 const showPUERentalDialog = ref(false)
 const showReturnDialog = ref(false)
 const showSwapDialog = ref(false)
