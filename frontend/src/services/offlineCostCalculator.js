@@ -43,6 +43,31 @@ export async function calculateReturnCostLocally (rental, rentalType) {
   const actualWeeks = actualDays / 7
   const actualMonths = actualDays / 30
 
+  // If a flat period price was agreed at rental creation, use it directly
+  if (rental.agreed_period_price != null) {
+    const agreedPrice = parseFloat(rental.agreed_period_price)
+    let vatPercentage = 15.0
+    if (rental.hub_id) {
+      const hubEntry = await getCachedResponse(`GET:/settings/hub/${rental.hub_id}`, { ignoreExpiry: true })
+      if (hubEntry?.data?.vat_percentage != null) vatPercentage = hubEntry.data.vat_percentage
+    }
+    const vatAmount = agreedPrice * (vatPercentage / 100)
+    const total = agreedPrice + vatAmount
+    const depositPaid = rental.deposit_amount || 0
+    const amountStillOwed = Math.max(0, total - depositPaid)
+    return {
+      rental_id: rentalId,
+      cost_source: 'agreed_at_creation',
+      cost_breakdown: [{ component_name: 'Agreed Rental Price', unit_type: 'flat', rate: agreedPrice, quantity: 1, amount: agreedPrice }],
+      subtotal: Math.round(agreedPrice * 100) / 100,
+      vat_percentage: vatPercentage,
+      vat_amount: Math.round(vatAmount * 100) / 100,
+      total: Math.round(total * 100) / 100,
+      payment_status: { amount_paid_so_far: depositPaid, amount_still_owed: Math.round(amountStillOwed * 100) / 100 },
+      _offlineEstimate: true
+    }
+  }
+
   // Look up cost structure from cache
   let costStructure = null
   let components = []

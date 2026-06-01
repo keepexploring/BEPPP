@@ -1697,8 +1697,20 @@
                     label="Label"
                     dense
                     outlined
-                    hint="e.g., '1 Day', '2 Weeks'"
-                    style="width: 150px"
+                    hint="e.g., 'Biweekly', 'Monthly'"
+                    style="width: 130px"
+                  />
+                  <q-input
+                    v-model.number="choice.price"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    label="Flat Price"
+                    dense
+                    outlined
+                    :prefix="currentCurrencySymbol"
+                    hint="Optional — leave blank to use component rates"
+                    style="width: 140px"
                   />
                   <q-btn
                     flat

@@ -1180,6 +1180,23 @@ const calculateCostEstimate = async () => {
     return
   }
 
+  // Flat price per period — skip component calculation entirely
+  const flatPrice = formData.value.duration.price
+  if (flatPrice && flatPrice > 0) {
+    const vatPercentage = hubSettingsStore.currentHubSettings?.vat_percentage || 0
+    const vat = Math.round(flatPrice * (vatPercentage / 100) * 100) / 100
+    costEstimate.value = {
+      breakdown: [{ component_name: 'Rental (flat rate)', unit_type: 'flat', rate: flatPrice, quantity: 1, amount: flatPrice }],
+      subtotal: flatPrice,
+      vat,
+      vat_percentage: vatPercentage,
+      total: Math.round((flatPrice + vat) * 100) / 100,
+      deposit_amount: formData.value.costStructure.deposit_amount || 0,
+      has_estimated_component: false
+    }
+    return
+  }
+
   const durationValue = formData.value.duration.input_type === 'custom'
     ? formData.value.customDurationValue
     : formData.value.duration.default_value
@@ -1215,6 +1232,23 @@ const calculateCostEstimate = async () => {
 }
 
 const calculateCostLocally = (costStructure, durationValue, durationUnit) => {
+  // Flat price per period — return directly without component arithmetic
+  const flatPrice = formData.value.duration?.price
+  if (flatPrice && flatPrice > 0) {
+    const vatPercentage = hubSettingsStore.currentHubSettings?.vat_percentage || 0
+    const vat = Math.round(flatPrice * (vatPercentage / 100) * 100) / 100
+    return {
+      breakdown: [{ component_name: 'Rental (flat rate)', unit_type: 'flat', rate: flatPrice, quantity: 1, amount: flatPrice }],
+      subtotal: flatPrice,
+      vat,
+      vat_percentage: vatPercentage,
+      total: Math.round((flatPrice + vat) * 100) / 100,
+      deposit_amount: costStructure.deposit_amount || 0,
+      has_estimated_component: false,
+      _offlineEstimate: true
+    }
+  }
+
   const components = costStructure.components || []
   const breakdown = []
   let subtotal = 0
@@ -1359,6 +1393,7 @@ const handleSubmit = async () => {
       pay_to_own_price: isPayToOwn.value ? formData.value.costStructure.item_total_cost : undefined,
       initial_payment: isPayToOwn.value && formData.value.initialPayment > 0 ? formData.value.initialPayment : undefined,
       has_recurring_payment: isPayToOwn.value || formData.value.enableRecurring,
+      flat_period_price: formData.value.duration?.price || null,
       notes: formData.value.notes ? [formData.value.notes] : undefined,
       upfront_payment: formData.value.paymentAmount > 0 && !paymentSkipped.value ? {
         amount: formData.value.paymentAmount,

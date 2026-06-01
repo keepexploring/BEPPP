@@ -343,6 +343,7 @@ class PUERental(Base):
 
     # Enhanced fields
     rental_cost = Column(Float, nullable=True)  # Actual cost paid
+    agreed_period_price = Column(Float, nullable=True)  # Flat price agreed at rental creation (from duration option)
     deposit_amount = Column(Float, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)

@@ -756,6 +756,7 @@ class PUERentalCreateNew(BaseModel):
     notes: Optional[List[str]] = Field(None, description="Notes about the rental")
     has_recurring_payment: bool = Field(False, description="Enable recurring payments")
     recurring_payment_frequency: Optional[str] = Field(None, description="Payment frequency: monthly, weekly, daily")
+    flat_period_price: Optional[float] = Field(None, description="Flat price for the selected rental period (overrides component calculation)")
 
 class PUERentalPayment(BaseModel):
     """Record payment for PUE rental"""
@@ -7648,7 +7649,8 @@ async def create_pue_rental(
             is_active=True,
             has_recurring_payment=rental.has_recurring_payment,
             recurring_payment_frequency=rental.recurring_payment_frequency,
-            next_payment_due_date=next_payment_due
+            next_payment_due_date=next_payment_due,
+            agreed_period_price=rental.flat_period_price if rental.flat_period_price and rental.flat_period_price > 0 else None
         )
         db.add(new_rental)
         db.flush()
@@ -8213,8 +8215,25 @@ async def calculate_pue_rental_return_cost(
     cost_breakdown = []
     subtotal = 0
     cost_structure_info = None
+    cost_source = "calculated"
 
-    if rental.cost_structure_id:
+    # If a flat period price was agreed at rental creation, use it directly
+    if rental.agreed_period_price is not None:
+        subtotal = float(rental.agreed_period_price)
+        cost_source = "agreed_at_creation"
+        cost_breakdown = [{
+            "component_name": "Agreed Rental Price",
+            "unit_type": "flat",
+            "rate": float(rental.agreed_period_price),
+            "quantity": 1,
+            "amount": float(rental.agreed_period_price),
+            "cost_source": "agreed_at_creation"
+        }]
+        if rental.cost_structure_id:
+            cs = db.query(CostStructure).filter(CostStructure.structure_id == rental.cost_structure_id).first()
+            if cs:
+                cost_structure_info = {"structure_id": cs.structure_id, "name": cs.name, "description": cs.description or ""}
+    elif rental.cost_structure_id:
         cost_structure = db.query(CostStructure).filter(
             CostStructure.structure_id == rental.cost_structure_id
         ).first()
@@ -8295,6 +8314,7 @@ async def calculate_pue_rental_return_cost(
             "total_used": None
         },
         "cost_breakdown": cost_breakdown,
+        "cost_source": cost_source,
         "subtotal": round(subtotal, 2),
         "vat_percentage": vat_percentage,
         "vat_amount": round(vat_amount, 2),
@@ -12197,6 +12217,19 @@ async def estimate_rental_cost(
         elif comp.unit_type == 'fixed':
             quantity = 1
             amount = comp.rate
+
+        else:
+            # Unit type not yet calculable upfront (per_litre, per_unit, custom, etc.)
+            breakdown.append({
+                "component_name": comp.component_name,
+                "unit_type": comp.unit_type,
+                "rate": float(comp.rate),
+                "quantity": 0,
+                "amount": 0,
+                "is_calculated_on_return": True,
+                "is_recurring_payment": comp.is_recurring_payment
+            })
+            continue
 
         breakdown.append({
             "component_name": comp.component_name,
