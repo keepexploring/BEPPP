@@ -40,7 +40,7 @@ services:
       dockerfile: Dockerfile.api
     container_name: battery-hub-api
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-beppp}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-beppp}
+      DATABASE_URL: ${DATABASE_URL}
       SECRET_KEY: ${SECRET_KEY}
       WEBHOOK_SECRET: ${WEBHOOK_SECRET}
       ALGORITHM: ${ALGORITHM:-HS256}
@@ -88,7 +88,7 @@ services:
       dockerfile: Dockerfile.panel
     container_name: battery-hub-panel
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-beppp}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-beppp}
+      DATABASE_URL: ${DATABASE_URL}
       SECRET_KEY: ${SECRET_KEY}
       ALGORITHM: ${ALGORITHM:-HS256}
     depends_on:
@@ -147,7 +147,7 @@ services:
       dockerfile: Dockerfile.cron
     container_name: battery-hub-cron
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-beppp}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-beppp}
+      DATABASE_URL: ${DATABASE_URL}
     depends_on:
       postgres:
         condition: service_healthy
